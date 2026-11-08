@@ -1,0 +1,72 @@
+# Testing
+
+`just test` runs everything below on the host; CI runs it on Ubuntu, macOS and Windows.
+
+## Layout
+
+| Where | What |
+|-------|------|
+| `crates/*/src/**` `#[cfg(test)]` | Unit tests next to the code: desktop-entry parsing, `Exec` field codes, icon-theme sizes, plist reading, script headers, frecency maths, config validation. |
+| `crates/quickhop-core/tests/ranking_prop.rs` | proptest: fuzzy matches are exactly the subsequences, positions are increasing and correct; ranking is sorted, unique, limited and deterministic; matched results really match; an exact alias is always first; frecency never lowers an item. |
+| `crates/quickhop-store/tests/frecency_prop.rs` | proptest: decay is monotonic and composes, prefixes nest, more picks never score less. |
+| `crates/quickhop-providers/tests/providers/` | One test binary over `tests/fixtures/`: `contract.rs`, `apps.rs`, `scripts.rs`, `snapshots.rs`, shared builders in `common.rs`. |
+| `crates/quickhop/tests/cli.rs` | End-to-end: the real binary with a sandboxed config and data dir (`QUICKHOP_CONFIG`, `QUICKHOP_DATA`): `query --json` for apps, calculator, units, emoji, quicklinks; text output; `launch` confirmation, frecency recording, script commands. |
+
+## Provider contract
+
+`contract.rs` defines `check(&dyn Provider)` and the `provider_contract!` macro that turns
+each `name => constructor` pair into a `#[test]`. Every provider fixture must:
+
+- answer each probe query (empty, one letter, words, maths, unicode, a miss) within the
+  100 ms budget (best of three runs);
+- return the same ids in the same order for the same query, without duplicates, all under its
+  own provider name, with non-empty keys and titles;
+- accept an empty query, and return nothing for it when it is a computed provider;
+- return `ProviderError::Cancelled` for a cancelled `Cancel`, within the budget;
+- give every item at least one action and round-trip every item through JSON: actions are plain
+  data, so describing one never runs it.
+
+A new provider adds one line to the `provider_contract!` list; the
+`every_builtin_provider_has_a_contract_test` test fails until `BUILTIN` and the fixture set
+agree.
+
+## Fixtures
+
+`crates/quickhop-providers/tests/fixtures/`:
+
+- `applications/`, `applications-system/`: desktop entries covering precedence (shadowed
+  `firefox.desktop`), nested ids, localisation, keywords, field codes, `Terminal`, `NoDisplay`,
+  `Hidden`, `OnlyShowIn`, `NotShowIn`, `TryExec`, `Type=Link`, and two broken files.
+- `icons/`, `pixmaps/`: a `Fixture` theme inheriting `hicolor` with fixed, threshold and
+  scalable directories, plus the unthemed fallback.
+- `Applications/`: fake `.app` bundles (display name, nested `Utilities/`, icon file, a
+  background agent, one without `Info.plist`); a binary plist is written to a tempdir.
+- `StartMenu/`: empty `.lnk` files in folders, with an uninstaller to skip.
+- `scripts/`: Raycast scripts for every mode, arguments (text, dropdown, percent-encoded),
+  `needsConfirmation`, `currentDirectoryPath`, failure, timeout, an invalid one, a hidden one
+  and a non-script file.
+
+Providers take an explicit `Env` (OS + variables), so tests pin `linux` with an empty `PATH`
+and never read the machine's apps, themes or locale. Script execution tests are
+`#[cfg(unix)]` because the fixtures are `/bin/sh` scripts; discovery and parsing run everywhere.
+`crates/quickhop/tests/fixtures/apps/` holds one Firefox for each OS's scanner so the same
+e2e test passes on all three.
+
+## Snapshots
+
+`snapshots.rs` searches all providers together, as the CLI does, for 22 queries plus a
+frecency case, and compares the rendered lists (tier, score, id, title, subtitle) with
+`tests/providers/snapshots/*.snap` via insta. After an intended ranking change:
+
+    INSTA_UPDATE=always cargo test -p quickhop-providers --test providers
+    git diff crates/quickhop-providers/tests/providers/snapshots
+
+and commit the reviewed `.snap` files. In CI (`CI` is set) insta never writes snapshots, so a
+mismatch fails the run.
+
+## Gates
+
+- pre-commit: `just check` (format, guards, typos, clippy on three targets) on the staged tree.
+- pre-push: `just verify` (check, test, deny) on every commit being pushed.
+- Both export the tree into `target/hook-tree/` (`scripts/hook-tree.sh`) and run there, so
+  other people's uncommitted files in a shared clone never affect them.
