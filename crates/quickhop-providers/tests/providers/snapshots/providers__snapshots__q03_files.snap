@@ -1,0 +1,13 @@
+---
+source: crates/quickhop-providers/tests/providers/snapshots.rs
+expression: "render(text, &Boosts::new())"
+---
+query: "files"
+matched    148  apps:org.gnome.Nautilus.desktop          Files | Access and organize files
+matched    122  emoji:1f39e-fe0f                         🎞️ film frames | :film_strip: · Objects
+matched    116  emoji:1f1f9-1f1f1                        🇹🇱 flag: Timor-Leste | :timor_leste: · Flags
+matched     98  emoji:1f1f5-1f1ed                        🇵🇭 flag: Philippines | :philippines: · Flags
+matched     93  emoji:1f601                              😁 beaming face with smiling eyes | :grin: · Smileys & Emotion
+matched     93  emoji:1f60a                              😊 smiling face with smiling eyes | :blush: · Smileys & Emotion
+matched     93  emoji:1f619                              😙 kissing face with smiling eyes | :kissing_smiling_eyes: · Smileys & Emotion
+matched     92  emoji:1f604                              😄 grinning face with smiling eyes | :smile: · Smileys & Emotion

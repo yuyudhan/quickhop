@@ -36,23 +36,62 @@ pub enum ConfigError {
 pub struct Providers {
     /// Installed applications.
     pub apps: bool,
-    /// Files under the home directory.
-    pub files: bool,
-    /// Calculator.
+    /// Calculator and unit conversion.
     pub calc: bool,
-    /// System commands (lock, sleep, log out).
-    pub commands: bool,
+    /// Emoji picker.
+    pub emoji: bool,
+    /// System commands (lock, log out, suspend, reboot, shut down).
+    pub system: bool,
+    /// Quicklinks from `[[quicklinks]]`.
+    pub quicklinks: bool,
+    /// Raycast-compatible script commands from `[scripts] dirs`.
+    pub scripts: bool,
 }
 
 impl Default for Providers {
     fn default() -> Self {
         Self {
             apps: true,
-            files: true,
             calc: true,
-            commands: true,
+            emoji: true,
+            system: true,
+            quicklinks: true,
+            scripts: true,
         }
     }
+}
+
+/// Where applications are found.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Apps {
+    /// Directories to scan instead of the OS defaults (XDG `applications` dirs, the
+    /// macOS Applications folders, the Windows Start Menu). Empty means the defaults.
+    pub dirs: Vec<PathBuf>,
+    /// Icon theme looked up first on Linux; empty means `hicolor` only.
+    pub icon_theme: String,
+}
+
+/// Where script commands are found.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Scripts {
+    /// Directories scanned (not recursively) for `# @raycast.*` script commands. None by
+    /// default.
+    pub dirs: Vec<PathBuf>,
+}
+
+/// A URL template opened with the query, e.g. a web search.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Quicklink {
+    /// Display name, e.g. `Google`.
+    pub name: String,
+    /// URL or path; every `{query}` is replaced with the percent-encoded argument.
+    pub url: String,
+    /// Optional single-word shortcut: typing `alias text` pins this link.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
 }
 
 /// The whole configuration.
@@ -65,6 +104,12 @@ pub struct Config {
     pub max_results: usize,
     /// Enabled providers.
     pub providers: Providers,
+    /// Application sources.
+    pub apps: Apps,
+    /// Script-command sources.
+    pub scripts: Scripts,
+    /// Quicklinks, in display order.
+    pub quicklinks: Vec<Quicklink>,
 }
 
 impl Default for Config {
@@ -73,6 +118,9 @@ impl Default for Config {
             hotkey: "Alt+Space".into(),
             max_results: 8,
             providers: Providers::default(),
+            apps: Apps::default(),
+            scripts: Scripts::default(),
+            quicklinks: Vec::new(),
         }
     }
 }
@@ -120,6 +168,23 @@ impl Config {
                 self.max_results
             )));
         }
+        for link in &self.quicklinks {
+            if link.name.trim().is_empty() || link.url.trim().is_empty() {
+                return Err(ConfigError::Invalid(
+                    "quicklinks need a name and a url".into(),
+                ));
+            }
+            if link
+                .alias
+                .as_ref()
+                .is_some_and(|a| a.is_empty() || a.contains(char::is_whitespace))
+            {
+                return Err(ConfigError::Invalid(format!(
+                    "quicklink {}: alias must be one word",
+                    link.name
+                )));
+            }
+        }
         Ok(())
     }
 }
@@ -151,6 +216,33 @@ pub fn config_path(os: &str, var: impl Fn(&str) -> Option<String>) -> Result<Pat
     Ok(dir.join("quickhop").join("config.toml"))
 }
 
+/// The data directory (frecency database) for `os`, looking variables up with `var`.
+/// `QUICKHOP_DATA` overrides everything; otherwise Linux and other Unixes use
+/// `$XDG_DATA_HOME` or `~/.local/share`, macOS `~/Library/Application Support` and
+/// Windows `%LOCALAPPDATA%`, each with a `quickhop` subdirectory.
+///
+/// # Errors
+/// When the needed variables are unset or empty.
+pub fn data_dir(os: &str, var: impl Fn(&str) -> Option<String>) -> Result<PathBuf, ConfigError> {
+    let get = |name: &str| var(name).filter(|v| !v.is_empty()).map(PathBuf::from);
+    if let Some(path) = get("QUICKHOP_DATA") {
+        return Ok(path);
+    }
+    let dir = match os {
+        "windows" => get("LOCALAPPDATA").ok_or(ConfigError::NoConfigDir("LOCALAPPDATA"))?,
+        "macos" => get("HOME")
+            .ok_or(ConfigError::NoConfigDir("HOME"))?
+            .join("Library/Application Support"),
+        _ => match get("XDG_DATA_HOME") {
+            Some(dir) => dir,
+            None => get("HOME")
+                .ok_or(ConfigError::NoConfigDir("HOME"))?
+                .join(".local/share"),
+        },
+    };
+    Ok(dir.join("quickhop"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -178,9 +270,9 @@ mod tests {
 
     #[test]
     fn partial_file_takes_defaults() {
-        let config = Config::from_toml("max_results = 3\n[providers]\nfiles = false\n").unwrap();
+        let config = Config::from_toml("max_results = 3\n[providers]\nemoji = false\n").unwrap();
         assert_eq!(config.max_results, 3);
-        assert!(!config.providers.files && config.providers.apps);
+        assert!(!config.providers.emoji && config.providers.apps);
     }
 
     #[test]
@@ -225,6 +317,55 @@ mod tests {
         assert!(matches!(
             config_path("windows", &home),
             Err(ConfigError::NoConfigDir("APPDATA"))
+        ));
+    }
+
+    #[test]
+    fn quicklinks_parse_and_validate() {
+        let config = Config::from_toml(
+            "[[quicklinks]]\nname = \"Google\"\nurl = \"https://google.com/search?q={query}\"\nalias = \"g\"\n",
+        )
+        .unwrap();
+        assert_eq!(config.quicklinks[0].alias.as_deref(), Some("g"));
+        assert!(Config::from_toml(&toml::to_string(&config).unwrap()).is_ok());
+        let bad = "[[quicklinks]]\nname = \"G\"\nurl = \"u\"\nalias = \"two words\"\n";
+        assert!(matches!(
+            Config::from_toml(bad),
+            Err(ConfigError::Invalid(_))
+        ));
+        let unnamed = "[[quicklinks]]\nname = \" \"\nurl = \"u\"\n";
+        assert!(matches!(
+            Config::from_toml(unnamed),
+            Err(ConfigError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn data_dirs_per_os() {
+        let home = env(&[("HOME", "/h")]);
+        assert_eq!(
+            data_dir("linux", &home).unwrap(),
+            Path::new("/h/.local/share/quickhop")
+        );
+        assert_eq!(
+            data_dir("linux", env(&[("XDG_DATA_HOME", "/d")])).unwrap(),
+            Path::new("/d/quickhop")
+        );
+        assert_eq!(
+            data_dir("macos", &home).unwrap(),
+            Path::new("/h/Library/Application Support/quickhop")
+        );
+        assert_eq!(
+            data_dir("windows", env(&[("LOCALAPPDATA", "C:/l")])).unwrap(),
+            Path::new("C:/l/quickhop")
+        );
+        assert_eq!(
+            data_dir("linux", env(&[("QUICKHOP_DATA", "/q")])).unwrap(),
+            Path::new("/q")
+        );
+        assert!(matches!(
+            data_dir("windows", &home),
+            Err(ConfigError::NoConfigDir("LOCALAPPDATA"))
         ));
     }
 }

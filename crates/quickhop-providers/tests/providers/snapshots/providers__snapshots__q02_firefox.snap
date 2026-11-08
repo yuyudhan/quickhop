@@ -1,0 +1,6 @@
+---
+source: crates/quickhop-providers/tests/providers/snapshots.rs
+expression: "render(text, &Boosts::new())"
+---
+query: "firefox"
+matched    200  apps:firefox.desktop                     Firefox Web Browser | Web Browser

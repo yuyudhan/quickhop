@@ -1,0 +1,13 @@
+---
+source: crates/quickhop-providers/tests/providers/snapshots.rs
+expression: "render(text, &Boosts::new())"
+---
+query: "fire"
+matched    122  apps:firefox.desktop                     Firefox Web Browser | Web Browser
+matched    122  emoji:1f525                              🔥 fire | :fire: · Travel & Places
+matched    122  emoji:1f9d1-200d-1f692                   🧑‍🚒 firefighter | :firefighter: · People & Body
+matched    122  emoji:1f468-200d-1f692                   👨‍🚒 man firefighter | :man_firefighter: · People & Body
+matched    122  emoji:1f469-200d-1f692                   👩‍🚒 woman firefighter | :woman_firefighter: · People & Body
+matched    122  emoji:1f692                              🚒 fire engine | :fire_engine: · Travel & Places
+matched    122  emoji:1f9e8                              🧨 firecracker | :firecracker: · Activities
+matched    122  emoji:1f9ef                              🧯 fire extinguisher | :fire_extinguisher: · Objects

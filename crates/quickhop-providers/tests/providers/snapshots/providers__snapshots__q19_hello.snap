@@ -1,0 +1,9 @@
+---
+source: crates/quickhop-providers/tests/providers/snapshots.rs
+expression: "render(text, &Boosts::new())"
+---
+query: "hello"
+matched    148  scripts:hello.sh                         Hello World | Greetings
+matched    148  emoji:1f44b                              👋 waving hand | :wave: · People & Body
+matched    148  emoji:1fac2                              🫂 people hugging | :people_hugging: · People & Body
+matched     82  emoji:2716-fe0f                          ✖️ multiply | :heavy_multiplication_x: · Symbols

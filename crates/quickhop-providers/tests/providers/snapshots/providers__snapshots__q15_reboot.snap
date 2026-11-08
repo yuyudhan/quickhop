@@ -1,0 +1,6 @@
+---
+source: crates/quickhop-providers/tests/providers/snapshots.rs
+expression: "render(text, &Boosts::new())"
+---
+query: "reboot"
+matched    174  system:reboot                            Restart | systemctl reboot

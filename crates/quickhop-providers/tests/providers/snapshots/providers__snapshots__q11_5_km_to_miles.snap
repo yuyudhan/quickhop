@@ -1,0 +1,6 @@
+---
+source: crates/quickhop-providers/tests/providers/snapshots.rs
+expression: "render(text, &Boosts::new())"
+---
+query: "5 km to miles"
+computed     0  calc:result                              approx. 3.1068559612 miles | 5 km to miles =

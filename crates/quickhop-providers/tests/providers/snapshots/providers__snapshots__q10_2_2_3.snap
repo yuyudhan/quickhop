@@ -1,0 +1,6 @@
+---
+source: crates/quickhop-providers/tests/providers/snapshots.rs
+expression: "render(text, &Boosts::new())"
+---
+query: "2+2*3"
+computed     0  calc:result                              8 | 2+2*3 =

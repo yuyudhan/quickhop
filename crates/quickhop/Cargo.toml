@@ -11,11 +11,16 @@ publish.workspace = true
 clap.workspace = true
 quickhop-core.workspace = true
 quickhop-providers.workspace = true
+quickhop-store.workspace = true
 quickhop-ui.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-assert_cmd = "2"
+assert_cmd.workspace = true
+serde_json.workspace = true
+tempfile.workspace = true
 
 [lints]
 workspace = true

@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Xfce Panel
+Exec=xfce4-panel
+NotShowIn=GNOME;Unity;

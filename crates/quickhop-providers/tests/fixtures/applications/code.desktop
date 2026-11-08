@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Visual Studio Code
+Comment=Code Editing. Redefined.
+GenericName=Text Editor
+Exec="/usr/share/code/code" --unity-launch %F
+Icon=vscode
+Keywords=vscode;editor;

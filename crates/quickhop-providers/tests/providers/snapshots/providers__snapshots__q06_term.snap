@@ -1,0 +1,13 @@
+---
+source: crates/quickhop-providers/tests/providers/snapshots.rs
+expression: "render(text, &Boosts::new())"
+---
+query: "term"
+matched    122  apps:terminal.desktop                    Terminal | Use the command line
+matched     95  emoji:1f321-fe0f                         🌡️ thermometer | :thermometer: · Travel & Places
+matched     91  apps:htop.desktop                        Htop | Process Viewer
+matched     90  emoji:1f912                              🤒 face with thermometer | :face_with_thermometer: · Smileys & Emotion
+matched     82  emoji:1f5b1-fe0f                         🖱️ computer mouse | :computer_mouse: · Objects
+matched     80  emoji:1f313                              🌓 first quarter moon | :first_quarter_moon: · Travel & Places
+matched     80  emoji:1f317                              🌗 last quarter moon | :last_quarter_moon: · Travel & Places
+matched     80  emoji:1f31b                              🌛 first quarter moon face | :first_quarter_moon_with_face: · Travel & Places

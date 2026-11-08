@@ -1,0 +1,6 @@
+---
+source: crates/quickhop-providers/tests/providers/snapshots.rs
+expression: "render(text, &Boosts::new())"
+---
+query: "image editor"
+matched    318  apps:gimp.desktop                        GNU Image Manipulation Program | Image Editor

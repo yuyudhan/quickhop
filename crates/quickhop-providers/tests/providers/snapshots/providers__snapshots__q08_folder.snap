@@ -1,0 +1,9 @@
+---
+source: crates/quickhop-providers/tests/providers/snapshots.rs
+expression: "render(text, &Boosts::new())"
+---
+query: "folder"
+matched    174  apps:org.gnome.Nautilus.desktop          Files | Access and organize files
+matched    174  emoji:1f4c1                              📁 file folder | :file_folder: · Objects
+matched    174  emoji:1f4c2                              📂 open file folder | :open_file_folder: · Objects
+matched    108  emoji:1f979                              🥹 face holding back tears | :face_holding_back_tears: · Smileys & Emotion

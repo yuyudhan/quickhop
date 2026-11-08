@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=GNU Image Manipulation Program
+GenericName=Image Editor
+Keywords=GIMP;graphic;design;illustration;painting;
+Exec=gimp-2.10 %U
+Icon=gimp.png

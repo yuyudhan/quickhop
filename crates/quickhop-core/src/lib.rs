@@ -1,8 +1,8 @@
 //! Platform-independent core of quickhop.
 //!
-//! A search runs a [`Query`] against every registered [`Provider`], scores each returned
-//! [`Item`] with the fuzzy matcher in [`fuzzy`] and returns the best matches in rank order.
-
+//! A [`Search`] runs a [`Query`] against every registered [`Provider`], scores each returned
+//! [`Item`] with the [`fuzzy`] matcher (nucleo), adds the frecency [`Boosts`] the caller
+//! supplies, and returns the best matches in rank order. Nothing here does IO.
 #![forbid(unsafe_code)]
 
 pub mod config;
@@ -11,8 +11,8 @@ pub mod item;
 pub mod provider;
 pub mod search;
 
-pub use config::{Config, ConfigError};
-pub use fuzzy::{Match, score};
-pub use item::{Action, Item, ItemId};
-pub use provider::{Provider, ProviderError, Query};
-pub use search::{Ranked, Search, SearchResults};
+pub use config::{Apps, Config, ConfigError, Providers, Quicklink, Scripts};
+pub use fuzzy::{Match, Matcher, score};
+pub use item::{Action, Item, ItemId, ScriptArgument, ScriptArgumentKind, ScriptMode};
+pub use provider::{Cancel, Provider, ProviderError, Query};
+pub use search::{Boosts, Ranked, Search, SearchResults, Tier, rank};

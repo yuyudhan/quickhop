@@ -1,0 +1,6 @@
+---
+source: crates/quickhop-providers/tests/providers/snapshots.rs
+expression: "render(text, &Boosts::new())"
+---
+query: "g rust lang"
+pinned       0  quicklinks:google                        Google: rust lang | https://www.google.com/search?q=rust%20lang

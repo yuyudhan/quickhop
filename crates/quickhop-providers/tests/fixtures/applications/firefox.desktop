@@ -1,0 +1,16 @@
+[Desktop Entry]
+Version=1.0
+Type=Application
+Name=Firefox Web Browser
+Name[de]=Firefox-Webbrowser
+GenericName=Web Browser
+GenericName[de]=Webbrowser
+Comment=Browse the World Wide Web
+Keywords=Internet;WWW;Browser;Web;Explorer;
+Exec=firefox %u
+Icon=firefox
+Categories=GNOME;GTK;Network;WebBrowser;
+
+[Desktop Action new-window]
+Name=Open a New Window
+Exec=firefox --new-window

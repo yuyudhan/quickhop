@@ -1,0 +1,13 @@
+---
+source: crates/quickhop-providers/tests/providers/snapshots.rs
+expression: "render(text, &Boosts::new())"
+---
+query: ""
+matched      0  quicklinks:google                        Google | https://www.google.com/search?q=
+matched      0  quicklinks:github                        GitHub | https://github.com
+matched      0  apps:calculator.desktop                  Calculator | -
+matched      0  apps:org.gnome.Nautilus.desktop          Files | Access and organize files
+matched      0  apps:firefox.desktop                     Firefox Web Browser | Web Browser
+matched      0  apps:gimp.desktop                        GNU Image Manipulation Program | Image Editor
+matched      0  apps:htop.desktop                        Htop | Process Viewer
+matched      0  apps:vendor-sub-nested.desktop           Nested Tool | -

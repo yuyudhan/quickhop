@@ -1,0 +1,13 @@
+---
+source: crates/quickhop-providers/tests/providers/snapshots.rs
+expression: "render(text, &Boosts::new())"
+---
+query: "gh"
+pinned       0  quicklinks:github                        GitHub | https://github.com
+matched     67  emoji:1f47b                              👻 ghost | :ghost: · Smileys & Emotion
+matched     65  emoji:1f1ec-1f1ed                        🇬🇭 flag: Ghana | :ghana: · Flags
+matched     62  emoji:1fa76                              🩶 grey heart | :grey_heart: · Smileys & Emotion
+matched     61  emoji:1f49a                              💚 green heart | :green_heart: · Smileys & Emotion
+matched     59  emoji:1f497                              💗 growing heart | :heartpulse: · Smileys & Emotion
+matched     57  emoji:1f487-200d-2642-fe0f               💇‍♂️ man getting haircut | :haircut_man: · People & Body
+matched     56  emoji:1f487-200d-2640-fe0f               💇‍♀️ woman getting haircut | :haircut_woman: · People & Body

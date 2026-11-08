@@ -1,0 +1,8 @@
+---
+source: crates/quickhop-providers/tests/providers/snapshots.rs
+expression: "render(text, &Boosts::new())"
+---
+query: "vsc"
+matched     80  apps:code.desktop                        Visual Studio Code | Text Editor
+matched     39  emoji:274e                               ❎ cross mark button | :negative_squared_cross_mark: · Symbols
+matched     26  emoji:23ee-fe0f                          ⏮️ last track button | :previous_track_button: · Symbols

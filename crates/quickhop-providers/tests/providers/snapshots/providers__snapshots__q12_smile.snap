@@ -1,0 +1,13 @@
+---
+source: crates/quickhop-providers/tests/providers/snapshots.rs
+expression: "render(text, &Boosts::new())"
+---
+query: "smile"
+matched    148  emoji:1f604                              😄 grinning face with smiling eyes | :smile: · Smileys & Emotion
+matched    148  emoji:1f600                              😀 grinning face | :grinning: · Smileys & Emotion
+matched    148  emoji:1f603                              😃 grinning face with big eyes | :smiley: · Smileys & Emotion
+matched    148  emoji:1f601                              😁 beaming face with smiling eyes | :grin: · Smileys & Emotion
+matched    148  emoji:1f606                              😆 grinning squinting face | :laughing: :satisfied: · Smileys & Emotion
+matched    148  emoji:1f605                              😅 grinning face with sweat | :sweat_smile: · Smileys & Emotion
+matched    148  emoji:1f642                              🙂 slightly smiling face | :slightly_smiling_face: · Smileys & Emotion
+matched    148  emoji:1f643                              🙃 upside-down face | :upside_down_face: · Smileys & Emotion

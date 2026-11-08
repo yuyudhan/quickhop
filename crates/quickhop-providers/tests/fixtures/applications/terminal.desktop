@@ -1,0 +1,6 @@
+[Desktop Entry]
+Type=Application
+Name=Terminal
+Comment=Use the command line
+Exec=gnome-terminal --name="%c" %i
+Icon=utilities-terminal

@@ -1,0 +1,13 @@
+---
+source: crates/quickhop-providers/tests/providers/snapshots.rs
+expression: "render(text, &Boosts::new())"
+---
+query: "heart"
+matched    148  emoji:2764-fe0f                          ❤️ red heart | :heart: · Smileys & Emotion
+matched    148  emoji:1f970                              🥰 smiling face with hearts | :smiling_face_with_three_hearts: · Smileys & Emotion
+matched    148  emoji:1f618                              😘 face blowing a kiss | :kissing_heart: · Smileys & Emotion
+matched    148  emoji:1f63b                              😻 smiling cat with heart-eyes | :heart_eyes_cat: · Smileys & Emotion
+matched    148  emoji:1f48c                              💌 love letter | :love_letter: · Smileys & Emotion
+matched    148  emoji:1f498                              💘 heart with arrow | :cupid: · Smileys & Emotion
+matched    148  emoji:1f49d                              💝 heart with ribbon | :gift_heart: · Smileys & Emotion
+matched    148  emoji:1f496                              💖 sparkling heart | :sparkling_heart: · Smileys & Emotion
