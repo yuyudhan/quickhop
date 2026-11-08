@@ -18,6 +18,14 @@ fn quickhop() -> Result<Command, Box<dyn Error>> {
     Ok(cmd)
 }
 
+/// Script fixtures this OS runs: `/bin/sh` on Unix, cmd.exe batch files on Windows.
+const SCRIPTS_DIR: &str = if cfg!(windows) {
+    "scripts-windows"
+} else {
+    "scripts"
+};
+const SCRIPT_EXT: &str = if cfg!(windows) { "cmd" } else { "sh" };
+
 fn fixtures() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("tests")
@@ -38,7 +46,7 @@ impl Sandbox {
             "[apps]\ndirs = [\"{}\"]\n[scripts]\ndirs = [\"{}\"]\n\n\
              [[quicklinks]]\nname = \"Google\"\nurl = \"https://www.google.com/search?q={{query}}\"\nalias = \"g\"\n",
             toml(fixtures().join("apps")),
-            toml(fixtures().join("scripts")),
+            toml(fixtures().join(SCRIPTS_DIR)),
         );
         std::fs::write(dir.path().join("config.toml"), config)?;
         Ok(Self { dir })
@@ -222,26 +230,26 @@ fn launching_records_frecency() -> TestResult {
     Ok(())
 }
 
-#[cfg(unix)]
 #[test]
 fn launch_runs_script_commands() -> TestResult {
     let sandbox = Sandbox::new()?;
-    let hello = stdout(
-        sandbox
-            .cmd()?
-            .args(["launch", "scripts:hello.sh", "--arg", "quickhop"]),
-    )?;
+    let hello = stdout(sandbox.cmd()?.args([
+        "launch",
+        &format!("scripts:hello.{SCRIPT_EXT}"),
+        "--arg",
+        "quickhop",
+    ]))?;
     assert_eq!(hello, "hello quickhop\n");
     let refused = sandbox
         .cmd()?
-        .args(["launch", "scripts:danger.sh"])
+        .args(["launch", &format!("scripts:danger.{SCRIPT_EXT}")])
         .output()?;
     assert!(!refused.status.success());
     assert_eq!(
         stdout(
             sandbox
                 .cmd()?
-                .args(["launch", "scripts:danger.sh", "--yes"])
+                .args(["launch", &format!("scripts:danger.{SCRIPT_EXT}"), "--yes"])
         )?,
         "boom\n"
     );

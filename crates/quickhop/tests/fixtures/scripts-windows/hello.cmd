@@ -1,0 +1,6 @@
+@echo off
+:: @raycast.schemaVersion 1
+:: @raycast.title Hello CLI
+:: @raycast.mode compact
+:: @raycast.argument1 { "type": "text", "placeholder": "Name", "optional": true }
+if "%~1"=="" (echo hello world) else (echo hello %~1)

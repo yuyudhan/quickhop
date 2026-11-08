@@ -42,13 +42,15 @@ agree.
 - `Applications/`: fake `.app` bundles (display name, nested `Utilities/`, icon file, a
   background agent, one without `Info.plist`); a binary plist is written to a tempdir.
 - `StartMenu/`: empty `.lnk` files in folders, with an uninstaller to skip.
-- `scripts/`: Raycast scripts for every mode, arguments (text, dropdown, percent-encoded),
-  `needsConfirmation`, `currentDirectoryPath`, failure, timeout, an invalid one, a hidden one
-  and a non-script file.
+- `scripts/` (`/bin/sh`) and `scripts-windows/` (`.cmd` with `::` headers, `.ps1` for the
+  argument and timeout cases, CRLF): the same Raycast scripts for every mode, arguments (text,
+  dropdown, percent-encoded), `needsConfirmation`, `currentDirectoryPath`, failure, timeout,
+  an invalid one, a hidden one and a non-script file.
 
 Providers take an explicit `Env` (OS + variables), so tests pin `linux` with an empty `PATH`
-and never read the machine's apps, themes or locale. Script execution tests are
-`#[cfg(unix)]` because the fixtures are `/bin/sh` scripts; discovery and parsing run everywhere.
+and never read the machine's apps, themes or locale. Both script sets are parsed on every OS; the
+execution tests (and the CLI `launch` e2e) run the set for the host (`common::exec_scripts_dir`),
+so Linux, macOS and Windows run the same execution tests.
 `crates/quickhop/tests/fixtures/apps/` holds one Firefox for each OS's scanner so the same
 e2e test passes on all three.
 

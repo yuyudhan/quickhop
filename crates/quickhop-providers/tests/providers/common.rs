@@ -67,6 +67,16 @@ pub(crate) fn start_menu_apps() -> AppsProvider {
     AppsProvider::load(&sources, &linux_env()).0
 }
 
+/// The script fixtures this OS can run: `/bin/sh` scripts on Unix, `.cmd`/`.ps1` on Windows.
+/// Both sets have the same titles, modes, arguments and output.
+pub(crate) fn exec_scripts_dir() -> PathBuf {
+    fixtures().join(if cfg!(windows) {
+        "scripts-windows"
+    } else {
+        "scripts"
+    })
+}
+
 /// Fixture script commands; inline scripts are not run so results match on every OS.
 pub(crate) fn scripts() -> ScriptsProvider {
     ScriptsProvider::load(&[fixtures().join("scripts")], None).0

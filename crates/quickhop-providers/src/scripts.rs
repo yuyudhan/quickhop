@@ -101,12 +101,12 @@ struct RawChoice {
 }
 
 /// The `@raycast.<key> <value>` pairs in `text`, from comment lines starting with `#`,
-/// `//`, `--`, `;` or `'`.
+/// `//`, `--`, `;`, `'`, or batch-file `::` / `REM`.
 pub fn headers(text: &str) -> Vec<(&str, &str)> {
     text.lines()
         .filter_map(|line| {
             let line = line.trim_start();
-            let rest = ["#", "//", "--", ";", "'"]
+            let rest = ["#", "//", "--", "::", ";", "'", "REM ", "rem "]
                 .iter()
                 .find_map(|m| line.strip_prefix(m))?;
             let rest = rest.trim_start_matches(['#', '/', '-', ';']).trim_start();
@@ -359,7 +359,13 @@ fn check_arguments(specs: &[ScriptArgument], values: &[String]) -> Result<Vec<St
 fn shape(mode: ScriptMode, success: bool, stdout: &str, stderr: &str) -> String {
     let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
     let message = match mode {
-        ScriptMode::FullOutput => stdout.trim_end().to_owned(),
+        // Line endings normalised: Windows scripts print CRLF.
+        ScriptMode::FullOutput => stdout
+            .lines()
+            .collect::<Vec<_>>()
+            .join("\n")
+            .trim_end()
+            .to_owned(),
         ScriptMode::Compact | ScriptMode::Silent => {
             lines.last().copied().unwrap_or_default().trim().to_owned()
         }
@@ -592,10 +598,17 @@ mod tests {
 
     #[test]
     fn parses_headers_in_any_comment_style() {
-        let text = "// @raycast.title A\n-- @raycast.mode compact\n#  @raycast.icon 🤖\nnot @raycast.x y\n";
+        let text = "// @raycast.title A\n-- @raycast.mode compact\n#  @raycast.icon 🤖\nnot @raycast.x y\n\
+                    :: @raycast.packageName P\r\nREM @raycast.description D\r\n";
         assert_eq!(
             headers(text),
-            vec![("title", "A"), ("mode", "compact"), ("icon", "🤖")]
+            vec![
+                ("title", "A"),
+                ("mode", "compact"),
+                ("icon", "🤖"),
+                ("packageName", "P"),
+                ("description", "D")
+            ]
         );
     }
 
@@ -716,6 +729,11 @@ mod tests {
             shape(ScriptMode::Compact, false, "", "warn\nboom\n"),
             "boom"
         );
+        assert_eq!(
+            shape(ScriptMode::FullOutput, true, "a\r\nb\r\n", ""),
+            "a\nb"
+        );
+        assert_eq!(shape(ScriptMode::Compact, true, "a\r\nb\r\n", ""), "b");
     }
 
     #[test]
