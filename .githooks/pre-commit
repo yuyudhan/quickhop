@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Enable with: just install-hooks (sets core.hooksPath to .githooks).
-# Checks exactly the staged tree: refuses when the working tree differs from the index.
+# Runs `just check` on the staged tree, exported to target/hook-tree/: unstaged edits and
+# untracked files (yours or anyone else's in a shared clone) are neither checked nor fatal.
 set -euo pipefail
-scripts/require-clean-tree.sh commit
-exec just check
+exec scripts/hook-tree.sh commit just check

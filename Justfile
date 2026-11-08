@@ -1,7 +1,7 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 set windows-shell := ["bash", "-euo", "pipefail", "-c"]
 
-# Targets clippy runs for; the cross targets need only `rustup target add` (no linker).
+# Targets clippy runs for; cross targets need `rustup target add` and zig (no linker).
 targets := "x86_64-unknown-linux-gnu x86_64-pc-windows-gnu aarch64-apple-darwin"
 
 default:
@@ -32,7 +32,7 @@ clippy:
 
 # Clippy with -D warnings for every target triple.
 clippy-all:
-    for target in {{targets}}; do cargo clippy --workspace --all-targets --all-features --target "$target" -- -D warnings; done
+    scripts/clippy-all.sh {{targets}}
 
 # Everything the pre-commit hook runs.
 check: fmt-check guards typos clippy-all
@@ -48,8 +48,6 @@ deny:
 # The full local gate: check, test, deny.
 verify: check test deny
 
-# Pre-push gate: everything, from a clean index.
-pre-push: verify
 
 # Use the repo's git hooks.
 install-hooks:

@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Enable with: just install-hooks. Runs the full gate (check, test, deny) on the committed tree.
+# Enable with: just install-hooks (sets core.hooksPath to .githooks).
+# Runs the full gate (`just verify`: check, test, deny) on every commit being pushed,
+# exported to target/hook-tree/, so the working tree's state does not matter.
 set -euo pipefail
-scripts/require-clean-tree.sh push
-exec just verify
+exec scripts/hook-tree.sh push just verify
