@@ -1,0 +1,1 @@
+//! Calculator: evaluates arithmetic queries.

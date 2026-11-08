@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# Enable with: just install-hooks (sets core.hooksPath to .githooks).
+# Checks exactly the staged tree: refuses when the working tree differs from the index.
+set -euo pipefail
+scripts/require-clean-tree.sh commit
+exec just check
