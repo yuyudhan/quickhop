@@ -23,6 +23,6 @@ pub use config::{
 };
 pub use fuzzy::{Match, Matcher, score};
 pub use hotkey::{Hotkey, HotkeyError};
-pub use item::{Action, Item, ItemId, ScriptArgument, ScriptArgumentKind, ScriptMode};
+pub use item::{Action, Item, ItemId, ScriptArgument, ScriptArgumentKind, ScriptMode, View};
 pub use provider::{Cancel, Provider, ProviderError, Query};
 pub use search::{Boosts, Ranked, Search, SearchResults, Tier, rank};

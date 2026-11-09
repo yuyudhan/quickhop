@@ -15,12 +15,12 @@ percent-encoding.workspace = true
 plist.workspace = true
 quickhop-core.workspace = true
 quickhop-index.workspace = true
+quickhop-store.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
-quickhop-store.workspace = true
 plist.workspace = true
 insta.workspace = true
 proptest.workspace = true

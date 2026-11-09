@@ -91,6 +91,11 @@ pub enum Action {
         /// Text to copy.
         text: String,
     },
+    /// Put text on the clipboard, then paste it into the app the user came from.
+    Paste {
+        /// Text to paste.
+        text: String,
+    },
     /// Start a program without a shell.
     Run {
         /// Program name or path.
@@ -128,6 +133,24 @@ pub enum Action {
         /// Absolute path.
         path: String,
     },
+    /// Open a searchable list in the launcher window (the window searches it with the item
+    /// as its source).
+    View {
+        /// Which list.
+        view: View,
+    },
+}
+
+/// A searchable list a command opens in the launcher window.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum View {
+    /// The clipboard history, newest first.
+    Clipboard,
+    /// Every snippet.
+    Snippets,
+    /// Files and folders by name.
+    Files,
 }
 
 impl Action {
@@ -136,9 +159,12 @@ impl Action {
         match self {
             Self::Run { confirm, .. } | Self::Script { confirm, .. } => *confirm,
             Self::Trash { .. } => true,
-            Self::Open { .. } | Self::Copy { .. } | Self::Snippet { .. } | Self::Reveal { .. } => {
-                false
-            }
+            Self::Open { .. }
+            | Self::Copy { .. }
+            | Self::Paste { .. }
+            | Self::Snippet { .. }
+            | Self::Reveal { .. }
+            | Self::View { .. } => false,
         }
     }
 
@@ -147,11 +173,13 @@ impl Action {
         match self {
             Self::Open { .. } => "open",
             Self::Copy { .. } => "copy",
+            Self::Paste { .. } => "paste",
             Self::Run { .. } => "run",
             Self::Script { .. } => "script",
             Self::Snippet { .. } => "snippet",
             Self::Reveal { .. } => "reveal",
             Self::Trash { .. } => "trash",
+            Self::View { .. } => "view",
         }
     }
 }

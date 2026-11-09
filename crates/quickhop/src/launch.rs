@@ -58,6 +58,9 @@ pub(crate) enum LaunchError {
         /// What went wrong.
         reason: String,
     },
+    /// The action opens a list in the launcher window, which the command line cannot show.
+    #[error("this opens a list in the launcher window: run `quickhop toggle` and pick it there")]
+    View,
 }
 
 /// The command that opens `target` with the system handler.
@@ -188,8 +191,8 @@ fn move_to_trash(path: &str) -> Result<(), LaunchError> {
     }
 }
 
-/// Performs `action` and returns what to print: the copied text (the CLI has no clipboard
-/// yet), or a script's output shaped for its mode.
+/// Performs `action` and returns what to print: the copied or pasted text (the caller puts
+/// it on the clipboard), or a script's output shaped for its mode.
 pub(crate) fn perform(action: &Action, args: &[String]) -> Result<String, LaunchError> {
     match action {
         Action::Open { target } => {
@@ -205,7 +208,7 @@ pub(crate) fn perform(action: &Action, args: &[String]) -> Result<String, Launch
             move_to_trash(path)?;
             Ok(format!("moved {path} to the trash"))
         }
-        Action::Copy { text } => Ok(text.clone()),
+        Action::Copy { text } | Action::Paste { text } => Ok(text.clone()),
         Action::Snippet { text } => expand_snippet(text, args),
         Action::Run { program, args, .. } => {
             // Detached: the launched program outlives the CLI.
@@ -220,6 +223,7 @@ pub(crate) fn perform(action: &Action, args: &[String]) -> Result<String, Launch
                 Err(LaunchError::ScriptFailed(output.message))
             }
         }
+        Action::View { .. } => Err(LaunchError::View),
     }
 }
 

@@ -233,6 +233,39 @@ fn launch_rejects_unknown_ids() -> TestResult {
     Ok(())
 }
 
+/// The commands that open a list in the launcher window are found like any command, follow
+/// the switch of what they list, and say so on the command line instead of running.
+#[test]
+fn list_commands_are_found_and_open_only_in_the_window() -> TestResult {
+    let sandbox = Sandbox::new()?;
+    let found = |text: &str| -> Result<Vec<String>, Box<dyn Error>> {
+        let json: Value =
+            serde_json::from_str(&stdout(sandbox.cmd()?.args(["query", "--json", text]))?)?;
+        Ok(ids(&json).into_iter().map(str::to_owned).collect())
+    };
+    assert_eq!(
+        found("clipboard history")?.first().map(String::as_str),
+        Some("views:clipboard")
+    );
+    assert_eq!(
+        found("search snippets")?.first().map(String::as_str),
+        Some("views:snippets")
+    );
+    let output = sandbox
+        .cmd()?
+        .args(["launch", "views:clipboard"])
+        .output()?;
+    assert!(!output.status.success());
+    let stderr = String::from_utf8(output.stderr)?;
+    assert!(
+        stderr.contains("opens a list in the launcher window"),
+        "{stderr}"
+    );
+    sandbox.add_config("[clipboard]\nenabled = false\n")?;
+    assert!(!found("clipboard history")?.contains(&"views:clipboard".to_owned()));
+    Ok(())
+}
+
 fn ids(results: &Value) -> Vec<&str> {
     results["results"]
         .as_array()

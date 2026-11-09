@@ -504,8 +504,15 @@ impl Model {
         self.perform_or_ask(item, action, query)
     }
 
-    /// Performs `action`, or opens its argument fields when it is a script asking for some.
+    /// Performs `action`: a view opens as a page of its own, a script asking for arguments
+    /// opens its argument fields, anything else is for the window to carry out.
     fn perform_or_ask(&mut self, item: Item, action: Action, query: Query) -> Effect {
+        if let Action::View { .. } = action {
+            return self.push(Page::new(
+                item.title.clone(),
+                PageKind::List { command: item.id },
+            ));
+        }
         if script_arguments(&action).is_empty() {
             return Effect::Perform {
                 item: Box::new(item),
@@ -638,8 +645,9 @@ pub fn action_title(action: &Action) -> String {
         {
             "Open in Browser"
         }
-        Action::Open { .. } => "Open",
+        Action::Open { .. } | Action::View { .. } => "Open",
         Action::Copy { .. } => "Copy to Clipboard",
+        Action::Paste { .. } => "Paste",
         Action::Run { program, .. } if program == "qlmanage" => "Quick Look",
         Action::Run { .. } => "Run",
         Action::Script { .. } => "Run Script",
@@ -659,6 +667,8 @@ pub struct Snapshot {
     pub query: String,
     /// Ids of the results of the page on top, best first.
     pub results: Vec<String>,
+    /// Titles of those results.
+    pub titles: Vec<String>,
     /// Subtitles of those results, empty for a result without one.
     pub subtitles: Vec<String>,
     /// Index of the selected result.
@@ -697,6 +707,11 @@ impl Model {
                 .results
                 .iter()
                 .map(|ranked| ranked.item.id.to_string())
+                .collect(),
+            titles: page
+                .results
+                .iter()
+                .map(|ranked| ranked.item.title.clone())
                 .collect(),
             subtitles: page
                 .results
@@ -955,6 +970,7 @@ mod tests {
                     "test:Finder".into(),
                     "test:Fig".into()
                 ],
+                titles: vec!["Firefox".into(), "Finder".into(), "Fig".into()],
                 subtitles: vec![String::new(); 3],
                 selected: Some(1),
                 stack: vec![String::new()],
@@ -1206,6 +1222,47 @@ mod tests {
         assert_eq!(model.page().results(), []);
         assert!(model.set_results(request.generation, three()));
         assert_eq!(model.page().results().len(), 3);
+    }
+
+    #[test]
+    fn return_on_a_view_command_opens_its_list_and_searches_it() {
+        let history = ItemId::new("views", "clipboard");
+        let command = Item::new(
+            history.clone(),
+            "Clipboard History",
+            Action::View {
+                view: quickhop_core::View::Clipboard,
+            },
+        );
+        let mut model = with_results(
+            "clip",
+            vec![Ranked {
+                item: command,
+                tier: Tier::Matched,
+                score: 0,
+                positions: Vec::new(),
+            }],
+        );
+        let effect = model.activate();
+        let Effect::Search(request) = effect else {
+            panic!("a view searches its list at once, got {effect:?}");
+        };
+        assert_eq!(request.source, Some(history));
+        assert_eq!(request.query, Query::new(""), "the list starts unfiltered");
+        assert_eq!(model.stack().len(), 2);
+        assert_eq!(model.page().title, "Clipboard History");
+        assert!(model.set_results(request.generation, three()));
+        // Typing filters the list, not the root.
+        let Effect::Search(typed) = model.set_query("fi") else {
+            panic!("typing in a list searches it");
+        };
+        assert_eq!(typed.source, request.source);
+        assert_eq!(model.escape(), Effect::None);
+        assert_eq!(
+            model.page().query(),
+            "clip",
+            "Esc goes back to the root's query"
+        );
     }
 
     #[test]

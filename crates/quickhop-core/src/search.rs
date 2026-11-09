@@ -131,6 +131,15 @@ impl Search {
         self.providers.iter().map(|p| p.name())
     }
 
+    /// The registered provider named `name`, if any: the launcher window searches it alone
+    /// for a view of its items (all snippets, files).
+    pub fn provider(&self, name: &str) -> Option<&dyn Provider> {
+        self.providers
+            .iter()
+            .find(|p| p.name() == name)
+            .map(AsRef::as_ref)
+    }
+
     /// The `[[commands]]` ids that name no item: their provider is not registered, is a
     /// computed one, or has no such key ([`Provider::has_key`]). Providers that fail to
     /// answer are not judged. Asks every provider, so call it when commands are loaded, not

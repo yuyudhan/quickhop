@@ -489,7 +489,10 @@ fn launch(
             request.query.to_owned(),
         ));
     };
-    let pasteable = matches!(action, Action::Copy { .. } | Action::Snippet { .. });
+    let pasteable = matches!(
+        action,
+        Action::Copy { .. } | Action::Paste { .. } | Action::Snippet { .. }
+    );
     if request.paste && !pasteable {
         return Err(CliError::NotPasteable(action.kind()));
     }
@@ -502,7 +505,7 @@ fn launch(
         return Err(CliError::NeedsConfirmation(item.title.clone()));
     }
     let message = launch::perform(action, request.args)?;
-    if request.paste {
+    if request.paste || matches!(action, Action::Paste { .. }) {
         paste::paste_and_report(&message)?;
     } else if !message.is_empty() {
         writeln!(out, "{message}")?;

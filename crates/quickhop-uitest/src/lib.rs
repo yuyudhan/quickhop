@@ -66,6 +66,15 @@ impl Daemon {
     /// # Errors
     /// As [`Self::start`].
     pub fn start_with(config: &str) -> Fallible<Self> {
+        Self::start_with_files(config, &[])
+    }
+
+    /// As [`Self::start_with`], with `files` (a path relative to the daemon's directory and
+    /// its content) written first: `snippets.toml` sits next to `config.toml` there.
+    ///
+    /// # Errors
+    /// As [`Self::start`], or when a file cannot be written.
+    pub fn start_with_files(config: &str, files: &[(&str, &str)]) -> Fallible<Self> {
         let binary = binary();
         if !binary.is_file() {
             return Err(format!("{} is missing: run `just ui-test`", binary.display()).into());
@@ -73,6 +82,9 @@ impl Daemon {
         let dir = tempfile::tempdir()?;
         std::fs::create_dir(dir.path().join("run"))?;
         std::fs::write(dir.path().join("config.toml"), config)?;
+        for (path, content) in files {
+            std::fs::write(dir.path().join(path), content)?;
+        }
         let log = std::fs::File::create(dir.path().join("daemon.log"))?;
         let child = Self::command_in(dir.path())
             .arg("daemon")

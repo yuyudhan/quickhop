@@ -610,7 +610,8 @@ impl Launcher {
     }
 
     /// The search bar: the query (the panel's filter while it is open, the page's title on a
-    /// detail page), then a script's argument fields while it asks for them.
+    /// detail page, or as the placeholder of a list), then a script's argument fields while it
+    /// asks for them.
     fn render_bar(&self) -> impl IntoElement + use<> {
         let page = self.model.page();
         let (text, placeholder): (SharedString, bool) = if let Some(panel) = self.model.panel() {
@@ -621,6 +622,8 @@ impl Launcher {
             }
         } else if matches!(page.kind, PageKind::Detail { .. }) {
             (page.title.clone().into(), false)
+        } else if page.query().is_empty() && matches!(page.kind, PageKind::List { .. }) {
+            (format!("{}...", page.title).into(), true)
         } else if page.query().is_empty() {
             ("Search for apps and commands...".into(), true)
         } else {

@@ -8,13 +8,20 @@ use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
+use quickhop_core::paste::Pasted;
 use quickhop_core::{
-    Action, Boosts, Cancel, Config, Item, ItemId, Query, Ranked, ScriptMode, Search,
+    Action, Boosts, Cancel, Config, Item, ItemId, Query, Ranked, ScriptMode, Search, View, rank,
 };
 use quickhop_platform_macos::icon::{IconRenderer as _, SystemIcons};
-use quickhop_providers::scripts;
+use quickhop_providers::{scripts, views};
 use quickhop_ui::model::Outcome;
 use quickhop_ui::window::{Backend, Command, Handle, ICON_PIXELS};
+
+/// Most entries a list (clipboard history, snippets, files) shows.
+const LIST_LIMIT: usize = 200;
+
+/// How long a paste waits for the app the user came from to be in front again.
+const REFOCUS_TIMEOUT: Duration = Duration::from_secs(1);
 
 /// Inline script commands refreshed automatically, the first ones found (Raycast's number).
 pub(crate) const MAX_INLINE: usize = 10;
@@ -173,27 +180,89 @@ fn load(config: &Config) -> Search {
     search
 }
 
+/// The frecency of the picks for `query`; problems go to standard error.
+fn boosts(query: &Query) -> Boosts {
+    let mut warnings = Vec::new();
+    let boosts =
+        match crate::open_store(&mut warnings).map(|s| s.boosts(query.text(), crate::now())) {
+            Some(Ok(boosts)) => boosts,
+            Some(Err(error)) => {
+                warnings.push(error.to_string());
+                Boosts::new()
+            }
+            None => Boosts::new(),
+        };
+    for warning in &warnings {
+        crate::warn(warning);
+    }
+    boosts
+}
+
+/// Waits, at most [`REFOCUS_TIMEOUT`], until another app than quickhop is in front: once the
+/// window hid, macOS gives the focus back to the app the user came from, and a paste must
+/// reach that app.
+fn wait_for_another_app() {
+    let quickhop = i32::try_from(std::process::id()).ok();
+    let deadline = Instant::now() + REFOCUS_TIMEOUT;
+    while quickhop_platform_macos::input::frontmost_pid() == quickhop && Instant::now() < deadline {
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+impl Launcher {
+    /// The entries of the list the command `source` opens that match `query`, best first:
+    /// the clipboard history newest first until something is typed, or what the snippets or
+    /// files provider has for `query`. Problems go to standard error.
+    fn list(&self, source: &ItemId, query: &Query) -> Vec<Ranked> {
+        let Some(view) = views::view(source) else {
+            return Vec::new();
+        };
+        let (items, boosts) = match view {
+            View::Clipboard => {
+                let clips = crate::clipboard::open()
+                    .and_then(|state| Ok(state.clips(LIST_LIMIT)?))
+                    .unwrap_or_else(|error| {
+                        crate::warn(&error.to_string());
+                        Vec::new()
+                    });
+                (views::clipboard_items(clips), Boosts::new())
+            }
+            View::Snippets | View::Files => {
+                let name = if view == View::Snippets {
+                    quickhop_providers::snippets::NAME
+                } else {
+                    quickhop_providers::files::NAME
+                };
+                let search =
+                    Arc::clone(&self.search.lock().unwrap_or_else(PoisonError::into_inner));
+                let items = search
+                    .provider(name)
+                    .map(|provider| provider.items(query, &Cancel::new()))
+                    .transpose()
+                    .unwrap_or_else(|error| {
+                        crate::warn(&error.to_string());
+                        None
+                    })
+                    .unwrap_or_default();
+                (items, boosts(query))
+            }
+        };
+        rank(
+            query,
+            items.into_iter().map(|item| (item, false)),
+            &boosts,
+            LIST_LIMIT,
+        )
+    }
+}
+
 impl Backend for Launcher {
     fn search(&self, source: Option<&ItemId>, query: &Query) -> Vec<Ranked> {
-        if source.is_some() {
-            // Pages pushed by commands (clipboard history, script items) come with their views.
-            return Vec::new();
+        if let Some(source) = source {
+            return self.list(source, query);
         }
         let search = Arc::clone(&self.search.lock().unwrap_or_else(PoisonError::into_inner));
-        let mut warnings = Vec::new();
-        let boosts =
-            match crate::open_store(&mut warnings).map(|s| s.boosts(query.text(), crate::now())) {
-                Some(Ok(boosts)) => boosts,
-                Some(Err(error)) => {
-                    warnings.push(error.to_string());
-                    Boosts::new()
-                }
-                None => Boosts::new(),
-            };
-        for warning in &warnings {
-            crate::warn(warning);
-        }
-        let mut ranked = search.run(query, &Cancel::new(), &boosts).ranked;
+        let mut ranked = search.run(query, &Cancel::new(), &boosts(query)).ranked;
         let inline = self.inline.lock().unwrap_or_else(PoisonError::into_inner);
         for result in &mut ranked {
             if let Some(subtitle) = inline
@@ -226,6 +295,13 @@ impl Backend for Launcher {
                 crate::paste::copy(&output).map_err(|e| e.to_string())?;
                 Outcome::Hud("Copied to Clipboard".to_owned())
             }
+            Action::Paste { .. } => {
+                wait_for_another_app();
+                match crate::paste::paste(&output).map_err(|e| e.to_string())? {
+                    Pasted::Pasted => Outcome::Done,
+                    Pasted::CopiedOnly(why) => Outcome::Hud(format!("Copied, not pasted: {why}")),
+                }
+            }
             Action::Script { mode, .. } => match mode {
                 ScriptMode::FullOutput => Outcome::Detail {
                     title: item.title.clone(),
@@ -240,16 +316,23 @@ impl Backend for Launcher {
                 }
             },
             Action::Trash { .. } => Outcome::Hud(output),
-            Action::Open { .. } | Action::Run { .. } | Action::Reveal { .. } => Outcome::Done,
+            // The window opens lists itself (`launch::perform` refuses a view).
+            Action::Open { .. }
+            | Action::Run { .. }
+            | Action::Reveal { .. }
+            | Action::View { .. } => Outcome::Done,
         };
-        let mut warnings = Vec::new();
-        if let Some(Err(error)) = crate::open_store(&mut warnings)
-            .map(|mut store| store.record(query.text(), &item.id, crate::now()))
-        {
-            warnings.push(error.to_string());
-        }
-        for warning in &warnings {
-            crate::warn(warning);
+        // Clipboard entries come and go; only lasting items are worth remembering.
+        if item.id.provider != "clipboard" {
+            let mut warnings = Vec::new();
+            if let Some(Err(error)) = crate::open_store(&mut warnings)
+                .map(|mut store| store.record(query.text(), &item.id, crate::now()))
+            {
+                warnings.push(error.to_string());
+            }
+            for warning in &warnings {
+                crate::warn(warning);
+            }
         }
         Ok(outcome)
     }

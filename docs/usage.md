@@ -159,6 +159,12 @@ arguments opens its fields in the search bar: type its alias and a space (or pre
 on it), fill the fields, `Tab` between them, `↑`/`↓` through a dropdown's choices, then
 `Return`.
 
+Three commands open a list in the window, searched as you type, with `Esc` back to the root:
+**Clipboard History** (newest first; `Return` hides the window and pastes the entry into the
+app you were in, or copies it and says why when it cannot paste), **Search Snippets**
+(`Return` copies the expanded snippet) and **Search Files** (from three characters; `⌘K` for
+reveal, copy path, Quick Look and trash). On the command line they only say to open the window.
+
 ## Configuration and diagnostics
 
     quickhop config path                       # the file in use

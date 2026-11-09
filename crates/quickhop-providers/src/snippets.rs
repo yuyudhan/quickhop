@@ -6,7 +6,8 @@ use std::path::Path;
 use quickhop_core::snippets::SnippetsFile;
 use quickhop_core::{Action, Cancel, Item, ItemId, Provider, ProviderError, Query};
 
-const NAME: &str = "snippets";
+/// Provider name.
+pub const NAME: &str = "snippets";
 
 /// Characters of the snippet text shown as the subtitle.
 const PREVIEW_CHARS: usize = 60;

@@ -12,6 +12,7 @@ use std::sync::{Arc, Mutex};
 use quickhop_core::clipboard::PASSWORD_MANAGER_HINT;
 use quickhop_core::config::data_dir;
 use quickhop_core::{Clipboard, Config, Contents};
+use quickhop_providers::views::clip_title;
 use quickhop_store::state::{State, StateError};
 
 /// What `quickhop clipboard` does.
@@ -154,7 +155,7 @@ pub(crate) fn run(
                 writeln!(out)?;
             } else {
                 for clip in &clips {
-                    writeln!(out, "{}", one_line(&clip.text))?;
+                    writeln!(out, "{}", clip_title(&clip.text))?;
                 }
             }
         }
@@ -223,16 +224,6 @@ fn offered_types() -> Vec<String> {
                 .collect()
         })
         .unwrap_or_default()
-}
-
-/// The first line of `text`, at most 100 characters, with `…` when anything was cut.
-fn one_line(text: &str) -> String {
-    let first = text.trim_start().lines().next().unwrap_or_default();
-    let mut line: String = first.chars().take(100).collect();
-    if line.len() < text.trim().len() {
-        line.push('…');
-    }
-    line
 }
 
 /// The history in the data directory, created if needed.
@@ -486,13 +477,6 @@ mod tests {
             text("hello")
         );
         assert_eq!(added("by hand".into(), None, offered(&[])), text("by hand"));
-    }
-
-    #[test]
-    fn one_line_cuts_long_and_multi_line_texts() {
-        assert_eq!(one_line("  hello\n"), "hello");
-        assert_eq!(one_line("first\nsecond"), "first…");
-        assert_eq!(one_line(&"é".repeat(150)), format!("{}…", "é".repeat(100)));
     }
 
     #[test]

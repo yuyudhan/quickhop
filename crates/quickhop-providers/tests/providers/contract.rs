@@ -137,6 +137,7 @@ provider_contract! {
     snippets => common::snippets(),
     files_indexed => common::indexed_files()?,
     files => common::files(),
+    views => quickhop_providers::views::ViewsProvider::new(&quickhop_core::Config::default()),
 }
 
 #[test]

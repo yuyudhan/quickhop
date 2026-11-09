@@ -10,6 +10,10 @@
 //! | `scripts`    | [`scripts`]    | Raycast-compatible script commands from `~/.config/quickhop/scripts` and `[scripts] dirs` |
 //! | `snippets`   | [`snippets`]   | `snippets.toml` next to the config file, with Raycast placeholders |
 //! | `files`      | [`files`]      | files and folders by name: Spotlight (`mdfind`) on macOS, else the index built by `quickhop index` |
+//! | `views`      | [`views`]      | the commands that open a list in the launcher window: clipboard history, snippets, files |
+//!
+//! `views` has no `[providers]` switch: each of its commands follows the switch of what it
+//! lists.
 //!
 //! Every provider takes its environment explicitly ([`Env`]) so tests can point it at
 //! fixture directories and a fixed OS.
@@ -24,6 +28,7 @@ pub mod quicklinks;
 pub mod scripts;
 pub mod snippets;
 pub mod system;
+pub mod views;
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -180,6 +185,7 @@ pub fn builtin(config: &Config, env: &Env) -> (Vec<Box<dyn Provider>>, Vec<Warni
     if enabled.system {
         providers.push(Box::new(system::SystemProvider::for_os(&env.os)));
     }
+    providers.push(Box::new(views::ViewsProvider::new(config)));
     if enabled.emoji {
         providers.push(Box::new(emoji::EmojiProvider::new()));
     }
