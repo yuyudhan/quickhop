@@ -543,6 +543,7 @@ fn daemon_command(command: Command, out: &mut impl Write) -> Result<(), CliError
                 let options = daemon::Options {
                     window: !no_window,
                     test_socket,
+                    #[cfg(target_os = "macos")]
                     app: false,
                 };
                 return Ok(daemon::serve(load_config()?, &options, out)?);

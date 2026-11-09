@@ -70,6 +70,7 @@ pub(crate) struct Options {
     pub test_socket: Option<PathBuf>,
     /// Whether this is quickhop.app being opened: once the window runs, show it, or the
     /// onboarding window while quickhop may not paste.
+    #[cfg(target_os = "macos")]
     pub app: bool,
 }
 
