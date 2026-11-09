@@ -81,6 +81,8 @@ Then check your setup:
     quickhop index --watch                    # index files under ~ (or [files] roots), keep it current
     quickhop clipboard watch                  # record copied text (X11, wlroots/KDE Wayland)
     quickhop clipboard list                   # newest first; --json for everything
+    quickhop daemon &                         # one per user: clipboard history, live file index
+    quickhop open emoji:1f604 --query smile   # an action through the daemon (starts one if needed)
     mkdir -p ~/.config/quickhop && quickhop config default > ~/.config/quickhop/config.toml
 
 ## Configuration

@@ -3,6 +3,8 @@
 #![forbid(unsafe_code)]
 
 mod clipboard;
+#[cfg(unix)]
+mod daemon;
 mod launch;
 mod trash;
 
@@ -96,6 +98,43 @@ enum Command {
         #[command(subcommand)]
         action: clipboard::ClipboardAction,
     },
+    /// Run the background daemon (one per user): clipboard history, the file index, and the
+    /// `open` and `reload` requests. `status` and `stop` talk to a running one.
+    #[cfg(unix)]
+    Daemon {
+        #[command(subcommand)]
+        action: Option<DaemonAction>,
+    },
+    /// Run a result's action in the daemon, starting the daemon when none runs.
+    #[cfg(unix)]
+    Open {
+        /// The result's id, as printed by `query` (`provider:key`).
+        id: String,
+        /// The query the result was picked for (some results depend on it).
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        query: String,
+        /// A script-command or snippet argument; repeat for several.
+        #[arg(long = "arg")]
+        args: Vec<String>,
+        /// Confirm actions that need it.
+        #[arg(long)]
+        yes: bool,
+        /// Run the result's first action of this kind instead of its default one.
+        #[arg(long)]
+        action: Option<String>,
+    },
+    /// Make the running daemon read the configuration again.
+    #[cfg(unix)]
+    Reload,
+}
+
+#[cfg(unix)]
+#[derive(Debug, Subcommand)]
+enum DaemonAction {
+    /// Print whether the daemon runs and what it watches.
+    Status,
+    /// Stop the running daemon.
+    Stop,
 }
 
 #[derive(Debug, Subcommand)]
@@ -157,6 +196,9 @@ enum CliError {
     Index(#[from] quickhop_index::IndexError),
     #[error(transparent)]
     Clipboard(#[from] clipboard::ClipboardError),
+    #[cfg(unix)]
+    #[error(transparent)]
+    Daemon(#[from] daemon::DaemonError),
     #[error("nothing to index: set [files] roots or HOME")]
     NoIndexRoots,
 }
@@ -443,6 +485,43 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
             launch(&load_config()?, &request, out)?;
         }
         Command::Clipboard { action } => clipboard::run(&action, &load_config()?, now, out)?,
+        #[cfg(unix)]
+        Command::Daemon { action } => {
+            let request = match action {
+                None => return Ok(daemon::serve(load_config()?, out)?),
+                Some(DaemonAction::Status) => daemon::Request::Status,
+                Some(DaemonAction::Stop) => daemon::Request::Stop,
+            };
+            writeln!(out, "{}", daemon::message(daemon::send(&request)?)?)?;
+        }
+        #[cfg(unix)]
+        Command::Open {
+            id,
+            query,
+            args,
+            yes,
+            action,
+        } => {
+            let request = daemon::Request::Open {
+                id,
+                query,
+                args,
+                yes,
+                action,
+            };
+            let message = daemon::message(daemon::send_starting(&request)?)?;
+            if !message.is_empty() {
+                writeln!(out, "{message}")?;
+            }
+        }
+        #[cfg(unix)]
+        Command::Reload => {
+            writeln!(
+                out,
+                "{}",
+                daemon::message(daemon::send(&daemon::Request::Reload)?)?
+            )?;
+        }
         Command::Config {
             action: ConfigAction::Default,
         } => write!(out, "{}", Config::default_toml())?,

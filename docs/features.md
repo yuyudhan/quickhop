@@ -174,7 +174,7 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 | CFG-07 | Launch at login | planned | P0 | `SMAppService.mainApp` (macOS 13+) or a LaunchAgent plist | XDG autostart `~/.config/autostart/quickhop.desktop`, or a systemd user unit |
 | CFG-08 | Settings sync between machines | planned | P2 | plain files: the config dir is git/Syncthing friendly; `quickhop export/import` bundles config, snippets, quicklinks, encrypted with a passphrase (`age`) | same |
 | CFG-09 | Import a Raycast export (`.rayconfig`) | planned | P2 | decrypt with the user's export password, map snippets/quicklinks/aliases/hotkeys | same |
-| PLT-01 | Background daemon, single instance, IPC (`quickhop toggle`, `quickhop open <id>`) | planned | P0 | Unix socket in `$TMPDIR/quickhop-<uid>` | Unix socket in `$XDG_RUNTIME_DIR/quickhop.sock` |
+| PLT-01 | Background daemon, single instance, IPC (`quickhop toggle`, `quickhop open <id>`) | partial | P0 | built (Unix): `quickhop daemon` with lock file and socket in `$TMPDIR/quickhop-$USER/`, `daemon status\|stop`, `open <id>` (starts a daemon when none runs), `reload`; `toggle` comes with the window | same, in `$XDG_RUNTIME_DIR/quickhop/`; the daemon also watches the clipboard and keeps the file index current |
 | PLT-02 | Permission onboarding (Accessibility, Input Monitoring, Screen Recording, Calendar) | planned | P1 | `AXIsProcessTrustedWithOptions`, deep links to System Settings panes | portal permission prompts; `input` group guidance for SNP-03 |
 | PLT-03 | Packages and install | partial | P1 | `cargo install` today; signed and notarized `.app` in a DMG, Homebrew cask | `cargo install` today; `.deb`, `.rpm`, AUR `PKGBUILD`, tarball with `.desktop` + icons; Flatpak later (host app launching needs `flatpak-spawn --host`) |
 | PLT-04 | Updates | planned | P2 | update check against GitHub releases, cask upgrade | package managers |
@@ -184,10 +184,10 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | Priority | Features | done | partial | planned |
 |----------|---------:|-----:|--------:|--------:|
-| P0 | 30 | 19 | 4 | 7 |
+| P0 | 30 | 19 | 5 | 6 |
 | P1 | 36 | 1 | 5 | 30 |
 | P2 | 29 | 0 | 0 | 29 |
-| All | 95 | 20 | 9 | 66 |
+| All | 95 | 20 | 10 | 65 |
 
 Counted from the tables above; recount when editing them.
 
@@ -199,7 +199,7 @@ system power commands, quicklinks, Raycast script commands end to end (`quickhop
 metadata, modes and arguments), and snippets with Raycast's dynamic placeholders.
 
 Missing for a first usable release (the P0 gaps): the launcher window and its global hotkey
-(LCH-01, LCH-07, LCH-10, LCH-11), the daemon and IPC (PLT-01),
+(LCH-01, LCH-07, LCH-10, LCH-11), `toggle` and the window in the daemon (PLT-01),
 Spotlight file search on macOS (FIL-01), the clipboard view, macOS clipboard watching and paste (CLP-01, CLP-03), pasting snippets
 (SNP-01), application icon rendering (APP-02) and launch at login (CFG-07).
 [plan.md](plan.md) orders these into slices.

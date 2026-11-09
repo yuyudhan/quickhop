@@ -13,7 +13,7 @@ order [plan.md](plan.md).
 | `quickhop-core` | built | Platform-independent model: `Item`, `ItemId`, `Action` (plain data: `Open`, `Copy`, `Run`, `Script`, `Snippet`), `Query`, `Cancel`, the `Provider` trait, the nucleo fuzzy matcher (`fuzzy`), `Search`/`rank` (tiers, frecency, dedupe, limit, `[[commands]]` overrides), `Config` (TOML, XDG paths, the one-time macOS migration), the snippet library (`snippets`) and Raycast's dynamic placeholders (`placeholders`, with LDML date patterns in `datefmt`), expanded from a caller-supplied context. |
 | `quickhop-providers` | built | Built-in providers over an explicit `Env` (OS + variables): `apps`, `calc`, `emoji`, `system`, `quicklinks`, `scripts`, `snippets`. `builtin(config, env)` loads the enabled ones; `script_dirs` resolves script directories. |
 | `quickhop-store` | built | SQLite (rusqlite, bundled): frecency per (query prefix, item), half-life 7 days (`frecency.sqlite`); `clipboard::History`, the text clipboard history (`state.sqlite`). Grows the snippet, favorites and chat tables. |
-| `quickhop` | built | The binary: `query`, `launch`, `run`, `index [--watch]`, `clipboard watch\|add\|list\|clear`, `config default\|path\|check`, `doctor`; later `daemon`, `toggle`, `open`. |
+| `quickhop` | built | The binary: `query`, `launch`, `run`, `index [--watch]`, `clipboard watch\|add\|list\|clear`, `daemon [status\|stop]`, `open`, `reload`, `config default\|path\|check`, `doctor`; later `toggle`. |
 | `quickhop-ui` | empty | The launcher window in gpui ([ADR 0001](adr/0001-ui-toolkit.md)); `model` holds the toolkit-free view model. |
 | `quickhop-index` | built | File index for Linux (and as a Spotlight fallback): parallel walk (`ignore`), `notify` watcher, SQLite FTS5 trigram index searched through `fuzzy`. |
 | `quickhop-ext` | planned | Extension host: spawns extensions, speaks JSON-RPC over stdio, maps their views to the UI model. |
@@ -42,7 +42,8 @@ Configuration is XDG on macOS and Linux alike (Windows keeps `%APPDATA%`):
     ├── index.sqlite                    file index (`quickhop index`)
     └── extensions/                     (planned) installed extensions
 
-    $XDG_RUNTIME_DIR/quickhop.sock      (planned) daemon socket; $TMPDIR/quickhop-<uid>.sock on macOS
+    $XDG_RUNTIME_DIR/quickhop/          daemon.lock and daemon.sock; $QUICKHOP_RUNTIME, else
+                                        quickhop-$USER in $TMPDIR (per user on macOS) or /tmp
 
 quickhop 0.1 kept both the config and the database in `~/Library/Application Support/quickhop`
 on macOS. The first run of a newer binary moves `config.toml` and `frecency.sqlite*` to the
@@ -51,16 +52,23 @@ overridden by `QUICKHOP_CONFIG` / `QUICKHOP_DATA` alone.
 
 ## Process model
 
-Today every CLI call loads the providers and searches once. The launcher adds a resident
+CLI calls such as `query` and `launch` load the providers and search once. The resident
 process, started at login (`SMAppService` / LaunchAgent on macOS, XDG autostart or a systemd
-user unit on Linux):
+user unit on Linux, with U4):
 
-1. `quickhop daemon` loads the config and providers once, opens the store, starts the
-   clipboard watcher, the inline-script scheduler and the file indexer, registers hotkeys, and
-   keeps the hidden gpui window ready.
-2. A single-instance lock and a Unix socket accept commands: `toggle`, `open <id>`,
-   `run <script>`, `reload`. On Wayland without the GlobalShortcuts portal, the compositor
-   binds a key to `quickhop toggle`.
+1. `quickhop daemon` (built, Unix): takes an exclusive lock on `daemon.lock` (a second daemon
+   exits with "already running (pid N)"; the kernel drops the lock when a daemon dies, so the
+   next one removes the stale socket), listens on `daemon.sock`, starts the clipboard watcher,
+   and rebuilds the file index on a thread before watching it (catching up changes missed
+   while no daemon ran). Later: loads the providers once, the inline-script scheduler,
+   hotkeys, and the hidden gpui window kept ready.
+2. Requests are one JSON line each way per connection (`{"cmd": "status" | "open" |
+   "reload" | "stop", …}` → `{"ok", "pid", "message"}`): `quickhop daemon status|stop`,
+   `quickhop open <id>` (runs the action in the daemon, as `launch` does, starting a daemon
+   first when none answers), `quickhop reload` (a broken config is refused and the old one
+   kept; the file index restarts with the new roots). Later: `toggle` with the window, and
+   `run <script>`. On Wayland without the GlobalShortcuts portal, the compositor binds a key
+   to `quickhop toggle`.
 3. Per keystroke the UI runs `Search::run` with a fresh `Cancel` (the previous search is
    cancelled), on a worker thread, and renders the ranked list.
 4. Config, scripts and snippets are watched (`notify`) and reloaded in place.
@@ -143,7 +151,7 @@ folders and version-control, dependency, build and cache folders), paths stored 
 characters (entry counts are kept per trigram at each rebuild), verifies every word is a
 substring of the path, and ranks the candidates by the fuzzy score of the name, else of the
 path. `quickhop index` rebuilds it; `--watch` keeps it current until stopped; the daemon
-will run the watcher at low priority. On itlinux3 a 200,000-file tree indexes in about 4.5 s
+rebuilds it at start, then watches it. On itlinux3 a 200,000-file tree indexes in about 4.5 s
 and queries answer in under 15 ms (`crates/quickhop-index/tests/scale.rs`).
 
 File actions: `Reveal` calls `org.freedesktop.FileManager1.ShowItems` on the session bus
@@ -166,7 +174,7 @@ runs any of an item's actions by kind.
   files beside it), source app, pinned entries, `snippets_usage`, `favorites`, `aliases`,
   `hotkeys`, `chats`/`messages`; encryption at rest with a key from the OS keyring (Keychain,
   Secret Service).
-- Clipboard watching (`quickhop clipboard watch`, later inside the daemon): X11 through
+- Clipboard watching (`quickhop clipboard watch`, and inside the daemon): X11 through
   `XFixes` selection-owner events on `CLIPBOARD`, reading `UTF8_STRING` (large texts in `INCR`
   chunks); Wayland compositors with a data-control protocol through `wl-paste --watch quickhop
   clipboard add`. GNOME's Wayland session has no such protocol, so there copies are only seen

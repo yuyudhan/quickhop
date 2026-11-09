@@ -372,6 +372,21 @@ pub fn data_dir(os: &str, var: impl Fn(&str) -> Option<String>) -> Result<PathBu
     Ok(dir.join("quickhop"))
 }
 
+/// The directory for the daemon's socket and lock file: `QUICKHOP_RUNTIME` if set, else
+/// `$XDG_RUNTIME_DIR/quickhop`, else `quickhop-<user>` in `$TMPDIR` (per user on macOS) or
+/// `/tmp`.
+pub fn runtime_dir(var: impl Fn(&str) -> Option<String>) -> PathBuf {
+    let get = |name: &str| var(name).filter(|v| !v.is_empty());
+    if let Some(path) = get("QUICKHOP_RUNTIME") {
+        return PathBuf::from(path);
+    }
+    if let Some(dir) = get("XDG_RUNTIME_DIR") {
+        return PathBuf::from(dir).join("quickhop");
+    }
+    let user = get("USER").unwrap_or_else(|| "user".into());
+    PathBuf::from(get("TMPDIR").unwrap_or_else(|| "/tmp".into())).join(format!("quickhop-{user}"))
+}
+
 /// The directory quickhop 0.1 used on macOS for both the config and the data:
 /// `~/Library/Application Support/quickhop`. `None` on other OSes or without `HOME`.
 pub fn legacy_macos_dir(os: &str, var: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {

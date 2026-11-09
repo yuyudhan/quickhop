@@ -456,6 +456,146 @@ fn clipboard_add_list_retention_and_clear() -> TestResult {
     Ok(())
 }
 
+/// The daemon over a private runtime directory, with no display to watch.
+#[cfg(unix)]
+mod daemon {
+    use std::io::{BufRead, BufReader};
+    use std::path::{Path, PathBuf};
+    use std::process::{Child, Stdio};
+
+    use super::{Sandbox, TestResult, stdout};
+
+    /// Stops whatever daemon runs in `runtime` when the test ends, however it ends.
+    struct Cleanup<'a>(&'a Sandbox, PathBuf, Option<Child>);
+
+    impl Drop for Cleanup<'_> {
+        fn drop(&mut self) {
+            if let Ok(mut cmd) = client(self.0, &self.1) {
+                let _ = cmd.args(["daemon", "stop"]).output();
+            }
+            if let Some(child) = self.2.as_mut() {
+                let _ = child.kill();
+                let _ = child.wait();
+            }
+        }
+    }
+
+    fn client(
+        sandbox: &Sandbox,
+        runtime: &Path,
+    ) -> Result<assert_cmd::Command, Box<dyn std::error::Error>> {
+        let mut cmd = sandbox.cmd()?;
+        cmd.env("QUICKHOP_RUNTIME", runtime)
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY");
+        Ok(cmd)
+    }
+
+    /// Starts `quickhop daemon` and returns it with its pid once it listens.
+    fn start(
+        sandbox: &Sandbox,
+        runtime: &Path,
+    ) -> Result<(Child, String), Box<dyn std::error::Error>> {
+        let mut child = std::process::Command::new(env!("CARGO_BIN_EXE_quickhop"))
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("XDG_DATA_HOME")
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY")
+            .env("HOME", "/nonexistent-quickhop-home")
+            .env("QUICKHOP_CONFIG", sandbox.dir.path().join("config.toml"))
+            .env("QUICKHOP_DATA", sandbox.dir.path().join("data"))
+            .env("QUICKHOP_RUNTIME", runtime)
+            .arg("daemon")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .spawn()?;
+        let mut line = String::new();
+        BufReader::new(child.stdout.take().ok_or("no stdout")?).read_line(&mut line)?;
+        let pid = line
+            .strip_prefix("quickhop daemon ")
+            .and_then(|rest| rest.split_whitespace().next())
+            .ok_or_else(|| format!("unexpected banner {line:?}"))?
+            .to_owned();
+        assert!(line.contains(" listening on "), "{line}");
+        Ok((child, pid))
+    }
+
+    #[test]
+    fn one_daemon_per_user_serves_status_open_reload_and_stop() -> TestResult {
+        let sandbox = Sandbox::new()?;
+        let runtime = sandbox.dir.path().join("run");
+        let (child, pid) = start(&sandbox, &runtime)?;
+        let mut cleanup = Cleanup(&sandbox, runtime.clone(), Some(child));
+
+        let second = client(&sandbox, &runtime)?.arg("daemon").output()?;
+        assert!(!second.status.success());
+        let error = String::from_utf8(second.stderr)?;
+        assert!(
+            error.contains(&format!("already running (pid {pid})")),
+            "{error}"
+        );
+
+        let status = stdout(client(&sandbox, &runtime)?.args(["daemon", "status"]))?;
+        assert!(
+            status.starts_with(&format!("running (pid {pid})")),
+            "{status}"
+        );
+        let opened =
+            stdout(client(&sandbox, &runtime)?.args(["open", "emoji:1f604", "--query", "smile"]))?;
+        assert_eq!(opened, "😄\n");
+
+        // A broken config is refused and the daemon keeps the old one.
+        sandbox.add_config("max_results = 0\n")?;
+        let reload = client(&sandbox, &runtime)?.arg("reload").output()?;
+        assert!(!reload.status.success());
+        assert!(String::from_utf8(reload.stderr)?.contains("max_results"));
+        let still = stdout(client(&sandbox, &runtime)?.args(["daemon", "status"]))?;
+        assert!(
+            still.starts_with(&format!("running (pid {pid})")),
+            "{still}"
+        );
+
+        assert_eq!(
+            stdout(client(&sandbox, &runtime)?.args(["daemon", "stop"]))?,
+            "stopping\n"
+        );
+        let mut child = cleanup.2.take().ok_or("no child")?;
+        assert!(child.wait()?.success());
+        assert!(!runtime.join("daemon.sock").exists());
+        let after = client(&sandbox, &runtime)?
+            .args(["daemon", "status"])
+            .output()?;
+        assert!(String::from_utf8(after.stderr)?.contains("not running"));
+        Ok(())
+    }
+
+    #[test]
+    fn a_killed_daemon_is_replaced_and_open_starts_one() -> TestResult {
+        let sandbox = Sandbox::new()?;
+        let runtime = sandbox.dir.path().join("run");
+        let (mut child, first) = start(&sandbox, &runtime)?;
+        let _cleanup = Cleanup(&sandbox, runtime.clone(), None);
+        child.kill()?;
+        child.wait()?;
+        assert!(
+            runtime.join("daemon.sock").exists(),
+            "a killed daemon leaves its socket"
+        );
+
+        // No daemon answers, so `open` starts one, which replaces the stale socket.
+        let opened =
+            stdout(client(&sandbox, &runtime)?.args(["open", "emoji:1f604", "--query", "smile"]))?;
+        assert_eq!(opened, "😄\n");
+        let status = stdout(client(&sandbox, &runtime)?.args(["daemon", "status"]))?;
+        assert!(status.starts_with("running (pid "), "{status}");
+        assert!(
+            !status.starts_with(&format!("running (pid {first})")),
+            "{status}"
+        );
+        Ok(())
+    }
+}
+
 #[test]
 fn launching_records_frecency() -> TestResult {
     let sandbox = Sandbox::new()?;

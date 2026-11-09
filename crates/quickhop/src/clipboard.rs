@@ -44,13 +44,15 @@ pub(crate) enum ClipboardError {
     },
     #[error("cannot read standard input: {0}")]
     Stdin(io::Error),
-    #[error("cannot write output: {0}")]
-    Output(#[from] io::Error),
+    #[error(transparent)]
+    Io(#[from] io::Error),
     #[cfg(all(unix, not(target_os = "macos")))]
     #[error(transparent)]
     X11(#[from] quickhop_platform_linux::clipboard::ClipboardError),
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[error("cannot start wl-paste (install wl-clipboard): {0}")]
     WlPaste(io::Error),
+    #[cfg(all(unix, not(target_os = "macos")))]
     #[error(
         "wl-paste stopped ({0}): the compositor may lack the data-control protocol; GNOME has none"
     )]
@@ -63,16 +65,26 @@ pub(crate) enum ClipboardError {
 pub(crate) fn run(
     action: &ClipboardAction,
     config: &Config,
-    now: impl Fn() -> i64,
+    now: fn() -> i64,
     out: &mut impl Write,
 ) -> Result<(), ClipboardError> {
     let retention = Retention {
         max_entries: config.clipboard.max_entries,
         max_age_days: config.clipboard.max_age_days,
     };
+    if let ClipboardAction::Watch = action {
+        let watching = start(std::sync::Arc::new(std::sync::Mutex::new(retention)), now)?;
+        writeln!(
+            out,
+            "watching the {} clipboard (Ctrl+C stops)",
+            watching.session()
+        )?;
+        out.flush()?;
+        return watching.wait();
+    }
     let mut history = open()?;
     match action {
-        ClipboardAction::Watch => watch(&mut history, retention, now, out)?,
+        ClipboardAction::Watch => {}
         ClipboardAction::Add => {
             let mut bytes = Vec::new();
             io::stdin()
@@ -133,57 +145,124 @@ fn var(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.is_empty())
 }
 
+/// A running clipboard watcher.
 #[cfg(all(unix, not(target_os = "macos")))]
-fn watch(
-    history: &mut History,
-    retention: Retention,
-    now: impl Fn() -> i64,
-    out: &mut impl Write,
-) -> Result<(), ClipboardError> {
+pub(crate) enum Watching {
+    /// `wl-paste --watch`, which runs `quickhop clipboard add` for every copy.
+    Wayland(std::process::Child),
+    /// The X11 watcher thread; it ends with the process or a broken connection.
+    X11(std::thread::JoinHandle<Result<(), ClipboardError>>),
+}
+
+#[cfg(all(unix, not(target_os = "macos")))]
+impl Watching {
+    /// The kind of session watched.
+    pub(crate) fn session(&self) -> &'static str {
+        match self {
+            Self::Wayland(_) => "Wayland",
+            Self::X11(_) => "X11",
+        }
+    }
+
+    /// Blocks until the watcher ends, which normally means never.
+    pub(crate) fn wait(self) -> Result<(), ClipboardError> {
+        match self {
+            Self::Wayland(mut child) => {
+                let status = child.wait()?;
+                if status.success() {
+                    Ok(())
+                } else {
+                    Err(ClipboardError::WlPasteFailed(status.to_string()))
+                }
+            }
+            Self::X11(thread) => thread
+                .join()
+                .unwrap_or(Err(ClipboardError::Unsupported("the X11 watcher panicked"))),
+        }
+    }
+
+    /// Stops a Wayland watcher; the X11 thread stops with the process.
+    pub(crate) fn stop(&mut self) {
+        if let Self::Wayland(child) = self {
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+    }
+}
+
+/// Starts recording every copied text into the history: through `wl-paste --watch` on
+/// Wayland, else the X11 watcher. `retention` is read at every copy.
+#[cfg(all(unix, not(target_os = "macos")))]
+pub(crate) fn start(
+    retention: std::sync::Arc<std::sync::Mutex<Retention>>,
+    now: fn() -> i64,
+) -> Result<Watching, ClipboardError> {
     use std::ops::ControlFlow;
+    use std::sync::PoisonError;
 
     if var("WAYLAND_DISPLAY").is_some() {
         // wl-paste runs `quickhop clipboard add` with the new text on stdin for every copy.
         let exe = std::env::current_exe()?;
-        writeln!(out, "watching the Wayland clipboard (Ctrl+C stops)")?;
-        out.flush()?;
-        let status = std::process::Command::new("wl-paste")
+        let child = std::process::Command::new("wl-paste")
             .args(["--type", "text", "--watch"])
             .arg(exe)
             .args(["clipboard", "add"])
-            .status()
+            .stdin(std::process::Stdio::null())
+            .spawn()
             .map_err(ClipboardError::WlPaste)?;
-        return if status.success() {
-            Ok(())
-        } else {
-            Err(ClipboardError::WlPasteFailed(status.to_string()))
-        };
+        return Ok(Watching::Wayland(child));
     }
     if var("DISPLAY").is_none() {
         return Err(ClipboardError::Unsupported(
             "no graphical session: DISPLAY and WAYLAND_DISPLAY are unset",
         ));
     }
-    writeln!(out, "watching the X11 clipboard (Ctrl+C stops)")?;
-    out.flush()?;
-    quickhop_platform_linux::clipboard::watch_x11(None, |text| {
-        if let Err(error) = history.add(&text, now(), retention) {
-            let _ = writeln!(io::stderr(), "quickhop: {error}");
-        }
-        ControlFlow::Continue(())
-    })?;
-    Ok(())
+    let mut history = open()?;
+    let thread = std::thread::Builder::new()
+        .name("quickhop-clipboard".into())
+        .spawn(move || {
+            quickhop_platform_linux::clipboard::watch_x11(None, |text| {
+                let limits = *retention.lock().unwrap_or_else(PoisonError::into_inner);
+                if let Err(error) = history.add(&text, now(), limits) {
+                    let _ = writeln!(io::stderr(), "quickhop: {error}");
+                }
+                ControlFlow::Continue(())
+            })?;
+            Ok(())
+        })?;
+    Ok(Watching::X11(thread))
 }
 
+/// No clipboard watcher exists on this system yet.
 #[cfg(not(all(unix, not(target_os = "macos"))))]
-fn watch(
-    _history: &mut History,
-    _retention: Retention,
-    _now: impl Fn() -> i64,
-    _out: &mut impl Write,
-) -> Result<(), ClipboardError> {
+pub(crate) enum Watching {}
+
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+impl Watching {
+    /// The kind of session watched.
+    pub(crate) fn session(&self) -> &'static str {
+        match *self {}
+    }
+
+    /// Blocks until the watcher ends.
+    pub(crate) fn wait(self) -> Result<(), ClipboardError> {
+        match self {}
+    }
+
+    /// Stops the watcher.
+    pub(crate) fn stop(&mut self) {
+        match *self {}
+    }
+}
+
+/// Starts recording every copied text into the history.
+#[cfg(not(all(unix, not(target_os = "macos"))))]
+pub(crate) fn start(
+    _retention: std::sync::Arc<std::sync::Mutex<Retention>>,
+    _now: fn() -> i64,
+) -> Result<Watching, ClipboardError> {
     Err(ClipboardError::Unsupported(
-        "watching the clipboard on this system comes with the quickhop daemon",
+        "watching the clipboard on this system comes with the macOS and Windows slices",
     ))
 }
 
