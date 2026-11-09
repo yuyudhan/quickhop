@@ -6,6 +6,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod ansi;
 pub mod model;
 #[cfg(target_os = "macos")]
 pub mod window;

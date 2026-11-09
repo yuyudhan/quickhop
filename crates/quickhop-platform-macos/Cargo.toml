@@ -26,7 +26,10 @@ objc2-app-kit = { workspace = true, features = [
     "NSImage",
     "NSImageRep",
     "NSPasteboard",
+    "NSResponder",
     "NSRunningApplication",
+    "NSView",
+    "NSWindow",
     "NSWorkspace",
     "libc",
     "objc2-core-graphics",
@@ -54,6 +57,7 @@ objc2-foundation = { workspace = true, features = [
     "NSGeometry",
     "NSString",
 ] }
+raw-window-handle.workspace = true
 
 [dev-dependencies]
 png.workspace = true

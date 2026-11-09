@@ -559,14 +559,16 @@ pub(crate) fn serve(
     #[cfg(target_os = "macos")]
     if let Some(launcher) = launcher {
         let test_socket = options.test_socket.clone();
+        let backend: Arc<dyn quickhop_ui::window::Backend> = Arc::clone(&launcher) as _;
         // Returns early only when the window cannot be opened; the requests go on without it.
-        quickhop_ui::window::run(launcher, move |handle| {
+        quickhop_ui::window::run(backend, move |handle| {
             let _ = ui.set(handle.clone());
             *hotkey.lock().unwrap_or_else(PoisonError::into_inner) =
                 bind_hotkey(&handle, &hotkey_text);
+            crate::window::refresh_inline(Arc::clone(&launcher), handle.clone());
             // Last: a test socket that answers means the window and the hotkey are ready.
             if let Some(path) = test_socket {
-                serve_snapshots(&path, handle);
+                serve_snapshots(&path, handle, launcher);
             }
         });
     }
@@ -657,10 +659,15 @@ fn bind_hotkey(ui: &quickhop_ui::window::Handle, text: &str) -> String {
     }
 }
 
-/// Answers each `snapshot` line on the Unix socket `path` with what the window shows, as one
-/// JSON line ([`quickhop_ui::model::Snapshot`]); the UI tests read it.
+/// Answers the UI tests on the Unix socket `path`, one JSON line per line asked: `snapshot`
+/// with what the window shows ([`quickhop_ui::model::Snapshot`]), `advance <seconds>` by
+/// moving the clock of inline script refreshes ahead.
 #[cfg(target_os = "macos")]
-fn serve_snapshots(path: &Path, ui: quickhop_ui::window::Handle) {
+fn serve_snapshots(
+    path: &Path,
+    ui: quickhop_ui::window::Handle,
+    launcher: Arc<crate::window::Launcher>,
+) {
     let _ = std::fs::remove_file(path);
     let listener = match UnixListener::bind(path) {
         Ok(listener) => listener,
@@ -672,25 +679,38 @@ fn serve_snapshots(path: &Path, ui: quickhop_ui::window::Handle) {
     std::thread::spawn(move || {
         for stream in listener.incoming().flatten() {
             let ui = ui.clone();
-            std::thread::spawn(move || answer_snapshots(stream, &ui));
+            let launcher = Arc::clone(&launcher);
+            std::thread::spawn(move || answer_snapshots(stream, &ui, &launcher));
         }
     });
 }
 
 #[cfg(target_os = "macos")]
-fn answer_snapshots(stream: UnixStream, ui: &quickhop_ui::window::Handle) {
+fn answer_snapshots(
+    stream: UnixStream,
+    ui: &quickhop_ui::window::Handle,
+    launcher: &crate::window::Launcher,
+) {
     let Ok(mut writer) = stream.try_clone() else {
         return;
     };
     for line in BufReader::new(stream).lines() {
         let Ok(line) = line else { return };
-        let answer = match line.trim() {
-            "snapshot" => match ui.send(quickhop_ui::window::Command::Snapshot) {
+        let line = line.trim();
+        let answer = if line == "snapshot" {
+            match ui.send(quickhop_ui::window::Command::Snapshot) {
                 Ok(snapshot) => serde_json::to_value(snapshot)
                     .unwrap_or_else(|error| serde_json::json!({ "error": error.to_string() })),
                 Err(gone) => serde_json::json!({ "error": gone.to_string() }),
-            },
-            other => serde_json::json!({ "error": format!("unknown command {other:?}") }),
+            }
+        } else if let Some(seconds) = line
+            .strip_prefix("advance ")
+            .and_then(|s| s.trim().parse::<u64>().ok())
+        {
+            launcher.advance(Duration::from_secs(seconds));
+            serde_json::json!({ "advanced": seconds })
+        } else {
+            serde_json::json!({ "error": format!("unknown command {line:?}") })
         };
         if writeln!(writer, "{answer}").is_err() {
             return;

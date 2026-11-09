@@ -30,7 +30,7 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 | LCH-09 | Enable, disable and reorder root commands | done | P1 | `[providers]` switches; `[[commands]] enabled` and `order` (empty root) | same |
 | LCH-10 | Navigation stack: commands push views, `Esc` pops, `Esc` at root hides | partial | P0 | built: the view model's stack (push, pop, `Esc` pops, `Esc` at root hides) and the window over it; next: the views commands push (clipboard, snippets, files) | with the Linux window |
 | LCH-11 | Launcher window: borderless, rounded, translucent/blurred, on the active screen, hides on focus loss | partial | P0 | built: one gpui `WindowKind::PopUp` window (non-activating, above other apps) with a `Blurred` background, created hidden when the daemon starts, shown and hidden from then on, hidden when it loses the focus; next: the screen of the mouse instead of the main screen | X11: override-redirect-free centered dialog, `_NET_WM_STATE_ABOVE`, ARGB visual; Wayland: `wlr-layer-shell` overlay (sway, Hyprland, KWin, COSMIC) with KDE blur protocol when offered; GNOME (no layer-shell): normal centered undecorated window |
-| LCH-12 | Command arguments inline in the search bar (`alias` + space focuses them) | planned | P1 | UI over `ScriptArgument` | same |
+| LCH-12 | Command arguments inline in the search bar (`alias` + space focuses them) | partial | P1 | built: a space after the alias of a script that asks for arguments opens its fields in the search bar, `Tab`/`Shift+Tab` move between them, arrows pick dropdown choices, passwords are masked, `Return` runs it or focuses the first empty required field, `Esc` closes the fields; `Return` on such a script opens them too | same, with the Linux window |
 | LCH-13 | Deeplinks: `quickhop://commands/<id>?arguments=...` | planned | P1 | `CFBundleURLTypes` in Info.plist | `x-scheme-handler/quickhop` in the `.desktop` file, `xdg-mime` |
 | LCH-14 | Compact window mode and adjustable size/position | planned | P2 | config `[window]` | same |
 | LCH-15 | Root search history | planned | P2 | store | same |
@@ -117,12 +117,12 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 | ID | Feature | Status | P | macOS | Linux (X11 / Wayland) |
 |----|---------|--------|---|-------|------------------------|
 | SCR-01 | `@raycast.*` metadata: `schemaVersion`, `title`, `mode`, `packageName` (folder-name default), `icon`, `iconDark`, `description`, `author`, `authorURL`, `platform`, `currentDirectoryPath` (`~` expanded), `needsConfirmation`, `refreshTime` (10 s floor), `argument1..3` | done | P0 | shared parser, Raycast's own scripts as goldens | same |
-| SCR-02 | Output modes `fullOutput`, `compact`, `silent`, `inline` (inline without `refreshTime` runs compact, as Raycast) | done | P0 | CLI prints per mode; UI shows view / toast / HUD / subtitle | same |
-| SCR-03 | Arguments: `text`, `password`, `dropdown`, `optional`, `percentEncoded` | done | P0 | CLI positional values; UI fields in the search bar (LCH-12) | same |
+| SCR-02 | Output modes `fullOutput`, `compact`, `silent`, `inline` (inline without `refreshTime` runs compact, as Raycast) | done | P0 | CLI prints per mode; macOS window: fullOutput opens an output page (`Esc` goes back), compact shows a toast and keeps the window, silent hides it and shows a HUD over the app in front, inline updates the subtitle | same, with the Linux window |
+| SCR-03 | Arguments: `text`, `password`, `dropdown`, `optional`, `percentEncoded` | done | P0 | CLI positional values; macOS window fields in the search bar (LCH-12) | same |
 | SCR-04 | `quickhop run <script> [args]` by path, file stem or title | done | P0 | shared | same |
 | SCR-05 | Script directories: `~/.config/quickhop/scripts` plus `[scripts] dirs`; `*.template.*` skipped | done | P0 | XDG on macOS too | XDG |
-| SCR-06 | Inline refresh scheduler (`refreshTime`, first 10 refreshed automatically) | planned | P1 | daemon timer | same |
-| SCR-07 | ANSI colours in fullOutput and inline output | partial | P1 | colour kept in fullOutput/inline, stripped from toasts; UI renders SGR 30-37/40-47/90-107, 8- and 24-bit | same |
+| SCR-06 | Inline refresh scheduler (`refreshTime`, first 10 refreshed automatically) | partial | P1 | built: the daemon runs the first 10 inline scripts that take no arguments again every `refreshTime` and the window searches again with their new subtitles, keeping the selection | same, with the Linux window |
+| SCR-07 | ANSI colours in fullOutput and inline output | partial | P1 | colour kept in fullOutput/inline, stripped from toasts; the output page draws foreground colours (SGR 30-37, 90-97, `38;5;n` below 16) in a 16-colour palette; next: 256 and 24-bit colours, backgrounds, colour in inline subtitles | same |
 | SCR-08 | Create Script Command from templates (bash, python, node, ruby, swift, applescript) | planned | P1 | writes into the scripts dir | same, applescript/swift templates hidden |
 | SCR-09 | Platform awareness: hide or warn for macOS-only scripts (`osascript`, `.applescript`, `platform macos`) on Linux | planned | P1 | n/a | `platform` header and interpreter check |
 
@@ -185,9 +185,9 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 | Priority | Features | done | partial | planned |
 |----------|---------:|-----:|--------:|--------:|
 | P0 | 30 | 19 | 11 | 0 |
-| P1 | 36 | 1 | 7 | 28 |
+| P1 | 36 | 1 | 9 | 26 |
 | P2 | 29 | 0 | 0 | 29 |
-| All | 95 | 20 | 18 | 57 |
+| All | 95 | 20 | 20 | 55 |
 
 Counted from the tables above; recount when editing them.
 

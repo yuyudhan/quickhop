@@ -77,12 +77,12 @@ Argument JSON fields:
 
 Output modes:
 
-| Mode | Raycast shows | `quickhop run` prints |
-|------|---------------|-----------------------|
-| `fullOutput` | All output in a view, ANSI colours kept | All of standard output, colours kept |
-| `compact` | The last line in a toast | The last line, colours stripped |
-| `silent` | The last line in a HUD after the window closes | The last line, colours stripped |
-| `inline` | The first line as the command's subtitle, refreshed every `refreshTime` | The first line |
+| Mode | Raycast shows | quickhop's window (macOS) | `quickhop run` prints |
+|------|---------------|---------------------------|-----------------------|
+| `fullOutput` | All output in a view, ANSI colours kept | An output page, foreground colours drawn | All of standard output, colours kept |
+| `compact` | The last line in a toast | The last line in a toast | The last line, colours stripped |
+| `silent` | The last line in a HUD after the window closes | The same | The last line, colours stripped |
+| `inline` | The first line as the command's subtitle, refreshed every `refreshTime` | The same | The first line |
 
 A script that exits non-zero reports its last output line, or the last line of standard error
 when it printed nothing, and `quickhop run` exits with status 1.
@@ -97,8 +97,10 @@ shown for information.
   fails with its interpreter's error.
 - **Timeout.** `quickhop run` kills a script after 60 seconds by default
   (`--timeout SECONDS`, up to 3600).
-- **Inline refresh.** `refreshTime` is parsed and validated, and each run of an `inline`
-  script prints its first line; quickhop does not re-run inline scripts on a timer.
+- **Inline refresh.** The daemon re-runs the first 10 `inline` scripts that have a
+  `refreshTime` and take no arguments (Raycast's limit); `quickhop run` runs one once.
+- **Colours.** The output page draws the 16 standard foreground colours; 256 and 24-bit
+  colours and backgrounds show as plain text.
 
 ## Running scripts
 

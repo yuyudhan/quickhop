@@ -138,12 +138,30 @@ impl Daemon {
     /// # Errors
     /// When the socket does not answer with JSON.
     pub fn snapshot(&self) -> Fallible<Value> {
+        self.ask("snapshot")
+    }
+
+    /// Moves the daemon's clock for inline script refreshes `seconds` ahead.
+    ///
+    /// # Errors
+    /// When the socket does not confirm it.
+    pub fn advance(&self, seconds: u64) -> Fallible {
+        let answer = self.ask(&format!("advance {seconds}"))?;
+        if answer["advanced"] == seconds {
+            Ok(())
+        } else {
+            Err(format!("advance {seconds}: {answer}").into())
+        }
+    }
+
+    /// Sends `line` on the test socket and reads the JSON line answering it.
+    fn ask(&self, line: &str) -> Fallible<Value> {
         let mut stream = UnixStream::connect(self.dir.path().join("test.sock"))?;
         stream.set_read_timeout(Some(PATIENCE))?;
-        writeln!(stream, "snapshot")?;
-        let mut line = String::new();
-        BufReader::new(stream).read_line(&mut line)?;
-        Ok(serde_json::from_str(&line)?)
+        writeln!(stream, "{line}")?;
+        let mut answer = String::new();
+        BufReader::new(stream).read_line(&mut answer)?;
+        Ok(serde_json::from_str(&answer)?)
     }
 
     /// The snapshot once `check` holds for it, or an error naming `what` after
@@ -198,8 +216,10 @@ pub mod ax {
     use std::time::{Duration, Instant};
 
     use quickhop_core::{ClipboardSource as _, Contents, Hotkey};
-    use quickhop_platform_macos::input::{self, focused_pid, frontmost_pid, windows_on_screen};
-    pub use quickhop_platform_macos::input::{Key, OnScreen, is_running, quit};
+    use quickhop_platform_macos::input::{self, focused_pid};
+    pub use quickhop_platform_macos::input::{
+        Key, OnScreen, frontmost_pid, is_running, quit, windows_on_screen,
+    };
     use quickhop_platform_macos::pasteboard::Pasteboard;
 
     use super::{Daemon, Fallible, PATIENCE};
@@ -393,5 +413,19 @@ pub mod ax {
             return Err(format!("screencapture failed: {status}").into());
         }
         Ok(std::fs::metadata(path)?.len())
+    }
+
+    /// The pixels of the PNG capture at `path`: its RGB or RGBA samples, row after row, its
+    /// width in pixels and its samples per pixel.
+    ///
+    /// # Errors
+    /// When the file is no PNG.
+    pub fn pixels(path: &std::path::Path) -> Fallible<(Vec<u8>, u32, usize)> {
+        let decoder = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(path)?));
+        let mut reader = decoder.read_info()?;
+        let mut pixels = vec![0; reader.output_buffer_size().ok_or("image too large")?];
+        let frame = reader.next_frame(&mut pixels)?;
+        pixels.truncate(frame.buffer_size());
+        Ok((pixels, frame.width, frame.color_type.samples()))
     }
 }

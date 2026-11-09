@@ -30,6 +30,8 @@ pub enum Key {
     Escape,
     /// `Delete` (backspace).
     Delete,
+    /// `Tab`.
+    Tab,
     /// The down arrow.
     Down,
     /// The up arrow.
@@ -45,6 +47,7 @@ impl Key {
             Self::Return => 36,
             Self::Escape => 53,
             Self::Delete => 51,
+            Self::Tab => 48,
             Self::Down => 125,
             Self::Up => 126,
             Self::Char(character) => return typed(&Layout::current(), character),

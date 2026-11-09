@@ -18,6 +18,7 @@ thiserror.workspace = true
 async-channel.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
+quickhop-platform-macos.workspace = true
 
 [dev-dependencies]
 # The toolkit spike (examples/spike.rs, plan slice U0) measures gpui before the window code

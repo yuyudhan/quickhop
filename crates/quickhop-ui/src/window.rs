@@ -18,11 +18,20 @@ use gpui::{
 };
 use quickhop_core::{Action, Item, ItemId, Query, Ranked};
 
-use crate::model::{Effect, Model, SearchRequest, Snapshot, Toast, ToastStyle, highlight_ranges};
+use crate::model::{
+    Effect, Model, Outcome, PageKind, SearchRequest, Snapshot, ToastStyle, highlight_ranges,
+    keeps_window,
+};
 
 const ROW_HEIGHT: f32 = 44.0;
 const WINDOW_WIDTH: f32 = 750.0;
 const WINDOW_HEIGHT: f32 = 474.0;
+const HUD_WIDTH: f32 = 360.0;
+const HUD_HEIGHT: f32 = 44.0;
+/// Distance from the HUD to the bottom of the screen.
+const HUD_BOTTOM: f32 = 140.0;
+/// How long a HUD stays on screen.
+const HUD_SECONDS: u64 = 2;
 
 /// The size, in pixels, icons are asked for: the 24-point icon slot on a 2× display, with room.
 pub const ICON_PIXELS: u32 = 64;
@@ -36,12 +45,18 @@ pub trait Backend: Send + Sync + 'static {
     /// items of the command that pushed the page.
     fn search(&self, source: Option<&ItemId>, query: &Query) -> Vec<Ranked>;
 
-    /// Carries out `action` of `item`, chosen while `query` was typed. Returns what to tell
-    /// the user, if anything.
+    /// Carries out `action` of `item` with `args` for a script's arguments, chosen while
+    /// `query` was typed. Returns what came of it for the user.
     ///
     /// # Errors
     /// A message for the user when the action failed.
-    fn perform(&self, item: &Item, action: &Action, query: &Query) -> Result<String, String>;
+    fn perform(
+        &self,
+        item: &Item,
+        action: &Action,
+        args: &[String],
+        query: &Query,
+    ) -> Result<Outcome, String>;
 
     /// The icon of `item` as PNG data at least [`ICON_PIXELS`] square, when the system has
     /// one for it (an application, a file); `None` leaves the row's text icon, if any.
@@ -69,6 +84,8 @@ pub enum Command {
     Toggle,
     /// Change nothing; report what it shows.
     Snapshot,
+    /// Search the page shown again: its items changed (an inline script's new subtitle).
+    Refresh,
     /// End the app: [`run`] returns.
     Quit,
 }
@@ -177,6 +194,13 @@ impl Opened {
             Command::Toggle => !visible,
             Command::Hide | Command::Quit => false,
             Command::Snapshot => return self.launcher.read(cx).snapshot(),
+            Command::Refresh => {
+                self.launcher.update(cx, |launcher, cx| {
+                    let effect = launcher.model.refresh();
+                    launcher.apply(effect, cx);
+                });
+                return self.launcher.read(cx).snapshot();
+            }
         };
         let _ = self.window.update(cx, |launcher, window, cx| {
             if show {
@@ -221,6 +245,8 @@ struct Launcher {
     focus: FocusHandle,
     visible: bool,
     icons: HashMap<ItemId, Icon>,
+    /// The HUD on screen, if any, and its message.
+    hud: Option<(WindowHandle<Hud>, String)>,
 }
 
 impl Launcher {
@@ -238,6 +264,7 @@ impl Launcher {
             focus: cx.focus_handle(),
             visible: false,
             icons: HashMap::new(),
+            hud: None,
         }
     }
 
@@ -250,7 +277,71 @@ impl Launcher {
             .iter()
             .map(|ranked| matches!(self.icons.get(&ranked.item.id), Some(Icon::Ready(_))))
             .collect();
+        snapshot.hud = self.hud.as_ref().map(|(_, text)| text.clone());
         snapshot
+    }
+
+    /// Shows `text` in a HUD, a small window low in the middle of the screen, for
+    /// [`HUD_SECONDS`], over whatever app is in front (quickhop stays hidden and inactive).
+    fn show_hud(&mut self, text: String, cx: &mut Context<Self>) {
+        if let Some((old, _)) = self.hud.take() {
+            let _ = old.update(cx, |_, window, _| window.remove_window());
+        }
+        let width = px(HUD_WIDTH);
+        let height = px(HUD_HEIGHT);
+        let bounds = match cx.primary_display() {
+            Some(display) => {
+                let screen = display.bounds();
+                Bounds::new(
+                    gpui::point(
+                        screen.origin.x + (screen.size.width - width) / 2.0,
+                        screen.origin.y + screen.size.height - height - px(HUD_BOTTOM),
+                    ),
+                    size(width, height),
+                )
+            }
+            None => Bounds::centered(None, size(width, height), cx),
+        };
+        let options = WindowOptions {
+            window_bounds: Some(WindowBounds::Windowed(bounds)),
+            titlebar: None,
+            focus: false,
+            show: false,
+            kind: WindowKind::PopUp,
+            is_movable: false,
+            is_resizable: false,
+            is_minimizable: false,
+            window_background: WindowBackgroundAppearance::Blurred,
+            app_id: Some("quickhop".into()),
+            ..WindowOptions::default()
+        };
+        let message = SharedString::from(text.clone());
+        let opened = cx.open_window(options, |window, cx| {
+            if let Err(error) = quickhop_platform_macos::panel::show_while_hidden(window) {
+                let _ = writeln!(std::io::stderr(), "quickhop: cannot show the HUD: {error}");
+            }
+            cx.new(|_| Hud { text: message })
+        });
+        let handle = match opened {
+            Ok(handle) => handle,
+            Err(error) => {
+                let _ = writeln!(std::io::stderr(), "quickhop: cannot open the HUD: {error}");
+                return;
+            }
+        };
+        self.hud = Some((handle, text));
+        cx.spawn(async move |this, cx| {
+            cx.background_executor()
+                .timer(std::time::Duration::from_secs(HUD_SECONDS))
+                .await;
+            let _ = this.update(cx, |launcher, cx| {
+                if launcher.hud.as_ref().is_some_and(|(h, _)| *h == handle) {
+                    launcher.hud = None;
+                    let _ = handle.update(cx, |_, window, _| window.remove_window());
+                }
+            });
+        })
+        .detach();
     }
 
     /// Asks the backend for the icons of `items`, whose icons are not asked for yet; each row
@@ -305,8 +396,9 @@ impl Launcher {
             Effect::Perform {
                 item,
                 action,
+                args,
                 query,
-            } => self.perform(*item, action, query, cx),
+            } => self.perform(*item, action, args, query, cx),
         }
         cx.notify();
     }
@@ -332,28 +424,41 @@ impl Launcher {
         .detach();
     }
 
-    /// Hides the window, then carries out the action; a failure shows again with a toast.
-    fn perform(&mut self, item: Item, action: Action, query: Query, cx: &mut Context<Self>) {
-        self.hide(cx);
+    /// Carries out the action: with the window shown when it has something to show there (a
+    /// progress toast says it runs), else after hiding the window. What comes of it is shown
+    /// through the model, or as a HUD.
+    fn perform(
+        &mut self,
+        item: Item,
+        action: Action,
+        args: Vec<String>,
+        query: Query,
+        cx: &mut Context<Self>,
+    ) {
+        if keeps_window(&action) {
+            self.model.running(&item);
+        } else {
+            self.hide(cx);
+        }
+        let id = item.id.clone();
         let backend = Arc::clone(&self.backend);
         let task = cx
             .background_executor()
-            .spawn(async move { backend.perform(&item, &action, &query) });
+            .spawn(async move { backend.perform(&item, &action, &args, &query) });
         cx.spawn(async move |this, cx| {
             let outcome = task.await;
             let _ = this.update(cx, |launcher, cx| {
-                let toast = match outcome {
-                    Ok(message) if message.is_empty() => return,
-                    Ok(message) => Toast {
-                        style: ToastStyle::Success,
-                        title: message,
-                    },
-                    Err(message) => Toast {
-                        style: ToastStyle::Failure,
-                        title: message,
-                    },
-                };
-                launcher.model.show_toast(toast);
+                match outcome {
+                    Ok(Outcome::Hud(text)) => {
+                        launcher.model.performed(&id, Outcome::Done);
+                        launcher.show_hud(text, cx);
+                    }
+                    Ok(outcome) => {
+                        let effect = launcher.model.performed(&id, outcome);
+                        launcher.apply(effect, cx);
+                    }
+                    Err(message) => launcher.model.failed(message),
+                }
                 cx.notify();
             });
         })
@@ -370,6 +475,12 @@ impl Launcher {
             }
             _ if modifiers.platform || modifiers.control => return,
             "escape" => self.model.escape(),
+            "tab" => {
+                if !self.model.step_field(!modifiers.shift) {
+                    return;
+                }
+                Effect::None
+            }
             "enter" => self.model.activate(),
             "down" => {
                 self.model.select_next();
@@ -497,22 +608,136 @@ impl Launcher {
                 .child(toast.title.clone()),
         )
     }
+
+    /// The search bar: the query (the panel's filter while it is open, the page's title on a
+    /// detail page), then a script's argument fields while it asks for them.
+    fn render_bar(&self) -> impl IntoElement + use<> {
+        let page = self.model.page();
+        let (text, placeholder): (SharedString, bool) = if let Some(panel) = self.model.panel() {
+            if panel.filter().is_empty() {
+                ("Search for actions...".into(), true)
+            } else {
+                (panel.filter().to_owned().into(), false)
+            }
+        } else if matches!(page.kind, PageKind::Detail { .. }) {
+            (page.title.clone().into(), false)
+        } else if page.query().is_empty() {
+            ("Search for apps and commands...".into(), true)
+        } else {
+            (page.query().to_owned().into(), false)
+        };
+        let fields = self.model.form().into_iter().flat_map(|form| {
+            let focused = form.focused();
+            form.arguments()
+                .iter()
+                .enumerate()
+                .map(|(index, argument)| {
+                    let shown = form.shown(index);
+                    let empty = shown.is_empty();
+                    div()
+                        .px_2()
+                        .py_1()
+                        .min_w(px(90.0))
+                        .rounded_md()
+                        .text_base()
+                        .bg(rgba(0xffff_ff14))
+                        .border_1()
+                        .border_color(if index == focused {
+                            rgba(0x88c0_d0ff)
+                        } else {
+                            rgba(0xffff_ff1a)
+                        })
+                        .when(empty, |field| field.text_color(rgb(0x008f_96a3)))
+                        .child(if empty {
+                            argument.placeholder.clone()
+                        } else {
+                            shown
+                        })
+                })
+                .collect::<Vec<_>>()
+        });
+        div()
+            .h(px(56.0))
+            .px_4()
+            .flex()
+            .items_center()
+            .gap_2()
+            .text_xl()
+            .border_b_1()
+            .border_color(rgba(0xffff_ff1a))
+            .child(
+                div()
+                    .when(placeholder, |field| field.text_color(rgb(0x008f_96a3)))
+                    .child(text),
+            )
+            .children(fields)
+    }
+
+    /// A detail page's text, its ANSI colours drawn.
+    fn render_detail(text: &str) -> impl IntoElement + use<> {
+        let styled = crate::ansi::parse(text);
+        let highlights = styled
+            .spans
+            .into_iter()
+            .map(|(range, colour)| {
+                (
+                    range,
+                    HighlightStyle {
+                        color: Some(rgb(ANSI_COLOURS[usize::from(colour.0)]).into()),
+                        ..HighlightStyle::default()
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        div()
+            .id("detail")
+            .flex_1()
+            .overflow_y_scroll()
+            .px_4()
+            .py_3()
+            .text_base()
+            .text_color(rgb(0x00d8_dee9))
+            .child(StyledText::new(SharedString::from(styled.text)).with_highlights(highlights))
+    }
+
+    fn render_results(&self, cx: &mut Context<Self>) -> impl IntoElement + use<> {
+        let count = self.model.page().results().len();
+        uniform_list(
+            "results",
+            count,
+            cx.processor(|launcher, range: std::ops::Range<usize>, _window, cx| {
+                let missing: Vec<Item> = launcher.model.page().results()[range.clone()]
+                    .iter()
+                    .filter(|ranked| !launcher.icons.contains_key(&ranked.item.id))
+                    .map(|ranked| ranked.item.clone())
+                    .collect();
+                launcher.load_icons(missing, cx);
+                let page = launcher.model.page();
+                let selected = page.selected();
+                page.results()[range.clone()]
+                    .iter()
+                    .zip(range)
+                    .map(|(ranked, index)| {
+                        let icon = match launcher.icons.get(&ranked.item.id) {
+                            Some(Icon::Ready(image)) => Some(Arc::clone(image)),
+                            _ => None,
+                        };
+                        Self::render_row(index, ranked, selected == Some(index), icon)
+                    })
+                    .collect::<Vec<_>>()
+            }),
+        )
+        .py_2()
+        .flex_1()
+    }
 }
 
 impl Render for Launcher {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let text = self.model.bar_text();
-        let placeholder = text.is_empty();
-        let field: SharedString = if placeholder {
-            if self.model.panel().is_some() {
-                "Search for actions...".into()
-            } else {
-                "Search for apps and commands...".into()
-            }
-        } else {
-            text.to_owned().into()
+        let body = match &self.model.page().kind {
+            PageKind::Detail { text } => Self::render_detail(text).into_any_element(),
+            PageKind::Root | PageKind::List { .. } => self.render_results(cx).into_any_element(),
         };
-        let count = self.model.page().results().len();
         div()
             .track_focus(&self.focus)
             .on_key_down(cx.listener(Self::on_key_down))
@@ -524,51 +749,52 @@ impl Render for Launcher {
             .overflow_hidden()
             .bg(rgba(0x2e34_40b0))
             .text_color(rgb(0x00ec_eff4))
-            .child(
-                div()
-                    .h(px(56.0))
-                    .px_4()
-                    .flex()
-                    .items_center()
-                    .text_xl()
-                    .border_b_1()
-                    .border_color(rgba(0xffff_ff1a))
-                    .when(placeholder, |field| field.text_color(rgb(0x008f_96a3)))
-                    .child(field),
-            )
-            .child(
-                uniform_list(
-                    "results",
-                    count,
-                    cx.processor(|launcher, range: std::ops::Range<usize>, _window, cx| {
-                        let missing: Vec<Item> = launcher.model.page().results()[range.clone()]
-                            .iter()
-                            .filter(|ranked| !launcher.icons.contains_key(&ranked.item.id))
-                            .map(|ranked| ranked.item.clone())
-                            .collect();
-                        launcher.load_icons(missing, cx);
-                        let page = launcher.model.page();
-                        let selected = page.selected();
-                        page.results()[range.clone()]
-                            .iter()
-                            .zip(range)
-                            .map(|(ranked, index)| {
-                                let icon = match launcher.icons.get(&ranked.item.id) {
-                                    Some(Icon::Ready(image)) => Some(Arc::clone(image)),
-                                    _ => None,
-                                };
-                                Self::render_row(index, ranked, selected == Some(index), icon)
-                            })
-                            .collect::<Vec<_>>()
-                    }),
-                )
-                .py_2()
-                .flex_1(),
-            )
+            .child(self.render_bar())
+            .child(body)
             .children(self.render_toast())
             .children(self.render_panel())
     }
 }
+
+/// A short message on its own, low in the middle of the screen: see [`Launcher::show_hud`].
+struct Hud {
+    text: SharedString,
+}
+
+impl Render for Hud {
+    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+        div()
+            .size_full()
+            .flex()
+            .items_center()
+            .justify_center()
+            .px_4()
+            .rounded_xl()
+            .bg(rgba(0x2e34_40d0))
+            .text_color(rgb(0x00ec_eff4))
+            .child(self.text.clone())
+    }
+}
+
+/// The 16 ANSI colours as drawn on the window's dark background: normal, then bright.
+const ANSI_COLOURS: [u32; 16] = [
+    0x004c_566a,
+    0x00ff_5555,
+    0x00a3_be8c,
+    0x00eb_cb8b,
+    0x0081_a1c1,
+    0x00b4_8ead,
+    0x0088_c0d0,
+    0x00e5_e9f0,
+    0x0061_6e88,
+    0x00ff_7a7a,
+    0x00b9_d4a5,
+    0x00f0_d8a8,
+    0x009a_b5d1,
+    0x00c8_a6c3,
+    0x008f_bcbb,
+    0x00ec_eff4,
+];
 
 /// The item's icon when it is text to draw as is, such as a script command's `👋`: a few
 /// characters that are not a file path or a URL (those are images, loaded by the backend).

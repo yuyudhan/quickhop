@@ -7,7 +7,9 @@
 //! numbered: results for anything but the newest search of the page on top are dropped, so a
 //! slow search can never overwrite the results of a later keystroke.
 
-use quickhop_core::{Action, Item, ItemId, Matcher, Query, Ranked};
+use quickhop_core::{
+    Action, Item, ItemId, Matcher, Query, Ranked, ScriptArgument, ScriptArgumentKind, ScriptMode,
+};
 
 /// A search the window must run; its results come back through [`Model::set_results`] with the
 /// same `generation`.
@@ -36,6 +38,8 @@ pub enum Effect {
         item: Box<Item>,
         /// The chosen action, one of `item.actions`.
         action: Action,
+        /// Values for a script's arguments, in order; empty for every other action.
+        args: Vec<String>,
         /// The query typed when it was chosen.
         query: Query,
     },
@@ -69,6 +73,8 @@ pub struct Page {
     generation: u64,
     results: Vec<Ranked>,
     selected: Option<usize>,
+    /// The item to keep selected when the newest search's results come ([`Model::refresh`]).
+    keep: Option<ItemId>,
 }
 
 impl Page {
@@ -81,6 +87,7 @@ impl Page {
             generation: 0,
             results: Vec::new(),
             selected: None,
+            keep: None,
         }
     }
 
@@ -212,12 +219,47 @@ pub struct Toast {
     pub title: String,
 }
 
+/// What came of an action, for the window to show.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Outcome {
+    /// Nothing to show.
+    Done,
+    /// A short message in the window, which stays shown (a compact script's last line).
+    Toast(String),
+    /// A text read on a page of its own (a full-output script's output, ANSI colour kept).
+    Detail {
+        /// The page's title.
+        title: String,
+        /// The text.
+        text: String,
+    },
+    /// A short message shown on its own after the window hid (a silent script, a copy).
+    Hud(String),
+    /// The item's new subtitle (an inline script run by hand).
+    Subtitle(String),
+}
+
+/// Whether the window stays shown while `action` runs, to show what comes of it: scripts in
+/// `fullOutput`, `compact` and `inline` mode. Every other action hides the window first, so it
+/// reaches the app the user came from.
+pub fn keeps_window(action: &Action) -> bool {
+    matches!(
+        action,
+        Action::Script {
+            mode: ScriptMode::FullOutput | ScriptMode::Compact | ScriptMode::Inline,
+            ..
+        }
+    )
+}
+
 /// The launcher's state: a navigation stack of pages (the root search at the bottom), the
-/// action panel when open, and the last toast.
+/// action panel when open, a script's argument fields while it asks for them, and the last
+/// toast.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Model {
     stack: Vec<Page>,
     panel: Option<ActionPanel>,
+    form: Option<ArgumentForm>,
     toast: Option<Toast>,
     generation: u64,
 }
@@ -235,16 +277,18 @@ impl Model {
         Self {
             stack: vec![Page::new("", PageKind::Root)],
             panel: None,
+            form: None,
             toast: None,
             generation: 0,
         }
     }
 
     /// Back to an empty root search, as when the window is shown again: pops every pushed page,
-    /// closes the panel and the toast, and asks for the root's search.
+    /// closes the panel, the argument fields and the toast, and asks for the root's search.
     pub fn reset(&mut self) -> Effect {
         self.stack.truncate(1);
         self.panel = None;
+        self.form = None;
         self.toast = None;
         self.set_page_query(String::new())
     }
@@ -281,8 +325,15 @@ impl Model {
         page.selected.map(|index| &page.results[index].item)
     }
 
-    /// The search bar's text changed. With the action panel open it filters the actions;
-    /// otherwise the page searches again (detail pages have nothing to search).
+    /// The argument fields, while a script asks for its arguments.
+    pub fn form(&self) -> Option<&ArgumentForm> {
+        self.form.as_ref()
+    }
+
+    /// The search bar's text changed. With the action panel open it filters the actions; with
+    /// argument fields open it is the focused field's new text; otherwise the page searches
+    /// again (detail pages have nothing to search). Typing a space after the alias of a script
+    /// that asks for arguments opens its fields instead.
     pub fn set_query(&mut self, text: impl Into<String>) -> Effect {
         let text = text.into();
         if let Some(panel) = &mut self.panel {
@@ -290,10 +341,36 @@ impl Model {
             panel.refilter();
             return Effect::None;
         }
+        if let Some(form) = &mut self.form {
+            form.values[form.focused] = text;
+            return Effect::None;
+        }
         if !self.page().is_searchable() || self.page().query == text {
             return Effect::None;
         }
+        if let Some(form) = self.alias_form(&text) {
+            self.form = Some(form);
+            return Effect::None;
+        }
         self.set_page_query(text)
+    }
+
+    /// The argument fields to open when `text` is the page's query plus a space and the query
+    /// is an alias of the selected item, a script that asks for arguments.
+    fn alias_form(&self, text: &str) -> Option<ArgumentForm> {
+        let alias = text.strip_suffix(' ')?;
+        if alias != self.page().query || alias.trim().is_empty() {
+            return None;
+        }
+        let item = self.selected_item()?;
+        if !item
+            .aliases
+            .iter()
+            .any(|a| a.eq_ignore_ascii_case(alias.trim()))
+        {
+            return None;
+        }
+        ArgumentForm::new(item.clone(), item.default_action()?.clone())
     }
 
     fn set_page_query(&mut self, text: String) -> Effect {
@@ -302,6 +379,7 @@ impl Model {
         let page = self.page_mut();
         page.query = text;
         page.generation = generation;
+        page.keep = None;
         if !page.is_searchable() {
             return Effect::None;
         }
@@ -312,24 +390,40 @@ impl Model {
         })
     }
 
+    /// Searches the page on top again with its query (its items changed, such as an inline
+    /// script's subtitle), keeping the selected item selected when it is still there.
+    pub fn refresh(&mut self) -> Effect {
+        let keep = self.selected_item().map(|item| item.id.clone());
+        let effect = self.set_page_query(self.page().query.clone());
+        self.page_mut().keep = keep;
+        effect
+    }
+
     /// Results of the search numbered `generation`. Dropped, returning `false`, unless that is
-    /// the newest search of the page on top. The first result is selected.
+    /// the newest search of the page on top. The first result is selected, unless the search
+    /// is a [`Self::refresh`] and the item selected before is among them.
     pub fn set_results(&mut self, generation: u64, results: Vec<Ranked>) -> bool {
         let page = self.page_mut();
         if page.generation != generation || !page.is_searchable() {
             return false;
         }
-        page.selected = (!results.is_empty()).then_some(0);
+        let kept = page
+            .keep
+            .take()
+            .and_then(|id| results.iter().position(|ranked| ranked.item.id == id));
+        page.selected = kept.or((!results.is_empty()).then_some(0));
         page.results = results;
         true
     }
 
     /// Moves the selection down one entry (of the panel when open), wrapping to the first.
+    /// With argument fields open it picks the focused dropdown's next choice instead.
     pub fn select_next(&mut self) {
         self.step(true);
     }
 
-    /// Moves the selection up one entry (of the panel when open), wrapping to the last.
+    /// Moves the selection up one entry (of the panel when open), wrapping to the last. With
+    /// argument fields open it picks the focused dropdown's previous choice instead.
     pub fn select_previous(&mut self) {
         self.step(false);
     }
@@ -337,6 +431,9 @@ impl Model {
     fn step(&mut self, forward: bool) {
         let (selected, count) = if let Some(panel) = &mut self.panel {
             (&mut panel.selected, panel.entries.len())
+        } else if let Some(form) = &mut self.form {
+            form.step_choice(forward);
+            return;
         } else {
             let page = self.page_mut();
             (&mut page.selected, page.results.len())
@@ -350,14 +447,28 @@ impl Model {
         }
     }
 
+    /// `Tab` (`forward`) or `Shift+Tab`: focuses the next or previous argument field, wrapping.
+    /// Returns whether argument fields are open.
+    pub fn step_field(&mut self, forward: bool) -> bool {
+        match &mut self.form {
+            Some(form) if self.panel.is_none() => {
+                form.step_field(forward);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Selects result `index` of the page on top (a click); out-of-range indices are ignored.
     pub fn select(&mut self, index: usize) {
-        if self.panel.is_none() && index < self.page().results.len() {
+        if self.panel.is_none() && self.form.is_none() && index < self.page().results.len() {
             self.page_mut().selected = Some(index);
         }
     }
 
     /// `Enter`: performs the selected panel action, or else the selected item's default action.
+    /// A script that asks for arguments opens its fields first; with them open, `Enter` runs it
+    /// once every required field is filled, else focuses the first one missing.
     pub fn activate(&mut self) -> Effect {
         let query = Query::new(self.page().query.clone());
         if let Some(panel) = self.panel.take() {
@@ -366,10 +477,21 @@ impl Model {
                 return Effect::None;
             };
             let action = panel.item.actions[panel.entries[selected].action].clone();
-            return Effect::Perform {
-                item: Box::new(panel.item),
-                action,
-                query,
+            return self.perform_or_ask(panel.item, action, query);
+        }
+        if let Some(mut form) = self.form.take() {
+            return match form.complete() {
+                Ok(args) => Effect::Perform {
+                    item: Box::new(form.item),
+                    action: form.action,
+                    args,
+                    query,
+                },
+                Err(missing) => {
+                    form.focused = missing;
+                    self.form = Some(form);
+                    Effect::None
+                }
             };
         }
         let Some(item) = self.selected_item() else {
@@ -378,15 +500,26 @@ impl Model {
         let Some(action) = item.default_action().cloned() else {
             return Effect::None;
         };
-        Effect::Perform {
-            item: Box::new(item.clone()),
-            action,
-            query,
+        let item = item.clone();
+        self.perform_or_ask(item, action, query)
+    }
+
+    /// Performs `action`, or opens its argument fields when it is a script asking for some.
+    fn perform_or_ask(&mut self, item: Item, action: Action, query: Query) -> Effect {
+        if script_arguments(&action).is_empty() {
+            return Effect::Perform {
+                item: Box::new(item),
+                action,
+                args: Vec::new(),
+                query,
+            };
         }
+        self.form = ArgumentForm::new(item, action);
+        Effect::None
     }
 
     /// `⌘K` / `Ctrl+K`: opens the action panel for the selected item, or closes it when open.
-    /// Returns whether the panel is open afterwards.
+    /// Opening it closes the argument fields. Returns whether the panel is open afterwards.
     pub fn toggle_actions(&mut self) -> bool {
         if self.panel.take().is_some() {
             return false;
@@ -398,12 +531,14 @@ impl Model {
             return false;
         }
         self.panel = Some(ActionPanel::new(item.clone()));
+        self.form = None;
         true
     }
 
-    /// `Esc`: closes the panel, else pops the page on top, else (at the root) hides the window.
+    /// `Esc`: closes the panel, else the argument fields, else pops the page on top, else (at
+    /// the root) hides the window.
     pub fn escape(&mut self) -> Effect {
-        if self.panel.take().is_some() {
+        if self.panel.take().is_some() || self.form.take().is_some() {
             return Effect::None;
         }
         if self.pop() {
@@ -415,6 +550,7 @@ impl Model {
     /// Pushes `page` (a command opened a view) and asks for its first search when it has one.
     pub fn push(&mut self, page: Page) -> Effect {
         self.panel = None;
+        self.form = None;
         self.stack.push(page);
         let query = self.page().query.clone();
         self.set_page_query(query)
@@ -426,6 +562,7 @@ impl Model {
             return false;
         }
         self.panel = None;
+        self.form = None;
         self.stack.pop();
         true
     }
@@ -438,6 +575,58 @@ impl Model {
     /// Removes the toast.
     pub fn dismiss_toast(&mut self) {
         self.toast = None;
+    }
+
+    /// `item` started running while the window stays shown: a progress toast says so.
+    pub fn running(&mut self, item: &Item) {
+        self.show_toast(Toast {
+            style: ToastStyle::Progress,
+            title: format!("Running {}…", item.title),
+        });
+    }
+
+    /// Shows what came of an action of the item `id`: a toast, a detail page pushed, or a new
+    /// subtitle on the rows showing the item. A progress toast left from
+    /// [`Self::running`] goes. Returns what the window must do (a pushed page never searches).
+    pub fn performed(&mut self, id: &ItemId, outcome: Outcome) -> Effect {
+        if self
+            .toast
+            .as_ref()
+            .is_some_and(|toast| toast.style == ToastStyle::Progress)
+        {
+            self.toast = None;
+        }
+        match outcome {
+            Outcome::Done | Outcome::Hud(_) => Effect::None,
+            Outcome::Toast(message) => {
+                if !message.is_empty() {
+                    self.show_toast(Toast {
+                        style: ToastStyle::Success,
+                        title: message,
+                    });
+                }
+                Effect::None
+            }
+            Outcome::Detail { title, text } => {
+                self.push(Page::new(title, PageKind::Detail { text }))
+            }
+            Outcome::Subtitle(subtitle) => {
+                for page in &mut self.stack {
+                    for ranked in page.results.iter_mut().filter(|r| &r.item.id == id) {
+                        ranked.item.subtitle = Some(subtitle.clone());
+                    }
+                }
+                Effect::None
+            }
+        }
+    }
+
+    /// An action failed with `message`: a failure toast shows it.
+    pub fn failed(&mut self, message: String) {
+        self.show_toast(Toast {
+            style: ToastStyle::Failure,
+            title: message,
+        });
     }
 }
 
@@ -470,6 +659,8 @@ pub struct Snapshot {
     pub query: String,
     /// Ids of the results of the page on top, best first.
     pub results: Vec<String>,
+    /// Subtitles of those results, empty for a result without one.
+    pub subtitles: Vec<String>,
     /// Index of the selected result.
     pub selected: Option<usize>,
     /// Titles of the pages, root first (the root's is empty).
@@ -481,6 +672,14 @@ pub struct Snapshot {
     /// For each result, whether the window draws its icon: filled in by the window, which
     /// loads the icons; empty from the model alone.
     pub icons: Vec<bool>,
+    /// The argument fields' text as shown (passwords masked), while a script asks for them.
+    pub arguments: Option<Vec<String>>,
+    /// Index of the argument field typing goes to, while a script asks for arguments.
+    pub argument: Option<usize>,
+    /// The text of the detail page on top (a full-output script's output), colour removed.
+    pub detail: Option<String>,
+    /// The HUD's message while one shows: filled in by the window, which shows it.
+    pub hud: Option<String>,
 }
 
 impl Model {
@@ -489,11 +688,20 @@ impl Model {
         let page = self.page();
         Snapshot {
             visible,
-            query: self.bar_text().to_owned(),
+            query: self
+                .panel
+                .as_ref()
+                .map_or_else(|| page.query(), ActionPanel::filter)
+                .to_owned(),
             results: page
                 .results
                 .iter()
                 .map(|ranked| ranked.item.id.to_string())
+                .collect(),
+            subtitles: page
+                .results
+                .iter()
+                .map(|ranked| ranked.item.subtitle.clone().unwrap_or_default())
                 .collect(),
             selected: page.selected,
             stack: self.stack.iter().map(|page| page.title.clone()).collect(),
@@ -506,15 +714,155 @@ impl Model {
             }),
             toast: self.toast.as_ref().map(|toast| toast.title.clone()),
             icons: Vec::new(),
+            arguments: self
+                .form
+                .as_ref()
+                .map(|form| (0..form.values.len()).map(|i| form.shown(i)).collect()),
+            argument: self.form.as_ref().map(|form| form.focused),
+            detail: match &page.kind {
+                PageKind::Detail { text } => Some(crate::ansi::parse(text).text),
+                PageKind::Root | PageKind::List { .. } => None,
+            },
+            hud: None,
         }
     }
 
-    /// The search bar's text: the action panel's filter while it is open, else the query of
-    /// the page on top.
+    /// What typing edits: the action panel's filter while it is open, else the focused argument
+    /// field while a script asks for arguments, else the query of the page on top.
     pub fn bar_text(&self) -> &str {
-        self.panel
-            .as_ref()
-            .map_or_else(|| self.page().query(), ActionPanel::filter)
+        if let Some(panel) = &self.panel {
+            return panel.filter();
+        }
+        match &self.form {
+            Some(form) => &form.values[form.focused],
+            None => self.page().query(),
+        }
+    }
+}
+
+/// The argument fields of a script command (SCR-02, LCH-12), shown after the search bar's
+/// text; what is typed goes to the focused field.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArgumentForm {
+    item: Item,
+    action: Action,
+    values: Vec<String>,
+    focused: usize,
+}
+
+impl ArgumentForm {
+    /// The form for `action` of `item`; `None` unless it is a script asking for arguments.
+    fn new(item: Item, action: Action) -> Option<Self> {
+        let count = script_arguments(&action).len();
+        (count > 0).then(|| Self {
+            item,
+            action,
+            values: vec![String::new(); count],
+            focused: 0,
+        })
+    }
+
+    /// The script command asking.
+    pub fn item(&self) -> &Item {
+        &self.item
+    }
+
+    /// What each field asks for.
+    pub fn arguments(&self) -> &[ScriptArgument] {
+        script_arguments(&self.action)
+    }
+
+    /// The field typing goes to.
+    pub fn focused(&self) -> usize {
+        self.focused
+    }
+
+    /// The text of field `index` as shown: a password's characters are masked.
+    pub fn shown(&self, index: usize) -> String {
+        let value = &self.values[index];
+        match self.arguments()[index].kind {
+            ScriptArgumentKind::Password => "•".repeat(value.chars().count()),
+            ScriptArgumentKind::Text | ScriptArgumentKind::Dropdown => value.clone(),
+        }
+    }
+
+    /// The values to run the script with, dropdowns resolved to the choice they name; or the
+    /// index of the first field that is required and empty, or names no choice.
+    fn complete(&self) -> Result<Vec<String>, usize> {
+        self.arguments()
+            .iter()
+            .zip(&self.values)
+            .enumerate()
+            .map(|(index, (argument, value))| {
+                if value.is_empty() {
+                    return if argument.optional {
+                        Ok(String::new())
+                    } else {
+                        Err(index)
+                    };
+                }
+                match argument.kind {
+                    ScriptArgumentKind::Dropdown => resolve_choice(&argument.choices, value)
+                        .map(str::to_owned)
+                        .ok_or(index),
+                    ScriptArgumentKind::Text | ScriptArgumentKind::Password => Ok(value.clone()),
+                }
+            })
+            .collect()
+    }
+
+    /// Focuses the next field (`forward`) or the previous one, wrapping.
+    fn step_field(&mut self, forward: bool) {
+        let count = self.values.len();
+        self.focused = if forward {
+            (self.focused + 1) % count
+        } else {
+            self.focused.checked_sub(1).unwrap_or(count - 1)
+        };
+    }
+
+    /// Sets a focused dropdown to its next choice (`forward`) or previous one, wrapping, from
+    /// the choice it names now. Returns `false` when the focused field is no dropdown.
+    fn step_choice(&mut self, forward: bool) -> bool {
+        let argument = &self.arguments()[self.focused];
+        if argument.kind != ScriptArgumentKind::Dropdown || argument.choices.is_empty() {
+            return false;
+        }
+        let choices = &argument.choices;
+        let value = &self.values[self.focused];
+        let current =
+            resolve_choice(choices, value).and_then(|c| choices.iter().position(|x| x == c));
+        let next = match (current, forward) {
+            (None, true) => 0,
+            (None, false) => choices.len() - 1,
+            (Some(index), true) => (index + 1) % choices.len(),
+            (Some(index), false) => index.checked_sub(1).unwrap_or(choices.len() - 1),
+        };
+        self.values[self.focused] = choices[next].clone();
+        true
+    }
+}
+
+fn script_arguments(action: &Action) -> &[ScriptArgument] {
+    match action {
+        Action::Script { arguments, .. } => arguments,
+        _ => &[],
+    }
+}
+
+/// The choice `typed` names: the one equal to it ignoring case, else the only one it starts
+/// (ignoring case).
+pub fn resolve_choice<'a>(choices: &'a [String], typed: &str) -> Option<&'a str> {
+    let typed = typed.to_lowercase();
+    if let Some(exact) = choices.iter().find(|c| c.to_lowercase() == typed) {
+        return Some(exact);
+    }
+    let mut starting = choices
+        .iter()
+        .filter(|c| c.to_lowercase().starts_with(&typed));
+    match (starting.next(), starting.next()) {
+        (Some(only), None) => Some(only),
+        _ => None,
     }
 }
 
@@ -607,11 +955,16 @@ mod tests {
                     "test:Finder".into(),
                     "test:Fig".into()
                 ],
+                subtitles: vec![String::new(); 3],
                 selected: Some(1),
                 stack: vec![String::new()],
                 panel: None,
                 toast: None,
                 icons: Vec::new(),
+                arguments: None,
+                argument: None,
+                detail: None,
+                hud: None,
             }
         );
         model.select_next();
@@ -748,6 +1101,7 @@ mod tests {
             Effect::Perform {
                 item: Box::new(three()[0].item.clone()),
                 action: open("/Applications/Firefox.app"),
+                args: Vec::new(),
                 query: Query::new("fire"),
             }
         );
@@ -803,6 +1157,7 @@ mod tests {
             Effect::Perform {
                 item: Box::new(three()[0].item.clone()),
                 action: copy("Firefox"),
+                args: Vec::new(),
                 query: Query::new("fire"),
             }
         );
@@ -929,5 +1284,233 @@ mod tests {
         );
         assert_eq!(action_title(&open("/Applications/Safari.app")), "Open");
         assert_eq!(action_title(&copy("x")), "Copy to Clipboard");
+    }
+
+    fn argument(kind: ScriptArgumentKind, placeholder: &str, optional: bool) -> ScriptArgument {
+        ScriptArgument {
+            kind,
+            placeholder: placeholder.into(),
+            optional,
+            percent_encoded: false,
+            choices: if kind == ScriptArgumentKind::Dropdown {
+                vec!["rust".into(), "python".into(), "pyodide".into()]
+            } else {
+                Vec::new()
+            },
+        }
+    }
+
+    fn script(mode: ScriptMode, arguments: Vec<ScriptArgument>) -> Action {
+        Action::Script {
+            path: "/scripts/search.sh".into(),
+            mode,
+            cwd: None,
+            arguments,
+            confirm: false,
+        }
+    }
+
+    /// `search.sh`: a required query, an optional site dropdown, an optional password.
+    fn search_script() -> Item {
+        let mut item = item(
+            "search.sh",
+            vec![script(
+                ScriptMode::Compact,
+                vec![
+                    argument(ScriptArgumentKind::Text, "Query", false),
+                    argument(ScriptArgumentKind::Dropdown, "Site", true),
+                    argument(ScriptArgumentKind::Password, "Token", true),
+                ],
+            )],
+        );
+        item.aliases = vec!["sd".into()];
+        item
+    }
+
+    fn type_text(model: &mut Model, text: &str) {
+        for character in text.chars() {
+            let typed = format!("{}{character}", model.bar_text());
+            model.set_query(typed);
+        }
+    }
+
+    #[test]
+    fn enter_on_a_script_with_arguments_asks_for_them_then_runs_it_with_them() {
+        let mut model = with_results("search", ranked(vec![search_script()]));
+        assert_eq!(model.activate(), Effect::None, "the fields open first");
+        assert_eq!(model.form().map(ArgumentForm::focused), Some(0));
+        type_text(&mut model, "rust");
+        assert_eq!(model.page().query(), "search", "typing goes to the field");
+        assert!(model.step_field(true));
+        type_text(&mut model, "py");
+        // "py" starts two choices: no value, so Enter focuses the dropdown.
+        assert_eq!(model.activate(), Effect::None);
+        assert_eq!(model.form().map(ArgumentForm::focused), Some(1));
+        type_text(&mut model, "t");
+        assert!(model.step_field(true));
+        type_text(&mut model, "s3cret");
+        let snapshot = model.snapshot(true);
+        assert_eq!(snapshot.query, "search");
+        assert_eq!(
+            snapshot.arguments,
+            Some(vec!["rust".into(), "pyt".into(), "••••••".into()])
+        );
+        assert_eq!(snapshot.argument, Some(2));
+        assert_eq!(
+            model.activate(),
+            Effect::Perform {
+                item: Box::new(search_script()),
+                action: search_script().actions[0].clone(),
+                args: vec!["rust".into(), "python".into(), "s3cret".into()],
+                query: Query::new("search"),
+            }
+        );
+        assert!(model.form().is_none(), "running closes the fields");
+    }
+
+    #[test]
+    fn a_required_field_left_empty_is_focused_and_optional_ones_run_empty() {
+        let mut model = with_results("search", ranked(vec![search_script()]));
+        model.activate();
+        assert!(model.step_field(false), "Shift+Tab wraps to the last field");
+        assert_eq!(model.form().map(ArgumentForm::focused), Some(2));
+        assert_eq!(model.activate(), Effect::None);
+        assert_eq!(model.form().map(ArgumentForm::focused), Some(0));
+        type_text(&mut model, "docs");
+        let Effect::Perform { args, .. } = model.activate() else {
+            panic!("every required field is filled");
+        };
+        assert_eq!(args, vec!["docs".to_owned(), String::new(), String::new()]);
+    }
+
+    #[test]
+    fn a_space_after_the_alias_opens_the_fields() {
+        let mut model = with_results("sd", ranked(vec![search_script()]));
+        assert_eq!(model.set_query("sd "), Effect::None);
+        assert_eq!(model.page().query(), "sd");
+        assert_eq!(model.form().map(ArgumentForm::focused), Some(0));
+        type_text(&mut model, "x");
+        assert_eq!(
+            model.snapshot(true).arguments.map(|a| a[0].clone()),
+            Some("x".into())
+        );
+        // Anything but the alias plus a space searches as usual.
+        let mut model = with_results("se", ranked(vec![search_script()]));
+        assert!(matches!(model.set_query("se "), Effect::Search(_)));
+        assert!(model.form().is_none());
+    }
+
+    #[test]
+    fn arrows_pick_dropdown_choices_and_escape_closes_the_fields_first() {
+        let mut model = with_results("search", ranked(vec![search_script()]));
+        model.activate();
+        model.step_field(true);
+        model.select_next();
+        assert_eq!(model.bar_text(), "rust");
+        model.select_next();
+        model.select_next();
+        model.select_next();
+        assert_eq!(model.bar_text(), "rust", "wraps after the last choice");
+        model.select_previous();
+        assert_eq!(model.bar_text(), "pyodide");
+        // On a text field the arrows change nothing.
+        model.step_field(false);
+        model.select_next();
+        assert_eq!(model.bar_text(), "");
+        assert_eq!(model.page().selected(), Some(0));
+        assert_eq!(model.escape(), Effect::None);
+        assert!(model.form().is_none());
+        assert_eq!(model.escape(), Effect::Hide);
+    }
+
+    #[test]
+    fn choices_resolve_exactly_or_by_their_only_prefix_ignoring_case() {
+        let choices: Vec<String> = vec!["rust".into(), "python".into(), "pyodide".into()];
+        assert_eq!(resolve_choice(&choices, "Rust"), Some("rust"));
+        assert_eq!(resolve_choice(&choices, "pyt"), Some("python"));
+        assert_eq!(resolve_choice(&choices, "py"), None);
+        assert_eq!(resolve_choice(&choices, "go"), None);
+        let overlapping: Vec<String> = vec!["py".into(), "python".into()];
+        assert_eq!(resolve_choice(&overlapping, "py"), Some("py"));
+    }
+
+    #[test]
+    fn outcomes_show_as_toast_detail_page_or_subtitle_and_end_the_progress_toast() {
+        let inline = item("inline.sh", vec![script(ScriptMode::Inline, Vec::new())]);
+        let mut model = with_results("i", ranked(vec![inline.clone()]));
+        model.running(&inline);
+        assert_eq!(model.toast().map(|t| t.style), Some(ToastStyle::Progress));
+        assert_eq!(
+            model.performed(&inline.id, Outcome::Subtitle("all good".into())),
+            Effect::None
+        );
+        assert!(model.toast().is_none());
+        assert_eq!(
+            model.page().results()[0].item.subtitle.as_deref(),
+            Some("all good")
+        );
+        model.performed(
+            &inline.id,
+            Outcome::Toast("searching rust on python".into()),
+        );
+        assert_eq!(
+            model.snapshot(true).toast.as_deref(),
+            Some("searching rust on python")
+        );
+        model.failed("boom".into());
+        model.performed(&inline.id, Outcome::Done);
+        assert_eq!(
+            model.toast().map(|t| t.style),
+            Some(ToastStyle::Failure),
+            "only a progress toast goes"
+        );
+        let effect = model.performed(
+            &inline.id,
+            Outcome::Detail {
+                title: "Hello World".into(),
+                text: "\u{1b}[31mHello\u{1b}[0m\nWorld\n".into(),
+            },
+        );
+        assert_eq!(effect, Effect::None, "a detail page never searches");
+        let snapshot = model.snapshot(true);
+        assert_eq!(snapshot.stack, vec![String::new(), "Hello World".into()]);
+        assert_eq!(snapshot.detail.as_deref(), Some("Hello\nWorld\n"));
+        assert_eq!(model.escape(), Effect::None);
+        assert_eq!(model.snapshot(true).detail, None);
+    }
+
+    #[test]
+    fn a_refresh_searches_again_and_keeps_the_selected_item() {
+        let mut model = with_results("f", three());
+        model.select_next();
+        let effect = model.refresh();
+        let Effect::Search(request) = &effect else {
+            panic!("a refresh searches");
+        };
+        assert_eq!(request.query, Query::new("f"));
+        // Finder, selected, moves from the second row to the last.
+        let mut reordered = three();
+        reordered.swap(1, 2);
+        assert!(model.set_results(generation(&effect), reordered));
+        assert_eq!(model.page().selected(), Some(2));
+        assert_eq!(
+            model.selected_item().map(|item| item.id.to_string()),
+            Some("test:Finder".into())
+        );
+        // A search typed after the refresh selects the first result again.
+        model.refresh();
+        let typed = model.set_query("fi");
+        assert!(model.set_results(generation(&typed), three()));
+        assert_eq!(model.page().selected(), Some(0));
+    }
+
+    #[test]
+    fn only_scripts_that_show_output_keep_the_window() {
+        assert!(keeps_window(&script(ScriptMode::FullOutput, Vec::new())));
+        assert!(keeps_window(&script(ScriptMode::Compact, Vec::new())));
+        assert!(keeps_window(&script(ScriptMode::Inline, Vec::new())));
+        assert!(!keeps_window(&script(ScriptMode::Silent, Vec::new())));
+        assert!(!keeps_window(&open("/Applications/Safari.app")));
+        assert!(!keeps_window(&copy("x")));
     }
 }

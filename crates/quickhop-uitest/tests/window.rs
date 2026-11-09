@@ -264,16 +264,6 @@ fn the_window_captures_at_its_size_and_is_not_blank() -> Fallible {
     Ok(())
 }
 
-/// The decoded RGBA-or-RGB pixels of a capture, its width and its samples per pixel.
-fn decode(path: &std::path::Path) -> Fallible<(Vec<u8>, u32, usize)> {
-    let decoder = png::Decoder::new(std::io::BufReader::new(std::fs::File::open(path)?));
-    let mut reader = decoder.read_info()?;
-    let mut pixels = vec![0; reader.output_buffer_size().ok_or("image too large")?];
-    let frame = reader.next_frame(&mut pixels)?;
-    pixels.truncate(frame.buffer_size());
-    Ok((pixels, frame.width, frame.color_type.samples()))
-}
-
 /// Where the first result's icon is drawn, in points from the window's top-left corner: the
 /// 56-point search bar and its 1-point border, the list's 8-point padding, then the 24-point
 /// icon slot centred in the 44-point row, after the row's 8-point margin and 12-point padding
@@ -296,7 +286,7 @@ fn results_show_their_application_icon() -> Fallible {
     // The icon arrived; give the window a frame or two to draw it.
     std::thread::sleep(std::time::Duration::from_millis(200));
     ax::capture(&window, &path)?;
-    let (pixels, width, step) = decode(&path)?;
+    let (pixels, width, step) = ax::pixels(&path)?;
     let width = usize::try_from(width)?;
     // Points times the display's scale (2 on a Retina display).
     let scale = width / WINDOW_WIDTH_POINTS;

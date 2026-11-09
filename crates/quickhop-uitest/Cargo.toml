@@ -13,11 +13,9 @@ serde_json.workspace = true
 tempfile.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
+png.workspace = true
 quickhop-core.workspace = true
 quickhop-platform-macos.workspace = true
-
-[target.'cfg(target_os = "macos")'.dev-dependencies]
-png.workspace = true
 
 [lints]
 workspace = true

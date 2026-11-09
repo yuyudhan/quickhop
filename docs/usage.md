@@ -151,6 +151,14 @@ In the window, type to search, `↑`/`↓` to move, `Return` to run the selected
 list all its actions (type to filter them) and `Esc` to close the panel, then the window. It
 also hides when another app takes the focus.
 
+Script commands run from the window as their mode says: `fullOutput` opens the output (with
+its colours) and `Esc` goes back, `compact` shows the last line as a toast, `silent` hides the
+window and shows the line briefly over the app you were in, and `inline` scripts with a
+`refreshTime` keep their subtitle current while the daemon runs. A script that asks for
+arguments opens its fields in the search bar: type its alias and a space (or press `Return`
+on it), fill the fields, `Tab` between them, `↑`/`↓` through a dropdown's choices, then
+`Return`.
+
 ## Configuration and diagnostics
 
     quickhop config path                       # the file in use

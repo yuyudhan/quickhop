@@ -18,6 +18,8 @@ pub mod keys;
 #[cfg(target_os = "macos")]
 pub mod layout;
 #[cfg(target_os = "macos")]
+pub mod panel;
+#[cfg(target_os = "macos")]
 pub mod pasteboard;
 
 /// The operation needs macOS.
