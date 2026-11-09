@@ -36,9 +36,10 @@ each `name => constructor` pair into a `#[test]`. Every provider fixture must:
 - give every item at least one action and round-trip every item through JSON: actions are plain
   data, so describing one never runs it.
 
-A new provider adds one line to the `provider_contract!` list; the
-`every_builtin_provider_has_a_contract_test` test fails until `BUILTIN` and the fixture set
-agree.
+A new provider adds one line to the `provider_contract!` list, named after the provider (alone or
+as `<provider>_<fixture>`); `every_provider_has_a_contract_test` fails while a provider in
+`BUILTIN`, or one `builtin()` loads without a switch (the views commands), has no such line, or
+while a `BUILTIN` provider is missing from the fixture set.
 
 ## Fixtures
 

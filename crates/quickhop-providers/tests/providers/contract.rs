@@ -110,7 +110,9 @@ fn check(provider: &dyn Provider) -> TestResult {
     Ok(())
 }
 
-/// One `#[test]` per provider fixture: `provider_contract!(test_name, expression)`.
+/// One `#[test]` per provider fixture: `provider_contract!(test_name, expression)`, and
+/// `CONTRACT_TESTS` naming them. A test is named after its provider, alone or followed by
+/// `_` and the fixture (`apps_bundles`).
 macro_rules! provider_contract {
     ($($test:ident => $provider:expr),+ $(,)?) => {
         $(
@@ -120,6 +122,9 @@ macro_rules! provider_contract {
                 check(&provider)
             }
         )+
+
+        /// The contract tests above, by name.
+        const CONTRACT_TESTS: &[&str] = &[$(stringify!($test)),+];
     };
 }
 
@@ -140,19 +145,26 @@ provider_contract! {
     views => quickhop_providers::views::ViewsProvider::new(&quickhop_core::Config::default()),
 }
 
+/// Whether a contract test covers the provider `name`.
+fn has_contract_test(name: &str) -> bool {
+    CONTRACT_TESTS.iter().any(|test| {
+        test.strip_prefix(name)
+            .is_some_and(|rest| rest.is_empty() || rest.starts_with('_'))
+    })
+}
+
 #[test]
-fn every_builtin_provider_has_a_contract_test() {
-    let tested = [
-        "apps",
-        "calc",
-        "emoji",
-        "system",
-        "quicklinks",
-        "scripts",
-        "snippets",
-        "files",
-    ];
-    assert_eq!(quickhop_providers::BUILTIN, tested);
+fn every_provider_has_a_contract_test() {
+    for name in quickhop_providers::BUILTIN {
+        assert!(has_contract_test(name), "{name} has no contract test");
+    }
+    // Providers without a `[providers]` switch (the views commands) load as well.
+    let (loaded, _) =
+        quickhop_providers::builtin(&quickhop_core::Config::default(), &common::linux_env());
+    for provider in &loaded {
+        let name = provider.name();
+        assert!(has_contract_test(name), "{name} has no contract test");
+    }
     let names: Vec<String> = common::all_providers()
         .iter()
         .map(|p| p.name().to_owned())
