@@ -7,7 +7,7 @@
 //! | `emoji`      | [`emoji`]      | Unicode emoji with CLDR keywords and GitHub shortcodes        |
 //! | `system`     | [`system`]     | lock, log out, suspend, reboot, shut down, per OS             |
 //! | `quicklinks` | [`quicklinks`] | `[[quicklinks]]` URL templates with `{query}`                  |
-//! | `scripts`    | [`scripts`]    | Raycast-compatible script commands from `[scripts] dirs`      |
+//! | `scripts`    | [`scripts`]    | Raycast-compatible script commands from `~/.config/quickhop/scripts` and `[scripts] dirs` |
 //!
 //! Every provider takes its environment explicitly ([`Env`]) so tests can point it at
 //! fixture directories and a fixed OS.
@@ -21,6 +21,7 @@ pub mod quicklinks;
 pub mod scripts;
 pub mod system;
 
+use std::path::PathBuf;
 use std::time::Duration;
 
 pub use env::Env;
@@ -39,6 +40,22 @@ pub struct Warning {
     pub provider: &'static str,
     /// Human-readable cause.
     pub message: String,
+}
+
+/// The script-command directories for `config` in `env`: `scripts/` next to the config file
+/// (when it exists), then `[scripts] dirs`, without duplicates.
+pub fn script_dirs(config: &Config, env: &Env) -> Vec<PathBuf> {
+    let default =
+        quickhop_core::config::scripts_dir(&env.os, |name| env.var(name).map(str::to_owned))
+            .ok()
+            .filter(|dir| dir.is_dir());
+    let mut dirs: Vec<PathBuf> = default.into_iter().collect();
+    for dir in &config.scripts.dirs {
+        if !dirs.contains(dir) {
+            dirs.push(dir.clone());
+        }
+    }
+    dirs
 }
 
 /// The providers enabled in `config`, loaded for `env`, in display-priority order, plus
@@ -66,7 +83,7 @@ pub fn builtin(config: &Config, env: &Env) -> (Vec<Box<dyn Provider>>, Vec<Warni
     }
     if enabled.scripts {
         let (scripts, problems) =
-            scripts::ScriptsProvider::load(&config.scripts.dirs, Some(INLINE_SCRIPT_TIMEOUT));
+            scripts::ScriptsProvider::load(&script_dirs(config, env), Some(INLINE_SCRIPT_TIMEOUT));
         warnings.extend(problems.into_iter().map(|message| Warning {
             provider: "scripts",
             message,

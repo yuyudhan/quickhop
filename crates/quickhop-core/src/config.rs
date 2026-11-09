@@ -28,6 +28,17 @@ pub enum ConfigError {
     /// No location for the config file could be derived from the environment.
     #[error("cannot locate the config directory: set QUICKHOP_CONFIG or {0}")]
     NoConfigDir(&'static str),
+    /// A file from the legacy macOS location could not be moved.
+    #[error("cannot move {from} to {to}: {source}")]
+    Migrate {
+        /// The legacy file.
+        from: PathBuf,
+        /// Its new location.
+        to: PathBuf,
+        /// Underlying error.
+        #[source]
+        source: std::io::Error,
+    },
 }
 
 /// Which built-in providers are enabled.
@@ -76,8 +87,8 @@ pub struct Apps {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Scripts {
-    /// Directories scanned (not recursively) for `# @raycast.*` script commands. None by
-    /// default.
+    /// Directories scanned (not recursively) for `# @raycast.*` script commands, after
+    /// `scripts/` next to the config file (see [`scripts_dir`]).
     pub dirs: Vec<PathBuf>,
 }
 
@@ -189,10 +200,23 @@ impl Config {
     }
 }
 
+/// The XDG base directory `xdg` (e.g. `XDG_CONFIG_HOME`) or `~/<fallback>` when it is unset.
+fn xdg_dir(
+    get: impl Fn(&str) -> Option<PathBuf>,
+    xdg: &str,
+    fallback: &str,
+) -> Result<PathBuf, ConfigError> {
+    match get(xdg) {
+        Some(dir) => Ok(dir),
+        None => Ok(get("HOME")
+            .ok_or(ConfigError::NoConfigDir("HOME"))?
+            .join(fallback)),
+    }
+}
+
 /// The config file path for `os` (a [`std::env::consts::OS`] value), looking variables up
-/// with `var`. `QUICKHOP_CONFIG` overrides everything; otherwise Linux and other Unixes use
-/// `$XDG_CONFIG_HOME` or `~/.config`, macOS `~/Library/Application Support` and Windows
-/// `%APPDATA%`.
+/// with `var`. `QUICKHOP_CONFIG` overrides everything; otherwise Linux, macOS and other
+/// Unixes use `$XDG_CONFIG_HOME` or `~/.config`, Windows `%APPDATA%`.
 ///
 /// # Errors
 /// When the needed variables are unset or empty.
@@ -203,23 +227,27 @@ pub fn config_path(os: &str, var: impl Fn(&str) -> Option<String>) -> Result<Pat
     }
     let dir = match os {
         "windows" => get("APPDATA").ok_or(ConfigError::NoConfigDir("APPDATA"))?,
-        "macos" => get("HOME")
-            .ok_or(ConfigError::NoConfigDir("HOME"))?
-            .join("Library/Application Support"),
-        _ => match get("XDG_CONFIG_HOME") {
-            Some(dir) => dir,
-            None => get("HOME")
-                .ok_or(ConfigError::NoConfigDir("HOME"))?
-                .join(".config"),
-        },
+        _ => xdg_dir(get, "XDG_CONFIG_HOME", ".config")?,
     };
     Ok(dir.join("quickhop").join("config.toml"))
 }
 
+/// The default script-command directory: `scripts/` next to the config file, e.g.
+/// `~/.config/quickhop/scripts`.
+///
+/// # Errors
+/// As [`config_path`].
+pub fn scripts_dir(os: &str, var: impl Fn(&str) -> Option<String>) -> Result<PathBuf, ConfigError> {
+    let config = config_path(os, var)?;
+    Ok(config
+        .parent()
+        .map_or_else(|| PathBuf::from("scripts"), |dir| dir.join("scripts")))
+}
+
 /// The data directory (frecency database) for `os`, looking variables up with `var`.
-/// `QUICKHOP_DATA` overrides everything; otherwise Linux and other Unixes use
-/// `$XDG_DATA_HOME` or `~/.local/share`, macOS `~/Library/Application Support` and
-/// Windows `%LOCALAPPDATA%`, each with a `quickhop` subdirectory.
+/// `QUICKHOP_DATA` overrides everything; otherwise Linux, macOS and other Unixes use
+/// `$XDG_DATA_HOME` or `~/.local/share`, Windows `%LOCALAPPDATA%`, each with a `quickhop`
+/// subdirectory.
 ///
 /// # Errors
 /// When the needed variables are unset or empty.
@@ -230,17 +258,77 @@ pub fn data_dir(os: &str, var: impl Fn(&str) -> Option<String>) -> Result<PathBu
     }
     let dir = match os {
         "windows" => get("LOCALAPPDATA").ok_or(ConfigError::NoConfigDir("LOCALAPPDATA"))?,
-        "macos" => get("HOME")
-            .ok_or(ConfigError::NoConfigDir("HOME"))?
-            .join("Library/Application Support"),
-        _ => match get("XDG_DATA_HOME") {
-            Some(dir) => dir,
-            None => get("HOME")
-                .ok_or(ConfigError::NoConfigDir("HOME"))?
-                .join(".local/share"),
-        },
+        _ => xdg_dir(get, "XDG_DATA_HOME", ".local/share")?,
     };
     Ok(dir.join("quickhop"))
+}
+
+/// The directory quickhop 0.1 used on macOS for both the config and the data:
+/// `~/Library/Application Support/quickhop`. `None` on other OSes or without `HOME`.
+pub fn legacy_macos_dir(os: &str, var: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
+    if os != "macos" {
+        return None;
+    }
+    var("HOME")
+        .filter(|v| !v.is_empty())
+        .map(|home| PathBuf::from(home).join("Library/Application Support/quickhop"))
+}
+
+/// Files of the frecency database, moved together.
+const DATA_FILES: [&str; 4] = [
+    "frecency.sqlite",
+    "frecency.sqlite-wal",
+    "frecency.sqlite-shm",
+    "frecency.sqlite-journal",
+];
+
+fn move_file(from: &Path, to: &Path) -> Result<(), ConfigError> {
+    let error = |source| ConfigError::Migrate {
+        from: from.to_path_buf(),
+        to: to.to_path_buf(),
+        source,
+    };
+    if let Some(dir) = to.parent() {
+        std::fs::create_dir_all(dir).map_err(error)?;
+    }
+    if std::fs::rename(from, to).is_ok() {
+        return Ok(());
+    }
+    // Rename fails across file systems: copy, then remove the original.
+    std::fs::copy(from, to).map_err(error)?;
+    std::fs::remove_file(from).map_err(error)
+}
+
+/// Moves the config file and the frecency database out of `legacy` (see
+/// [`legacy_macos_dir`]) to `config_file` and `data_dir`, once: a file moves only when it
+/// exists in `legacy` and its new location is still free. `None` skips that part (used when
+/// `QUICKHOP_CONFIG` or `QUICKHOP_DATA` overrides the location). Returns one line per
+/// moved file.
+///
+/// # Errors
+/// When a file cannot be moved; files moved before stay moved.
+pub fn migrate_legacy(
+    legacy: &Path,
+    config_file: Option<&Path>,
+    data_dir: Option<&Path>,
+) -> Result<Vec<String>, ConfigError> {
+    let mut planned = Vec::new();
+    if let Some(to) = config_file {
+        planned.push((legacy.join("config.toml"), to.to_path_buf()));
+    }
+    if let Some(dir) = data_dir
+        && !dir.join(DATA_FILES[0]).exists()
+    {
+        planned.extend(DATA_FILES.map(|name| (legacy.join(name), dir.join(name))));
+    }
+    let mut report = Vec::new();
+    for (from, to) in planned {
+        if from.is_file() && !to.exists() {
+            move_file(&from, &to)?;
+            report.push(format!("moved {} to {}", from.display(), to.display()));
+        }
+    }
+    Ok(report)
 }
 
 #[cfg(test)]
@@ -304,7 +392,19 @@ mod tests {
         );
         assert_eq!(
             config_path("macos", &home).unwrap(),
-            Path::new("/h/Library/Application Support/quickhop/config.toml")
+            Path::new("/h/.config/quickhop/config.toml")
+        );
+        assert_eq!(
+            config_path("macos", env(&[("HOME", "/h"), ("XDG_CONFIG_HOME", "/x")])).unwrap(),
+            Path::new("/x/quickhop/config.toml")
+        );
+        assert_eq!(
+            scripts_dir("macos", &home).unwrap(),
+            Path::new("/h/.config/quickhop/scripts")
+        );
+        assert_eq!(
+            scripts_dir("linux", env(&[("QUICKHOP_CONFIG", "/c/q.toml")])).unwrap(),
+            Path::new("/c/scripts")
         );
         assert_eq!(
             config_path("windows", env(&[("APPDATA", "C:/a")])).unwrap(),
@@ -353,7 +453,7 @@ mod tests {
         );
         assert_eq!(
             data_dir("macos", &home).unwrap(),
-            Path::new("/h/Library/Application Support/quickhop")
+            Path::new("/h/.local/share/quickhop")
         );
         assert_eq!(
             data_dir("windows", env(&[("LOCALAPPDATA", "C:/l")])).unwrap(),
@@ -367,5 +467,62 @@ mod tests {
             data_dir("windows", &home),
             Err(ConfigError::NoConfigDir("LOCALAPPDATA"))
         ));
+    }
+
+    #[test]
+    fn legacy_dir_is_macos_only() {
+        let home = env(&[("HOME", "/h")]);
+        assert_eq!(
+            legacy_macos_dir("macos", &home).unwrap(),
+            Path::new("/h/Library/Application Support/quickhop")
+        );
+        assert_eq!(legacy_macos_dir("linux", &home), None);
+        assert_eq!(legacy_macos_dir("macos", env(&[])), None);
+    }
+
+    #[test]
+    fn migrates_legacy_files_once() {
+        let root = tempfile::tempdir().unwrap();
+        let legacy = root.path().join("legacy");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join("config.toml"), "max_results = 3\n").unwrap();
+        std::fs::write(legacy.join("frecency.sqlite"), "db").unwrap();
+        std::fs::write(legacy.join("frecency.sqlite-wal"), "wal").unwrap();
+        let config = root.path().join("config/quickhop/config.toml");
+        let data = root.path().join("data/quickhop");
+
+        let moved = migrate_legacy(&legacy, Some(&config), Some(&data)).unwrap();
+        assert_eq!(moved.len(), 3, "{moved:?}");
+        assert_eq!(Config::load(&config).unwrap().max_results, 3);
+        assert_eq!(
+            std::fs::read_to_string(data.join("frecency.sqlite")).unwrap(),
+            "db"
+        );
+        assert!(data.join("frecency.sqlite-wal").is_file());
+        assert!(!legacy.join("config.toml").exists());
+
+        // A second run, or a legacy file reappearing, never overwrites the new location.
+        std::fs::write(legacy.join("config.toml"), "max_results = 9\n").unwrap();
+        let none: Vec<String> = Vec::new();
+        assert_eq!(
+            migrate_legacy(&legacy, Some(&config), Some(&data)).unwrap(),
+            none
+        );
+        assert_eq!(Config::load(&config).unwrap().max_results, 3);
+    }
+
+    #[test]
+    fn migration_skips_overridden_locations() {
+        let root = tempfile::tempdir().unwrap();
+        let legacy = root.path().join("legacy");
+        std::fs::create_dir_all(&legacy).unwrap();
+        std::fs::write(legacy.join("config.toml"), "").unwrap();
+        std::fs::write(legacy.join("frecency.sqlite"), "db").unwrap();
+        let none: Vec<String> = Vec::new();
+        assert_eq!(migrate_legacy(&legacy, None, None).unwrap(), none);
+        assert!(legacy.join("config.toml").is_file());
+        let missing = root.path().join("nothing-here");
+        let config = root.path().join("c.toml");
+        assert_eq!(migrate_legacy(&missing, Some(&config), None).unwrap(), none);
     }
 }
