@@ -8,7 +8,8 @@
 //! | `system`     | [`system`]     | lock, log out, suspend, reboot, shut down, per OS             |
 //! | `quicklinks` | [`quicklinks`] | `[[quicklinks]]` URL templates with `{query}`                  |
 //! | `scripts`    | [`scripts`]    | Raycast-compatible script commands from `~/.config/quickhop/scripts` and `[scripts] dirs` |
-//! | `files`      | [`files`]      | files and folders by name: Spotlight (`mdfind`) on macOS       |
+//! | `snippets`   | [`snippets`]   | `snippets.toml` next to the config file, with Raycast placeholders |
+//! | `files`      | [`files`]      | files and folders by name: Spotlight (`mdfind`) on macOS, else the index built by `quickhop index` |
 //!
 //! Every provider takes its environment explicitly ([`Env`]) so tests can point it at
 //! fixture directories and a fixed OS.
@@ -21,27 +22,62 @@ mod env;
 pub mod files;
 pub mod quicklinks;
 pub mod scripts;
+pub mod snippets;
 pub mod system;
 
 use std::path::PathBuf;
 use std::time::Duration;
 
 pub use env::Env;
-use quickhop_core::{Config, Provider};
+use quickhop_core::{Config, ConfigError, Provider};
 
 /// Names of the built-in providers, matching the keys of `[providers]` in the config.
-pub const BUILTIN: [&str; 7] = [
+pub const BUILTIN: [&str; 8] = [
     "apps",
     "calc",
     "emoji",
     "system",
     "quicklinks",
     "scripts",
+    "snippets",
     "files",
 ];
 
 /// How long an inline script command may run while its subtitle is computed.
 pub const INLINE_SCRIPT_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// The file index database in `env`'s data directory: `index.sqlite`.
+///
+/// # Errors
+/// When no data directory can be derived from the environment.
+pub fn index_path(env: &Env) -> Result<PathBuf, ConfigError> {
+    let dir = quickhop_core::config::data_dir(&env.os, |name| env.var(name).map(str::to_owned))?;
+    Ok(dir.join("index.sqlite"))
+}
+
+/// What `quickhop index` covers for `config` in `env`: `[files] roots` (`~` expanded) or the
+/// home folder, the default exclusions plus `[files] exclude`, never the data directory.
+pub fn index_options(config: &Config, env: &Env) -> quickhop_index::Options {
+    let home = env.home();
+    let roots = if config.files.roots.is_empty() {
+        home.iter().cloned().collect()
+    } else {
+        config
+            .files
+            .roots
+            .iter()
+            .map(|root| scripts::expand_home(root, home.as_deref()))
+            .collect()
+    };
+    let mut options = quickhop_index::Options::new(roots);
+    options.hidden = config.files.hidden;
+    options.exclude.extend(config.files.exclude.iter().cloned());
+    options.skip =
+        quickhop_core::config::data_dir(&env.os, |name| env.var(name).map(str::to_owned))
+            .into_iter()
+            .collect();
+    options
+}
 
 /// Something that went wrong while loading providers; loading continues without it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -70,20 +106,21 @@ pub fn script_dirs(config: &Config, env: &Env) -> Vec<PathBuf> {
     dirs
 }
 
-/// The file source for `env`: Spotlight over the home directory on macOS. Other systems
-/// have none until quickhop's own index lands (plan slice F1).
-fn files_source(env: &Env) -> Result<Box<dyn files::FileSource>, String> {
+/// The file source for `env`: the file index in the data directory ([`index_path`]) when one
+/// has been built, else Spotlight over the home directory on macOS; `None` elsewhere.
+fn files_source(env: &Env) -> Result<Option<Box<dyn files::FileSource>>, String> {
+    let path = index_path(env).map_err(|error| error.to_string())?;
+    if let Some(index) = files::Indexed::open(&path)? {
+        return Ok(Some(Box::new(index)));
+    }
     if env.os != "macos" {
-        return Err(format!(
-            "no file search on {} yet (quickhop's file index is not built)",
-            env.os
-        ));
+        return Ok(None);
     }
     match env.home() {
-        Some(home) if home.is_dir() => Ok(Box::new(files::Spotlight::new(
+        Some(home) if home.is_dir() => Ok(Some(Box::new(files::Spotlight::new(
             home,
             files::SPOTLIGHT_TIMEOUT,
-        ))),
+        )))),
         Some(home) => Err(format!("home directory {} not found", home.display())),
         None => Err("HOME is not set".into()),
     }
@@ -121,6 +158,25 @@ pub fn builtin(config: &Config, env: &Env) -> (Vec<Box<dyn Provider>>, Vec<Warni
         }));
         providers.push(Box::new(scripts));
     }
+    if enabled.snippets {
+        let path = quickhop_core::snippets::snippets_path(&env.os, |name| {
+            env.var(name).map(str::to_owned)
+        });
+        match path {
+            Ok(path) => {
+                let (snippets, problems) = snippets::SnippetsProvider::load(&path);
+                warnings.extend(problems.into_iter().map(|message| Warning {
+                    provider: "snippets",
+                    message,
+                }));
+                providers.push(Box::new(snippets));
+            }
+            Err(error) => warnings.push(Warning {
+                provider: "snippets",
+                message: error.to_string(),
+            }),
+        }
+    }
     if enabled.system {
         providers.push(Box::new(system::SystemProvider::for_os(&env.os)));
     }
@@ -129,11 +185,13 @@ pub fn builtin(config: &Config, env: &Env) -> (Vec<Box<dyn Provider>>, Vec<Warni
     }
     if enabled.files {
         match files_source(env) {
-            Ok(source) => providers.push(Box::new(files::FilesProvider::new(
+            Ok(Some(source)) => providers.push(Box::new(files::FilesProvider::new(
                 source,
                 &env.os,
                 env.home(),
             ))),
+            // No index built yet: nothing to search, and nothing wrong.
+            Ok(None) => {}
             Err(message) => warnings.push(Warning {
                 provider: files::NAME,
                 message,

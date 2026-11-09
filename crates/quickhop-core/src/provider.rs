@@ -115,6 +115,20 @@ pub trait Provider: Send + Sync {
     fn is_computed(&self) -> bool {
         false
     }
+
+    /// Whether an item with `key` exists whatever the query: what `[[commands]]` ids are
+    /// checked against. Computed providers have none. The default looks at the items for
+    /// the empty query; providers that return nothing for it override this.
+    ///
+    /// # Errors
+    /// When the provider's items cannot be listed.
+    fn has_key(&self, key: &str) -> Result<bool, ProviderError> {
+        if self.is_computed() {
+            return Ok(false);
+        }
+        let items = self.items(&Query::default(), &Cancel::new())?;
+        Ok(items.iter().any(|item| item.id.key == key))
+    }
 }
 
 #[cfg(test)]

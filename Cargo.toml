@@ -11,6 +11,8 @@ publish = false
 
 [workspace.dependencies]
 quickhop-core = { path = "crates/quickhop-core" }
+quickhop-index = { path = "crates/quickhop-index" }
+quickhop-platform-linux = { path = "crates/quickhop-platform-linux" }
 quickhop-platform-macos = { path = "crates/quickhop-platform-macos" }
 quickhop-providers = { path = "crates/quickhop-providers" }
 quickhop-store = { path = "crates/quickhop-store" }
@@ -20,6 +22,7 @@ async-channel = "2.5"
 clap = { version = "4.6", features = ["derive"] }
 emojis = "0.9"
 fend-core = "1.5"
+getrandom = "0.4"
 # gpui is pinned to one reviewed Zed revision (ADR 0001); move the pin deliberately.
 gpui = { git = "https://github.com/zed-industries/zed", rev = "ec237216460f8a34a4ac7c6b068e838593976ede" }
 # `runtime_shaders` compiles the Metal shaders at start-up, so macOS builds need only the
@@ -30,7 +33,10 @@ gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "ec237216
     "wayland",
     "x11",
 ] }
+ignore = "0.4"
 insta = "1.49"
+jiff = "0.2"
+notify = "8.2"
 nucleo-matcher = "0.3"
 # AppKit bindings for quickhop-platform-macos, at the versions gpui's tree already uses.
 objc2 = "0.6"
@@ -50,6 +56,7 @@ sha2 = "0.10"
 tempfile = "3.27"
 thiserror = "2.0"
 toml = "1.2"
+x11rb = { version = "0.14", features = ["xfixes", "xtest"] }
 
 [workspace.lints.rust]
 missing_docs = "deny"

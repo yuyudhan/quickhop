@@ -1,18 +1,18 @@
 //! File and folder search by name (FIL-01) with the file actions (FIL-02).
 //!
-//! Paths come from a [`FileSource`]: Spotlight on macOS ([`Spotlight`], `mdfind`), and on
-//! Linux quickhop's own index once it exists (plan slice F1). Queries shorter than
-//! [`MIN_QUERY_CHARS`] are not sent to the source: one or two letters match most of a home
-//! directory and would drown the other providers.
+//! Paths come from a [`FileSource`]: Spotlight on macOS ([`Spotlight`], `mdfind`), and
+//! elsewhere quickhop's own file index ([`Indexed`], built by `quickhop index` and kept current
+//! by the daemon). Queries shorter than [`MIN_QUERY_CHARS`] are not sent to the source: one or
+//! two letters match most of a home directory and would drown the other providers.
 
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
-use std::sync::mpsc;
+use std::sync::{Mutex, PoisonError, mpsc};
 use std::time::{Duration, Instant};
 
-use percent_encoding::{AsciiSet, NON_ALPHANUMERIC, utf8_percent_encode};
 use quickhop_core::{Action, Cancel, Item, ItemId, Provider, ProviderError, Query};
+use quickhop_index::Index;
 
 /// Provider name.
 pub const NAME: &str = "files";
@@ -25,14 +25,6 @@ pub const MAX_PATHS: usize = 200;
 
 /// How long one Spotlight query may take before it is abandoned.
 pub const SPOTLIGHT_TIMEOUT: Duration = Duration::from_secs(2);
-
-/// Characters kept as they are in a `file://` URI path.
-const URI_PATH: &AsciiSet = &NON_ALPHANUMERIC
-    .remove(b'/')
-    .remove(b'-')
-    .remove(b'_')
-    .remove(b'.')
-    .remove(b'~');
 
 /// Where file paths come from.
 pub trait FileSource: Send + Sync {
@@ -47,6 +39,70 @@ pub trait FileSource: Send + Sync {
         limit: usize,
         cancel: &Cancel,
     ) -> Result<Vec<PathBuf>, ProviderError>;
+
+    /// Whether `path` is one of the files this source can find: what `[[commands]]` ids of
+    /// the `files` provider are checked against. The default asks the file system.
+    ///
+    /// # Errors
+    /// When the source cannot be read.
+    fn contains(&self, path: &Path) -> Result<bool, ProviderError> {
+        Ok(path.is_absolute() && path.exists())
+    }
+}
+
+/// quickhop's own file index (`quickhop-index`), as `quickhop index` and the daemon keep it.
+pub struct Indexed {
+    index: Mutex<Index>,
+}
+
+impl Indexed {
+    /// Searches `index`.
+    pub fn new(index: Index) -> Self {
+        Self {
+            index: Mutex::new(index),
+        }
+    }
+
+    /// The index at `path`, when it exists (it is never created here).
+    ///
+    /// # Errors
+    /// When the file exists but cannot be opened as an index.
+    pub fn open(path: &Path) -> Result<Option<Self>, String> {
+        if !path.is_file() {
+            return Ok(None);
+        }
+        Index::open(path)
+            .map(|index| Some(Self::new(index)))
+            .map_err(|error| error.to_string())
+    }
+}
+
+impl FileSource for Indexed {
+    fn find(
+        &self,
+        text: &str,
+        limit: usize,
+        cancel: &Cancel,
+    ) -> Result<Vec<PathBuf>, ProviderError> {
+        if cancel.is_cancelled() {
+            return Err(cancelled());
+        }
+        let hits = self
+            .index
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .search(text, limit)
+            .map_err(|error| other(error.to_string()))?;
+        Ok(hits.into_iter().map(|hit| hit.entry.path).collect())
+    }
+
+    fn contains(&self, path: &Path) -> Result<bool, ProviderError> {
+        self.index
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .contains(path)
+            .map_err(|error| other(error.to_string()))
+    }
 }
 
 /// Spotlight's index, queried with `mdfind -onlyin <root> -name <text>`.
@@ -151,47 +207,25 @@ impl FileSource for Spotlight {
     }
 }
 
-/// The file actions for one OS, the first being the default.
+/// The file actions for one OS, the first being the default: open, reveal in the file
+/// manager, copy the path, Quick Look (macOS), move to the trash.
 fn actions(os: &str, path: &str) -> Vec<Action> {
-    let run = |program: &str, args: Vec<String>, confirm: bool| Action::Run {
-        program: program.into(),
-        args,
-        confirm,
-    };
-    let open = Action::Open {
-        target: path.into(),
-    };
-    let copy = Action::Copy { text: path.into() };
+    let mut actions = vec![
+        Action::Open {
+            target: path.into(),
+        },
+        Action::Reveal { path: path.into() },
+        Action::Copy { text: path.into() },
+    ];
     if os == "macos" {
-        return vec![
-            open,
-            run("open", vec!["-R".into(), path.into()], false),
-            copy,
-            run("qlmanage", vec!["-p".into(), path.into()], false),
-            // `/usr/bin/trash` (macOS 15 and later) moves to the Trash like Finder does,
-            // so "Put Back" still works.
-            run("trash", vec![path.into()], true),
-        ];
+        actions.push(Action::Run {
+            program: "qlmanage".into(),
+            args: vec!["-p".into(), path.into()],
+            confirm: false,
+        });
     }
-    let uri = format!("file://{}", utf8_percent_encode(path, URI_PATH));
-    vec![
-        open,
-        run(
-            "dbus-send",
-            vec![
-                "--session".into(),
-                "--dest=org.freedesktop.FileManager1".into(),
-                "--type=method_call".into(),
-                "/org/freedesktop/FileManager1".into(),
-                "org.freedesktop.FileManager1.ShowItems".into(),
-                format!("array:string:{uri}"),
-                "string:".into(),
-            ],
-            false,
-        ),
-        copy,
-        run("gio", vec!["trash".into(), path.into()], true),
-    ]
+    actions.push(Action::Trash { path: path.into() });
+    actions
 }
 
 /// `dir` with the home directory written as `~`.
@@ -220,11 +254,14 @@ impl FilesProvider {
         }
     }
 
+    /// The item for `path`; its full path is a keyword, so the folder's name matches too
+    /// (`work report` finds `~/work/quarterly-report.md`).
     fn item(&self, path: &Path) -> Option<Item> {
         let name = path.file_name()?.to_string_lossy().into_owned();
         let text = path.to_str()?;
         let mut actions = actions(&self.os, text).into_iter();
-        let mut item = Item::new(ItemId::new(NAME, text), name, actions.next()?);
+        let mut item = Item::new(ItemId::new(NAME, text), name, actions.next()?)
+            .with_keywords([text.to_owned()]);
         item.actions.extend(actions);
         Some(match path.parent() {
             Some(dir) => item.with_subtitle(display_dir(dir, self.home.as_deref())),
@@ -254,12 +291,15 @@ impl Provider for FilesProvider {
             .filter_map(|path| self.item(path))
             .collect())
     }
+
+    fn has_key(&self, key: &str) -> Result<bool, ProviderError> {
+        self.source.contains(Path::new(key))
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
 
     /// Answers with fixed paths and records the texts it was asked for.
     struct Fixed {
@@ -354,42 +394,48 @@ mod tests {
                 Action::Open {
                     target: path.into()
                 },
-                Action::Run {
-                    program: "open".into(),
-                    args: vec!["-R".into(), path.into()],
-                    confirm: false
-                },
+                Action::Reveal { path: path.into() },
                 Action::Copy { text: path.into() },
                 Action::Run {
                     program: "qlmanage".into(),
                     args: vec!["-p".into(), path.into()],
                     confirm: false
                 },
-                Action::Run {
-                    program: "trash".into(),
-                    args: vec![path.into()],
-                    confirm: true
-                },
+                Action::Trash { path: path.into() },
             ]
         );
     }
 
     #[test]
-    fn linux_reveal_sends_an_encoded_file_uri() {
+    fn linux_actions_have_no_quick_look() {
         let provider = provider("linux", &["/home/ada/My File #1.pdf"]);
         let found = items(&provider, "file");
-        let Some(Action::Run { program, args, .. }) = found[0].actions.get(1) else {
-            panic!("no reveal action: {:?}", found[0].actions);
-        };
-        assert_eq!(program, "dbus-send");
-        assert!(
-            args.contains(&"array:string:file:///home/ada/My%20File%20%231.pdf".to_owned()),
-            "{args:?}"
+        let path = "/home/ada/My File #1.pdf";
+        assert_eq!(
+            found[0].actions,
+            [
+                Action::Open {
+                    target: path.into()
+                },
+                Action::Reveal { path: path.into() },
+                Action::Copy { text: path.into() },
+                Action::Trash { path: path.into() },
+            ]
         );
-        assert!(found[0].actions.iter().any(|a| matches!(
-            a,
-            Action::Run { program, confirm: true, .. } if program == "gio"
-        )));
+    }
+
+    #[test]
+    fn a_missing_index_is_no_source_and_an_empty_one_finds_nothing() {
+        assert!(matches!(
+            Indexed::open(Path::new("/nonexistent/index.sqlite")),
+            Ok(None)
+        ));
+        let Ok(index) = Index::in_memory() else {
+            panic!("no in-memory index");
+        };
+        let provider = FilesProvider::new(Box::new(Indexed::new(index)), "linux", None);
+        assert_eq!(items(&provider, "report"), Vec::<Item>::new());
+        assert!(!provider.has_key("/home/ada/report.txt").unwrap_or(true));
     }
 
     #[test]

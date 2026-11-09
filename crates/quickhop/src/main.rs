@@ -2,7 +2,13 @@
 
 #![forbid(unsafe_code)]
 
+mod autostart;
+mod clipboard;
+#[cfg(unix)]
+mod daemon;
 mod launch;
+mod paste;
+mod trash;
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -56,6 +62,14 @@ enum Command {
         /// Print the action as JSON instead of running it.
         #[arg(long)]
         dry_run: bool,
+        /// Run the result's first action of this kind (`open`, `copy`, `reveal`, `trash`, …)
+        /// instead of its default one.
+        #[arg(long)]
+        action: Option<String>,
+        /// Paste a text result (copy, snippet) into the focused application instead of
+        /// printing it.
+        #[arg(long)]
+        paste: bool,
     },
     /// Inspect or validate the configuration file.
     Config {
@@ -79,6 +93,62 @@ enum Command {
     },
     /// Report the platform, paths, session, helper tools and enabled providers.
     Doctor,
+    /// Build the file index (`[files] roots`, default the home folder) for file search.
+    Index {
+        /// Keep running and apply file changes as they happen.
+        #[arg(long)]
+        watch: bool,
+    },
+    /// Clipboard history: watch, add, list, clear.
+    Clipboard {
+        #[command(subcommand)]
+        action: clipboard::ClipboardAction,
+    },
+    /// Run the background daemon (one per user): clipboard history, the file index, and the
+    /// `open` and `reload` requests. `status` and `stop` talk to a running one.
+    #[cfg(unix)]
+    Daemon {
+        #[command(subcommand)]
+        action: Option<DaemonAction>,
+    },
+    /// Run a result's action in the daemon, starting the daemon when none runs.
+    #[cfg(unix)]
+    Open {
+        /// The result's id, as printed by `query` (`provider:key`).
+        id: String,
+        /// The query the result was picked for (some results depend on it).
+        #[arg(long, default_value = "", allow_hyphen_values = true)]
+        query: String,
+        /// A script-command or snippet argument; repeat for several.
+        #[arg(long = "arg")]
+        args: Vec<String>,
+        /// Confirm actions that need it.
+        #[arg(long)]
+        yes: bool,
+        /// Run the result's first action of this kind instead of its default one.
+        #[arg(long)]
+        action: Option<String>,
+        /// Paste a text result into the focused application instead of printing it.
+        #[arg(long)]
+        paste: bool,
+    },
+    /// Make the running daemon read the configuration again.
+    #[cfg(unix)]
+    Reload,
+    /// Start the daemon at login: on, off or status.
+    Autostart {
+        #[command(subcommand)]
+        action: autostart::AutostartAction,
+    },
+}
+
+#[cfg(unix)]
+#[derive(Debug, Subcommand)]
+enum DaemonAction {
+    /// Print whether the daemon runs and what it watches.
+    Status,
+    /// Stop the running daemon.
+    Stop,
 }
 
 #[derive(Debug, Subcommand)]
@@ -108,6 +178,16 @@ enum CliError {
     NotFound(String, String),
     #[error("{0} needs confirmation: run again with --yes")]
     NeedsConfirmation(String),
+    #[error("only text results (copy, snippet) can be pasted, not {0}")]
+    NotPasteable(&'static str),
+    #[error(transparent)]
+    Paste(#[from] paste::PasteError),
+    #[error("{id} has no {kind} action (it has: {available})")]
+    NoAction {
+        id: String,
+        kind: String,
+        available: String,
+    },
     #[error(transparent)]
     Launch(#[from] launch::LaunchError),
     #[error("invalid script command {path}: {source}")]
@@ -130,6 +210,17 @@ enum CliError {
     ScriptRun(#[from] scripts::RunError),
     #[error("script failed: {0}")]
     ScriptFailed(String),
+    #[error(transparent)]
+    Index(#[from] quickhop_index::IndexError),
+    #[error(transparent)]
+    Clipboard(#[from] clipboard::ClipboardError),
+    #[cfg(unix)]
+    #[error(transparent)]
+    Daemon(#[from] daemon::DaemonError),
+    #[error("nothing to index: set [files] roots or HOME")]
+    NoIndexRoots,
+    #[error(transparent)]
+    Autostart(#[from] autostart::AutostartError),
 }
 
 fn var(name: &str) -> Option<String> {
@@ -211,10 +302,32 @@ struct Outcome {
     warnings: Vec<String>,
 }
 
-fn search(config: &Config, text: &str, limit: usize) -> Outcome {
+/// The enabled providers with the `[[commands]]` settings applied, plus loading warnings.
+///
+/// # Errors
+/// When a `[[commands]]` id names no item.
+fn load_search(config: &Config, limit: usize) -> Result<(Search, Vec<String>), CliError> {
     let env = Env::current();
     let (providers, loaded) = quickhop_providers::builtin(config, &env);
-    let mut warnings: Vec<String> = loaded.iter().map(warning_text).collect();
+    let search = Search::new(limit)
+        .with_providers(providers)
+        .with_commands(&config.commands);
+    if !config.commands.is_empty() {
+        let unknown = search.unknown_commands();
+        if !unknown.is_empty() {
+            let ids = unknown.iter().map(ToString::to_string).collect();
+            return Err(quickhop_core::ConfigError::UnknownCommands(ids).into());
+        }
+    }
+    Ok((search, loaded.iter().map(warning_text).collect()))
+}
+
+/// Searches every enabled provider with the `[[commands]]` settings applied.
+///
+/// # Errors
+/// When a `[[commands]]` id names no item.
+fn search(config: &Config, text: &str, limit: usize) -> Result<Outcome, CliError> {
+    let (search, mut warnings) = load_search(config, limit)?;
     let boosts = match open_store(&mut warnings).map(|s| s.boosts(text, now())) {
         Some(Ok(boosts)) => boosts,
         Some(Err(error)) => {
@@ -223,16 +336,12 @@ fn search(config: &Config, text: &str, limit: usize) -> Outcome {
         }
         None => Boosts::new(),
     };
-    let results = Search::new(limit).with_providers(providers).run(
-        &Query::new(text),
-        &Cancel::new(),
-        &boosts,
-    );
-    Outcome {
+    let results = search.run(&Query::new(text), &Cancel::new(), &boosts);
+    Ok(Outcome {
         ranked: results.ranked,
         errors: results.errors.iter().map(ToString::to_string).collect(),
         warnings,
-    }
+    })
 }
 
 #[derive(Serialize)]
@@ -263,7 +372,7 @@ fn query(
     limit: usize,
     out: &mut impl Write,
 ) -> Result<(), CliError> {
-    let outcome = search(config, text, limit);
+    let outcome = search(config, text, limit)?;
     if json {
         let results = outcome
             .ranked
@@ -309,6 +418,8 @@ struct LaunchRequest<'a> {
     args: &'a [String],
     yes: bool,
     dry_run: bool,
+    action: Option<&'a str>,
+    paste: bool,
 }
 
 fn launch(
@@ -317,19 +428,38 @@ fn launch(
     out: &mut impl Write,
 ) -> Result<(), CliError> {
     let id = ItemId::parse(request.id).ok_or_else(|| CliError::BadId(request.id.to_owned()))?;
-    let outcome = search(config, request.query, usize::MAX);
+    let outcome = search(config, request.query, usize::MAX)?;
     let item = outcome
         .ranked
         .into_iter()
         .map(|r| r.item)
         .find(|item| item.id == id)
         .ok_or_else(|| CliError::NotFound(request.id.to_owned(), request.query.to_owned()))?;
-    let Some(action) = item.default_action() else {
+    let action = match request.action {
+        None => item.default_action(),
+        Some(kind) => {
+            let found = item.actions.iter().find(|a| a.kind() == kind);
+            if found.is_none() {
+                let kinds: Vec<&str> = item.actions.iter().map(Action::kind).collect();
+                return Err(CliError::NoAction {
+                    id: request.id.to_owned(),
+                    kind: kind.to_owned(),
+                    available: kinds.join(", "),
+                });
+            }
+            found
+        }
+    };
+    let Some(action) = action else {
         return Err(CliError::NotFound(
             request.id.to_owned(),
             request.query.to_owned(),
         ));
     };
+    let pasteable = matches!(action, Action::Copy { .. } | Action::Snippet { .. });
+    if request.paste && !pasteable {
+        return Err(CliError::NotPasteable(action.kind()));
+    }
     if request.dry_run {
         serde_json::to_writer_pretty(&mut *out, action)?;
         writeln!(out)?;
@@ -339,7 +469,9 @@ fn launch(
         return Err(CliError::NeedsConfirmation(item.title.clone()));
     }
     let message = launch::perform(action, request.args)?;
-    if !message.is_empty() {
+    if request.paste {
+        paste::paste_and_report(&message)?;
+    } else if !message.is_empty() {
         writeln!(out, "{message}")?;
     }
     let mut warnings = Vec::new();
@@ -367,6 +499,8 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
             args,
             yes,
             dry_run,
+            action,
+            paste,
         } => {
             let request = LaunchRequest {
                 id: &id,
@@ -374,8 +508,51 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
                 args: &args,
                 yes,
                 dry_run,
+                action: action.as_deref(),
+                paste,
             };
             launch(&load_config()?, &request, out)?;
+        }
+        Command::Clipboard { action } => clipboard::run(&action, &load_config()?, now, out)?,
+        Command::Autostart { action } => autostart::run(action, out)?,
+        #[cfg(unix)]
+        Command::Daemon { action } => {
+            let request = match action {
+                None => return Ok(daemon::serve(load_config()?, out)?),
+                Some(DaemonAction::Status) => daemon::Request::Status,
+                Some(DaemonAction::Stop) => daemon::Request::Stop,
+            };
+            writeln!(out, "{}", daemon::message(daemon::send(&request)?)?)?;
+        }
+        #[cfg(unix)]
+        Command::Open {
+            id,
+            query,
+            args,
+            yes,
+            action,
+            paste,
+        } => {
+            let request = daemon::Request::Open {
+                id,
+                query,
+                args,
+                yes,
+                action,
+                paste,
+            };
+            let message = daemon::message(daemon::send_starting(&request)?)?;
+            if !message.is_empty() {
+                writeln!(out, "{message}")?;
+            }
+        }
+        #[cfg(unix)]
+        Command::Reload => {
+            writeln!(
+                out,
+                "{}",
+                daemon::message(daemon::send(&daemon::Request::Reload)?)?
+            )?;
         }
         Command::Config {
             action: ConfigAction::Default,
@@ -390,7 +567,11 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
                 Some(path) => path,
                 None => default_path()?,
             };
-            Config::load(&path)?;
+            let config = Config::load(&path)?;
+            // Command ids are checked against the items the providers load.
+            if !config.commands.is_empty() {
+                load_search(&config, 1)?;
+            }
             writeln!(out, "{}: ok", path.display())?;
         }
         Command::Run {
@@ -404,8 +585,51 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
             run_script(&found, &args, yes, Duration::from_secs(timeout), out)?;
         }
         Command::Doctor => doctor(out)?,
+        Command::Index { watch } => index(watch, out)?,
     }
     Ok(())
+}
+
+/// Rebuilds the file index; with `watch`, then keeps it current until killed.
+fn index(watch: bool, out: &mut impl Write) -> Result<(), CliError> {
+    let config = load_config()?;
+    let env = Env::current();
+    let options = quickhop_providers::index_options(&config, &env);
+    if options.roots.is_empty() {
+        return Err(CliError::NoIndexRoots);
+    }
+    let path = quickhop_providers::index_path(&env)?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut index = quickhop_index::Index::open(&path)?;
+    let stats = index.rebuild(&options, &Cancel::new())?;
+    writeln!(
+        out,
+        "indexed {} files and {} folders in {} ms: {}",
+        stats.files,
+        stats.dirs,
+        stats.millis,
+        path.display()
+    )?;
+    if !watch {
+        return Ok(());
+    }
+    let roots: Vec<String> = options
+        .roots
+        .iter()
+        .map(|r| r.display().to_string())
+        .collect();
+    let index = std::sync::Arc::new(std::sync::Mutex::new(index));
+    let watcher = quickhop_index::Watcher::start(index, options)?;
+    writeln!(out, "watching {} (Ctrl+C stops)", roots.join(", "))?;
+    out.flush()?;
+    loop {
+        std::thread::sleep(Duration::from_secs(1));
+        for error in watcher.take_errors() {
+            let _ = writeln!(io::stderr(), "quickhop: {error}");
+        }
+    }
 }
 
 /// The script command `name`: an existing file, else the one script command in the script
@@ -542,6 +766,25 @@ fn doctor(out: &mut impl Write) -> Result<(), CliError> {
         Err(error) => writeln!(out, "data: {error} (frecency disabled)")?,
     }
     let env = Env::current();
+    if let Ok(path) = quickhop_providers::index_path(&env) {
+        let state = if path.is_file() {
+            quickhop_index::Index::open(&path)
+                .and_then(|index| index.len())
+                .map_or_else(|e| e.to_string(), |n| format!("{n} entries"))
+        } else {
+            "absent: run `quickhop index`".to_owned()
+        };
+        writeln!(out, "index: {} ({state})", path.display())?;
+    }
+    match autostart::entry_path(std::env::consts::OS, var) {
+        Ok(path) if path.is_file() => writeln!(out, "autostart: on ({})", path.display())?,
+        Ok(path) => writeln!(
+            out,
+            "autostart: off (`quickhop autostart on` writes {})",
+            path.display()
+        )?,
+        Err(error) => writeln!(out, "autostart: {error}")?,
+    }
     let dirs = quickhop_providers::script_dirs(&config, &env);
     if dirs.is_empty() {
         match quickhop_core::config::scripts_dir(&env.os, var) {

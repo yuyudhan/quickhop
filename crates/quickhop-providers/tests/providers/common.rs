@@ -3,14 +3,16 @@
 use std::path::PathBuf;
 
 use quickhop_core::{Cancel, Provider, ProviderError, Quicklink};
+use quickhop_index::Index;
 use quickhop_providers::Env;
 use quickhop_providers::apps::icons::IconSearch;
 use quickhop_providers::apps::{AppsProvider, Sources};
 use quickhop_providers::calc::CalcProvider;
 use quickhop_providers::emoji::EmojiProvider;
-use quickhop_providers::files::{self, FileSource, FilesProvider};
+use quickhop_providers::files::{self, FileSource, FilesProvider, Indexed};
 use quickhop_providers::quicklinks::QuicklinksProvider;
 use quickhop_providers::scripts::ScriptsProvider;
+use quickhop_providers::snippets::SnippetsProvider;
 use quickhop_providers::system::SystemProvider;
 
 /// `tests/fixtures`.
@@ -99,6 +101,14 @@ pub(crate) fn quicklinks() -> QuicklinksProvider {
     ])
 }
 
+/// The fixture snippet library.
+pub(crate) fn snippets() -> SnippetsProvider {
+    let (provider, warnings) =
+        SnippetsProvider::load(&fixtures().join("snippets").join("snippets.toml"));
+    assert_eq!(warnings, Vec::<String>::new());
+    provider
+}
+
 /// File paths answered by name like Spotlight does: case-insensitive substring of the name.
 struct FixtureFiles;
 
@@ -134,13 +144,29 @@ impl FileSource for FixtureFiles {
     }
 }
 
-/// Files over [`FIXTURE_FILES`] with the Linux actions and `/home/ada` as home.
+/// Files over [`FIXTURE_FILES`] with the Linux actions and `/home/ada` as home: fixed paths,
+/// so snapshots do not depend on where the repository is checked out.
 pub(crate) fn files() -> FilesProvider {
     FilesProvider::new(
         Box::new(FixtureFiles),
         "linux",
         Some(PathBuf::from("/home/ada")),
     )
+}
+
+/// The files provider over quickhop's own index of the whole fixture folder.
+pub(crate) fn indexed_files() -> Result<FilesProvider, Box<dyn std::error::Error>> {
+    let options = quickhop_index::Options::new(vec![fixtures()]);
+    let mut index = Index::in_memory()?;
+    let stats = index.rebuild(&options, &Cancel::new())?;
+    if stats.files <= 50 {
+        return Err(format!("the fixture index is too small: {stats:?}").into());
+    }
+    Ok(FilesProvider::new(
+        Box::new(Indexed::new(index)),
+        "linux",
+        None,
+    ))
 }
 
 /// Every provider over fixtures, in the order `quickhop_providers::builtin` uses.
@@ -150,6 +176,7 @@ pub(crate) fn all_providers() -> Vec<Box<dyn Provider>> {
         Box::new(CalcProvider::new()),
         Box::new(desktop_apps()),
         Box::new(scripts()),
+        Box::new(snippets()),
         Box::new(SystemProvider::for_os("linux")),
         Box::new(EmojiProvider::new()),
         Box::new(files()),

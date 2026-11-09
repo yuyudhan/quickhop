@@ -121,6 +121,10 @@ impl Provider for EmojiProvider {
         exact.extend(rest);
         Ok(exact)
     }
+
+    fn has_key(&self, key: &str) -> Result<bool, ProviderError> {
+        Ok(self.items.iter().any(|item| item.id.key == key))
+    }
 }
 
 #[cfg(test)]

@@ -35,11 +35,11 @@ A free alternative to Raycast that runs your Raycast script commands unchanged.
 | Quicklinks with `{query}` and aliases | ✅ | `{clipboard}`, `{selection}`, open-with |
 | **Script commands** (all metadata, modes, arguments) | ✅ | inline refresh, ANSI output view |
 | Global hotkey and launcher window | | 🛠 next |
-| File and folder search | macOS via Spotlight (CLI) | 🛠 Linux index, window |
-| Clipboard history with paste | | 🛠 |
-| Snippets with dynamic placeholders | | 🛠 |
+| File and folder search (Spotlight on macOS, own index on Linux with `quickhop index`; open, reveal, copy path, Quick Look, trash) | ✅ | window view, open with |
+| Clipboard history (`quickhop clipboard watch`, X11 and wlroots/KDE Wayland; `clipboard paste` on X11) | ✅ | searchable view, paste on Wayland and macOS, GNOME Wayland watching |
+| Snippets with dynamic placeholders | ✅ | paste into the frontmost app, auto-expansion |
 | Window management | | 🛠 |
-| Aliases and hotkeys per command, favorites, fallbacks | | 🛠 |
+| Aliases, enable/disable and root order per command | ✅ | per-command hotkeys, favorites, fallbacks |
 | AI chat, Quick AI, AI commands | | 🛠 |
 | Extensions and store | | 🛠 |
 | Themes, settings window, live reload | | 🛠 |
@@ -51,7 +51,8 @@ A free alternative to Raycast that runs your Raycast script commands unchanged.
 ## Install
 
 quickhop is built from source until the first release (signed DMG and Homebrew cask on macOS;
-`.deb`, `.rpm` and AUR on Linux).
+`.rpm` and AUR on Linux). On Debian and Ubuntu, `just bundle-linux` builds a `.deb` and a
+tarball into `target/bundle/`.
 
 **macOS** (Apple silicon or Intel):
 
@@ -70,13 +71,21 @@ quickhop is built from source until the first release (signed DMG and Homebrew c
 Then check your setup:
 
     quickhop doctor
+    quickhop autostart on                  # start the daemon at login
 
 ## Use
 
     quickhop query firefox                    # ranked results
     quickhop query '5 km to miles' --json     # machine-readable
     quickhop launch emoji:1f604 --query smile # run a result's default action (prints 😄)
+    quickhop launch files:/home/me/notes.md --action reveal   # any action by kind (copy, trash, …)
     quickhop run hello Ada                    # run a script command with an argument
+    quickhop index --watch                    # index files under ~ (or [files] roots), keep it current
+    quickhop clipboard watch                  # record copied text (X11, wlroots/KDE Wayland)
+    quickhop clipboard list                   # newest first; --json for everything
+    quickhop clipboard paste 2                # paste the second newest into the focused app (X11)
+    quickhop daemon &                         # one per user: clipboard history, live file index
+    quickhop open emoji:1f604 --query smile   # an action through the daemon (starts one if needed)
     mkdir -p ~/.config/quickhop && quickhop config default > ~/.config/quickhop/config.toml
 
 ## Configuration
@@ -87,6 +96,7 @@ honoured; `$QUICKHOP_CONFIG` points at another file). Data such as ranking histo
 
     ~/.config/quickhop/
     ├── config.toml          # settings, providers, quicklinks
+    ├── snippets.toml        # snippets with Raycast placeholders
     └── scripts/             # Raycast-compatible script commands
         ├── hello.sh
         └── ip.py
@@ -110,7 +120,36 @@ max_entries = 1000
 name = "GitHub search"
 url = "https://github.com/search?q={query}"
 alias = "gh"          # type `gh tokio`
+
+[[commands]]          # any result, by the id `quickhop query --json` prints
+id = "system:lock"
+alias = "lk"          # type `lk` to pin it
+order = 1             # first in the empty root search
+
+[[commands]]
+id = "system:shutdown"
+enabled = false       # never shown; unknown ids are config errors
+
+[files]
+roots = ["~/code", "~/Documents"]   # what `quickhop index` covers (default: ~)
+
+[clipboard]
+max_entries = 1000    # history kept by `quickhop clipboard watch`
+max_age_days = 90     # 0 keeps entries forever
 ```
+
+```toml
+# ~/.config/quickhop/snippets.toml
+[[snippets]]
+name = "Reply"
+keyword = ";re"
+text = "Hi {argument name=\"name\"},\n\n{cursor}\n\nSent {date format=\"EEEE, MMM d\"} · {clipboard | trim}"
+```
+
+Snippets use Raycast's dynamic placeholders: `{clipboard}`, `{date}`, `{time}`, `{datetime}`
+and `{day}` with `format` and `offset`, `{uuid}`, `{cursor}`, `{argument}`, `{snippet}`, and
+the `| trim | uppercase | lowercase | percent-encode | json-stringify` modifiers.
+`quickhop launch snippets:reply --arg Ada` prints the expanded text.
 
 Upgrading from quickhop 0.1 on macOS moves `~/Library/Application Support/quickhop` to these
 locations automatically.

@@ -451,8 +451,12 @@ pub fn action_title(action: &Action) -> String {
         }
         Action::Open { .. } => "Open",
         Action::Copy { .. } => "Copy to Clipboard",
+        Action::Run { program, .. } if program == "qlmanage" => "Quick Look",
         Action::Run { .. } => "Run",
         Action::Script { .. } => "Run Script",
+        Action::Snippet { .. } => "Copy Snippet",
+        Action::Reveal { .. } => "Show in File Manager",
+        Action::Trash { .. } => "Move to Trash",
     }
     .to_owned()
 }

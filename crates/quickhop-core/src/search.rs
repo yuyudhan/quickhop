@@ -9,12 +9,12 @@
 //! Within a tier the score is the fuzzy score plus `FRECENCY_WEIGHT * ln(1 + frecency)`,
 //! where the caller supplies frecency per item (see `quickhop-store`). Ties keep candidate
 //! order: provider registration order, then the order each provider returned.
-
 use std::cmp::Ordering;
 use std::collections::HashMap;
 
 use serde::Serialize;
 
+use crate::config::CommandSettings;
 use crate::fuzzy::Matcher;
 use crate::item::{Item, ItemId};
 use crate::provider::{Cancel, Provider, ProviderError, Query};
@@ -64,10 +64,19 @@ pub struct SearchResults {
     pub errors: Vec<ProviderError>,
 }
 
+/// What a `[[commands]]` entry changes about its item.
+#[derive(Debug, Clone)]
+struct Override {
+    alias: Option<String>,
+    enabled: bool,
+    order: Option<u32>,
+}
+
 /// A set of providers searched together.
 pub struct Search {
     providers: Vec<Box<dyn Provider>>,
     limit: usize,
+    commands: Vec<(ItemId, Override)>,
 }
 
 impl Search {
@@ -76,7 +85,28 @@ impl Search {
         Self {
             providers: Vec::new(),
             limit,
+            commands: Vec::new(),
         }
+    }
+
+    /// Applies per-command settings: an alias pins its item like any other alias, a
+    /// disabled item never appears, and `order` sorts the empty root search. Entries whose
+    /// id does not parse are ignored ([`crate::Config::validate`] rejects them).
+    #[must_use]
+    pub fn with_commands(mut self, commands: &[CommandSettings]) -> Self {
+        self.commands = commands
+            .iter()
+            .filter_map(|c| {
+                let id = ItemId::parse(&c.id)?;
+                let settings = Override {
+                    alias: c.alias.clone(),
+                    enabled: c.enabled,
+                    order: c.order,
+                };
+                Some((id, settings))
+            })
+            .collect();
+        self
     }
 
     /// Adds a provider. Earlier providers win ties.
@@ -101,9 +131,29 @@ impl Search {
         self.providers.iter().map(|p| p.name())
     }
 
+    /// The `[[commands]]` ids that name no item: their provider is not registered, is a
+    /// computed one, or has no such key ([`Provider::has_key`]). Providers that fail to
+    /// answer are not judged. Asks every provider, so call it when commands are loaded, not
+    /// per keystroke.
+    pub fn unknown_commands(&self) -> Vec<ItemId> {
+        self.commands
+            .iter()
+            .map(|(id, _)| id)
+            .filter(|id| {
+                self.providers
+                    .iter()
+                    .find(|p| p.name() == id.provider)
+                    .is_none_or(|p| matches!(p.has_key(&id.key), Ok(false)))
+            })
+            .cloned()
+            .collect()
+    }
+
     /// Runs `query`. Stops asking providers once `cancel` is set; items with the same
     /// [`ItemId`] are merged, keeping the best rank.
     pub fn run(&self, query: &Query, cancel: &Cancel, boosts: &Boosts) -> SearchResults {
+        let overrides: HashMap<&ItemId, &Override> =
+            self.commands.iter().map(|(id, o)| (id, o)).collect();
         let mut errors = Vec::new();
         let mut candidates = Vec::new();
         for provider in &self.providers {
@@ -116,16 +166,48 @@ impl Search {
             match provider.items(query, cancel) {
                 Ok(items) => {
                     let computed = provider.is_computed();
-                    candidates.extend(items.into_iter().map(|item| (item, computed)));
+                    candidates.extend(
+                        items
+                            .into_iter()
+                            .filter_map(|item| apply(&overrides, item))
+                            .map(|item| (item, computed)),
+                    );
                 }
                 Err(error) => errors.push(error),
             }
         }
-        SearchResults {
-            ranked: rank(query, candidates, boosts, self.limit),
-            errors,
-        }
+        let ranked = if query.is_empty() && overrides.values().any(|o| o.order.is_some()) {
+            let mut all = rank(query, candidates, boosts, usize::MAX);
+            // Stable: items without an order keep their rank after the ordered ones.
+            all.sort_by_key(|r| {
+                overrides
+                    .get(&r.item.id)
+                    .and_then(|o| o.order)
+                    .map_or((1, 0), |order| (0, order))
+            });
+            all.truncate(self.limit);
+            all
+        } else {
+            rank(query, candidates, boosts, self.limit)
+        };
+        SearchResults { ranked, errors }
     }
+}
+
+/// `item` with its `[[commands]]` alias added, or `None` when the command is disabled.
+fn apply(overrides: &HashMap<&ItemId, &Override>, mut item: Item) -> Option<Item> {
+    let Some(settings) = overrides.get(&item.id) else {
+        return Some(item);
+    };
+    if !settings.enabled {
+        return None;
+    }
+    if let Some(alias) = &settings.alias
+        && !item.aliases.iter().any(|a| a.eq_ignore_ascii_case(alias))
+    {
+        item.aliases.push(alias.clone());
+    }
+    Some(item)
 }
 
 /// Ranks `candidates` (each with its provider's [`Provider::is_computed`]) for `query`
@@ -418,5 +500,99 @@ mod tests {
         assert_eq!(frecency_points(Some(&-3.0)), 0);
         assert_eq!(frecency_points(Some(&f64::INFINITY)), 0);
         assert_eq!(frecency_points(None), 0);
+    }
+
+    fn command(id: &str) -> CommandSettings {
+        CommandSettings {
+            id: id.into(),
+            alias: None,
+            enabled: true,
+            hotkey: None,
+            order: None,
+        }
+    }
+
+    #[test]
+    fn command_alias_pins_any_item() {
+        let alias = CommandSettings {
+            alias: Some("t".into()),
+            ..command("apps:Terminal")
+        };
+        let search = Search::new(10)
+            .with_provider(apps())
+            .with_commands(&[alias]);
+        for text in ["t", "T", "t some argument"] {
+            let results = run(&search, text);
+            assert_eq!(results.ranked[0].item.title, "Terminal", "{text}");
+            assert_eq!(results.ranked[0].tier, Tier::Pinned, "{text}");
+        }
+        assert_eq!(search.unknown_commands(), Vec::<ItemId>::new());
+    }
+
+    #[test]
+    fn disabled_command_never_appears() {
+        let off = CommandSettings {
+            enabled: false,
+            alias: Some("ff".into()),
+            ..command("apps:Firefox")
+        };
+        let search = Search::new(10).with_provider(apps()).with_commands(&[off]);
+        for text in ["", "fi", "firefox", "browser", "ff"] {
+            assert!(!titles(&run(&search, text)).contains(&"Firefox"), "{text}");
+        }
+        assert_eq!(titles(&run(&search, "fi")), vec!["Files"]);
+    }
+
+    #[test]
+    fn unknown_command_ids_are_reported() {
+        let calc = Box::new(Fixed {
+            computed: true,
+            ..fixed("calc", vec![("= 4", &[])])
+        });
+        let broken = Box::new(Fixed {
+            fail: true,
+            ..fixed("broken", vec![])
+        });
+        let commands = [
+            command("apps:Firefox"),
+            command("apps:Nope"),
+            command("calc:= 4"),
+            command("missing:x"),
+            command("broken:x"),
+        ];
+        let search = Search::new(10)
+            .with_provider(apps())
+            .with_provider(calc)
+            .with_provider(broken)
+            .with_commands(&commands);
+        let unknown: Vec<String> = search
+            .unknown_commands()
+            .iter()
+            .map(ToString::to_string)
+            .collect();
+        // A failed provider is not judged.
+        assert_eq!(unknown, vec!["apps:Nope", "calc:= 4", "missing:x"]);
+    }
+
+    #[test]
+    fn command_order_sorts_the_empty_root_only() {
+        let commands = [
+            CommandSettings {
+                order: Some(2),
+                ..command("apps:Files")
+            },
+            CommandSettings {
+                order: Some(1),
+                ..command("apps:Terminal")
+            },
+        ];
+        let search = Search::new(3)
+            .with_provider(apps())
+            .with_commands(&commands);
+        assert_eq!(
+            titles(&run(&search, "")),
+            vec!["Terminal", "Files", "Visual Studio Code"]
+        );
+        assert_eq!(titles(&run(&search, "fi")), vec!["Firefox", "Files"]);
     }
 }

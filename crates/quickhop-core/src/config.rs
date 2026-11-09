@@ -25,6 +25,9 @@ pub enum ConfigError {
     /// A value is out of range.
     #[error("invalid config: {0}")]
     Invalid(String),
+    /// `[[commands]]` ids that name no item of a loaded, non-computed provider.
+    #[error("invalid config: unknown command id {}", .0.join(", "))]
+    UnknownCommands(Vec<String>),
     /// No location for the config file could be derived from the environment.
     #[error("cannot locate the config directory: set QUICKHOP_CONFIG or {0}")]
     NoConfigDir(&'static str),
@@ -57,7 +60,9 @@ pub struct Providers {
     pub quicklinks: bool,
     /// Raycast-compatible script commands from `[scripts] dirs`.
     pub scripts: bool,
-    /// Files and folders by name (Spotlight on macOS).
+    /// Snippets from `snippets.toml` next to the config file.
+    pub snippets: bool,
+    /// Files and folders by name: Spotlight on macOS, else the index (`quickhop index`).
     pub files: bool,
 }
 
@@ -70,6 +75,7 @@ impl Default for Providers {
             system: true,
             quicklinks: true,
             scripts: true,
+            snippets: true,
             files: true,
         }
     }
@@ -96,11 +102,21 @@ pub struct Scripts {
     pub dirs: Vec<PathBuf>,
 }
 
-/// Longest accepted `[clipboard] retention_days`: ten years.
-pub const MAX_RETENTION_DAYS: u32 = 3_650;
+/// What the file index covers.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Files {
+    /// Folders indexed; empty means the home folder. A leading `~` means the home folder.
+    pub roots: Vec<PathBuf>,
+    /// Index hidden files and folders (names starting with `.`).
+    pub hidden: bool,
+    /// More folder or file names to skip, besides version control, dependency, build and
+    /// cache folders.
+    pub exclude: Vec<String>,
+}
 
-/// Largest accepted `[clipboard] max_entries`.
-pub const MAX_CLIPBOARD_ENTRIES: u32 = 100_000;
+/// Most clipboard entries `max_entries` may keep.
+pub const MAX_CLIPBOARD_ENTRIES: usize = 100_000;
 
 /// Clipboard history.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -108,19 +124,18 @@ pub const MAX_CLIPBOARD_ENTRIES: u32 = 100_000;
 pub struct Clipboard {
     /// Whether copied text is recorded.
     pub enabled: bool,
-    /// Entries last copied longer ago than this many days are deleted, 1 to
-    /// [`MAX_RETENTION_DAYS`].
-    pub retention_days: u32,
-    /// Only the newest this many entries are kept, 1 to [`MAX_CLIPBOARD_ENTRIES`].
-    pub max_entries: u32,
+    /// Most entries kept, 1 to [`MAX_CLIPBOARD_ENTRIES`]; the oldest go first.
+    pub max_entries: usize,
+    /// Entries not copied for this many days are dropped; 0 keeps them forever.
+    pub max_age_days: u32,
 }
 
 impl Default for Clipboard {
     fn default() -> Self {
         Self {
             enabled: true,
-            retention_days: 90,
-            max_entries: 1_000,
+            max_entries: 1000,
+            max_age_days: 90,
         }
     }
 }
@@ -138,6 +153,35 @@ pub struct Quicklink {
     pub alias: Option<String>,
 }
 
+/// Per-command settings from a `[[commands]]` table: any item of a non-computed provider,
+/// named by its id as printed by `quickhop query` (`provider:key`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommandSettings {
+    /// The item, `provider:key`, e.g. `apps:org.mozilla.firefox.desktop`.
+    pub id: String,
+    /// Single-word shortcut: typing it (alone or as the first word) pins the item.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
+    /// `false` removes the item from every search.
+    #[serde(default = "enabled")]
+    pub enabled: bool,
+    /// Global hotkey that runs the item directly, e.g. `Ctrl+Alt+T`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hotkey: Option<String>,
+    /// Position in the empty root search: lower first, before items without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<u32>,
+}
+
+fn enabled() -> bool {
+    true
+}
+
+fn is_one_word(text: &str) -> bool {
+    !text.is_empty() && !text.contains(char::is_whitespace)
+}
+
 /// The whole configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -152,10 +196,14 @@ pub struct Config {
     pub apps: Apps,
     /// Script-command sources.
     pub scripts: Scripts,
+    /// File-index sources.
+    pub files: Files,
     /// Clipboard history.
     pub clipboard: Clipboard,
     /// Quicklinks, in display order.
     pub quicklinks: Vec<Quicklink>,
+    /// Per-command aliases, switches, hotkeys and root order.
+    pub commands: Vec<CommandSettings>,
 }
 
 impl Default for Config {
@@ -166,8 +214,10 @@ impl Default for Config {
             providers: Providers::default(),
             apps: Apps::default(),
             scripts: Scripts::default(),
+            files: Files::default(),
             clipboard: Clipboard::default(),
             quicklinks: Vec::new(),
+            commands: Vec::new(),
         }
     }
 }
@@ -215,12 +265,7 @@ impl Config {
                 self.max_results
             )));
         }
-        if !(1..=MAX_RETENTION_DAYS).contains(&self.clipboard.retention_days) {
-            return Err(ConfigError::Invalid(format!(
-                "clipboard.retention_days must be between 1 and {MAX_RETENTION_DAYS}, got {}",
-                self.clipboard.retention_days
-            )));
-        }
+
         if !(1..=MAX_CLIPBOARD_ENTRIES).contains(&self.clipboard.max_entries) {
             return Err(ConfigError::Invalid(format!(
                 "clipboard.max_entries must be between 1 and {MAX_CLIPBOARD_ENTRIES}, got {}",
@@ -233,14 +278,34 @@ impl Config {
                     "quicklinks need a name and a url".into(),
                 ));
             }
-            if link
-                .alias
-                .as_ref()
-                .is_some_and(|a| a.is_empty() || a.contains(char::is_whitespace))
-            {
+            if link.alias.as_ref().is_some_and(|a| !is_one_word(a)) {
                 return Err(ConfigError::Invalid(format!(
                     "quicklink {}: alias must be one word",
                     link.name
+                )));
+            }
+        }
+        let mut seen = std::collections::HashSet::new();
+        for command in &self.commands {
+            let id = &command.id;
+            if crate::ItemId::parse(id).is_none() {
+                return Err(ConfigError::Invalid(format!(
+                    "command id {id:?} must be provider:key"
+                )));
+            }
+            if !seen.insert(id) {
+                return Err(ConfigError::Invalid(format!(
+                    "command {id} is listed twice"
+                )));
+            }
+            if command.alias.as_ref().is_some_and(|a| !is_one_word(a)) {
+                return Err(ConfigError::Invalid(format!(
+                    "command {id}: alias must be one word"
+                )));
+            }
+            if command.hotkey.as_ref().is_some_and(|h| h.trim().is_empty()) {
+                return Err(ConfigError::Invalid(format!(
+                    "command {id}: hotkey must not be empty"
                 )));
             }
         }
@@ -309,6 +374,21 @@ pub fn data_dir(os: &str, var: impl Fn(&str) -> Option<String>) -> Result<PathBu
         _ => xdg_dir(get, "XDG_DATA_HOME", ".local/share")?,
     };
     Ok(dir.join("quickhop"))
+}
+
+/// The directory for the daemon's socket and lock file: `QUICKHOP_RUNTIME` if set, else
+/// `$XDG_RUNTIME_DIR/quickhop`, else `quickhop-<user>` in `$TMPDIR` (per user on macOS) or
+/// `/tmp`.
+pub fn runtime_dir(var: impl Fn(&str) -> Option<String>) -> PathBuf {
+    let get = |name: &str| var(name).filter(|v| !v.is_empty());
+    if let Some(path) = get("QUICKHOP_RUNTIME") {
+        return PathBuf::from(path);
+    }
+    if let Some(dir) = get("XDG_RUNTIME_DIR") {
+        return PathBuf::from(dir).join("quickhop");
+    }
+    let user = get("USER").unwrap_or_else(|| "user".into());
+    PathBuf::from(get("TMPDIR").unwrap_or_else(|| "/tmp".into())).join(format!("quickhop-{user}"))
 }
 
 /// The directory quickhop 0.1 used on macOS for both the config and the data:
@@ -429,24 +509,24 @@ mod tests {
 
     #[test]
     fn clipboard_limits_are_checked() {
-        let config = Config::from_toml("[clipboard]\nretention_days = 7\n").unwrap();
-        assert_eq!(config.clipboard.retention_days, 7);
+        let config = Config::from_toml("[clipboard]\nmax_age_days = 7\n").unwrap();
+        assert_eq!(config.clipboard.max_age_days, 7);
         assert_eq!(
             config.clipboard.max_entries, 1_000,
             "the rest keeps its default"
         );
         assert!(config.clipboard.enabled);
+        assert!(
+            Config::from_toml("[clipboard]\nmax_age_days = 0\n").is_ok(),
+            "0 keeps entries forever"
+        );
         for bad in [
-            "retention_days = 0",
-            "retention_days = 3651",
             "max_entries = 0",
             "max_entries = 100001",
+            "retention_days = 7",
         ] {
             assert!(
-                matches!(
-                    Config::from_toml(&format!("[clipboard]\n{bad}\n")),
-                    Err(ConfigError::Invalid(_))
-                ),
+                Config::from_toml(&format!("[clipboard]\n{bad}\n")).is_err(),
                 "{bad} must be rejected"
             );
         }
@@ -511,6 +591,36 @@ mod tests {
         assert!(matches!(
             Config::from_toml(unnamed),
             Err(ConfigError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn commands_parse_and_validate() {
+        let text = "[[commands]]\nid = \"apps:firefox.desktop\"\nalias = \"ff\"\nhotkey = \"Ctrl+Alt+F\"\norder = 2\n\n\
+                    [[commands]]\nid = \"system:lock\"\nenabled = false\n";
+        let config = Config::from_toml(text).unwrap();
+        assert_eq!(config.commands[0].alias.as_deref(), Some("ff"));
+        assert!(config.commands[0].enabled);
+        assert_eq!(config.commands[0].order, Some(2));
+        assert!(!config.commands[1].enabled);
+        assert_eq!(
+            Config::from_toml(&toml::to_string(&config).unwrap()).unwrap(),
+            config
+        );
+        for bad in [
+            "[[commands]]\nid = \"no-provider\"\n",
+            "[[commands]]\nid = \"apps:x\"\nalias = \"two words\"\n",
+            "[[commands]]\nid = \"apps:x\"\nhotkey = \" \"\n",
+            "[[commands]]\nid = \"apps:x\"\n[[commands]]\nid = \"apps:x\"\n",
+        ] {
+            assert!(
+                matches!(Config::from_toml(bad), Err(ConfigError::Invalid(_))),
+                "{bad}"
+            );
+        }
+        assert!(matches!(
+            Config::from_toml("[[commands]]\nid = \"apps:x\"\ncolour = 1\n"),
+            Err(ConfigError::Parse(_))
         ));
     }
 

@@ -134,6 +134,8 @@ provider_contract! {
     system_windows => quickhop_providers::system::SystemProvider::for_os("windows"),
     quicklinks => common::quicklinks(),
     scripts => common::scripts(),
+    snippets => common::snippets(),
+    files_indexed => common::indexed_files()?,
     files => common::files(),
 }
 
@@ -146,6 +148,7 @@ fn every_builtin_provider_has_a_contract_test() {
         "system",
         "quicklinks",
         "scripts",
+        "snippets",
         "files",
     ];
     assert_eq!(quickhop_providers::BUILTIN, tested);

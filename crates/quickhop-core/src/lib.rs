@@ -7,14 +7,19 @@
 
 pub mod clipboard;
 pub mod config;
+pub mod datefmt;
 pub mod fuzzy;
 pub mod item;
 pub mod paste;
+pub mod placeholders;
 pub mod provider;
 pub mod search;
+pub mod snippets;
 
 pub use clipboard::{ClipboardSource, Contents, Copied, Watcher};
-pub use config::{Apps, Clipboard, Config, ConfigError, Providers, Quicklink, Scripts};
+pub use config::{
+    Apps, Clipboard, CommandSettings, Config, ConfigError, Files, Providers, Quicklink, Scripts,
+};
 pub use fuzzy::{Match, Matcher, score};
 pub use item::{Action, Item, ItemId, ScriptArgument, ScriptArgumentKind, ScriptMode};
 pub use provider::{Cancel, Provider, ProviderError, Query};

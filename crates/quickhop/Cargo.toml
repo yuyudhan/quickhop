@@ -9,13 +9,19 @@ publish.workspace = true
 
 [dependencies]
 clap.workspace = true
+getrandom.workspace = true
+jiff.workspace = true
 quickhop-core.workspace = true
+quickhop-index.workspace = true
 quickhop-providers.workspace = true
 quickhop-store.workspace = true
 quickhop-ui.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+quickhop-platform-linux.workspace = true
 
 [dev-dependencies]
 assert_cmd.workspace = true

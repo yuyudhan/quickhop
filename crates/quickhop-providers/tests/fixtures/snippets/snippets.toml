@@ -1,0 +1,19 @@
+# Snippets covering a keyword, multi-line text and every placeholder kind.
+
+[[snippets]]
+name = "Signature"
+keyword = ";sig"
+text = "Best regards,\n{argument name=\"who\" default=\"Ada\"}"
+
+[[snippets]]
+name = "Today"
+text = "{date format=\"yyyy-MM-dd\"}"
+
+[[snippets]]
+name = "Reply"
+keyword = ";re"
+text = "Hi {argument name=\"name\"},\n\n{cursor}\n\n{snippet name=\"Signature\"}"
+
+[[snippets]]
+name = "Clipboard shout"
+text = "{clipboard | trim | uppercase}"

@@ -22,12 +22,12 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 | LCH-01 | Global hotkey opens/closes the launcher (default `Alt+Space`) | planned | P0 | `RegisterEventHotKey` (Carbon) via the `global-hotkey` crate; no permission needed | X11: `XGrabKey` (`global-hotkey`). Wayland: `GlobalShortcuts` portal (KDE 5.27+, GNOME 48+, Hyprland); else a compositor binding to `quickhop toggle` (sway `bindsym`, Hyprland `bind`, GNOME custom shortcut via `gsettings`), set up by `quickhop doctor --fix` |
 | LCH-02 | Root search: fuzzy match over every provider | done | P0 | nucleo matcher in `quickhop-core`, shared | same |
 | LCH-03 | Frecency ranking per query prefix (7-day half-life) | done | P0 | SQLite store | same |
-| LCH-04 | Aliases for any command (`g rust`, `:smile`) | partial | P0 | quicklinks and emoji today; per-command `alias` in config for every item | same |
+| LCH-04 | Aliases for any command (`g rust`, `:smile`) | done | P0 | quicklinks and emoji built in; `[[commands]] alias` for every item | same |
 | LCH-05 | Hotkey per command (open an app or run a script without the launcher) | planned | P1 | `global-hotkey` registrations from `[[commands]] hotkey` | X11 grabs; Wayland portal shortcuts (one per command) or compositor bindings to `quickhop run`/`quickhop open <id>` |
 | LCH-06 | Favorites pinned at the top of the empty root | planned | P1 | store table `favorites` | same |
 | LCH-07 | Action panel (`⌘K` / `Ctrl+K`) with every action of the selected item | planned | P0 | `Item::actions` already carries them; UI list | same |
 | LCH-08 | Fallback commands when nothing matches (web search, file search, AI) | planned | P1 | config `fallbacks = [...]` of command ids, ranked after results | same |
-| LCH-09 | Enable, disable and reorder root commands | partial | P1 | `[providers]` switches today; per-command `enabled` and order next | same |
+| LCH-09 | Enable, disable and reorder root commands | done | P1 | `[providers]` switches; `[[commands]] enabled` and `order` (empty root) | same |
 | LCH-10 | Navigation stack: commands push views, `Esc` pops, `Esc` at root hides | planned | P0 | UI | same |
 | LCH-11 | Launcher window: borderless, rounded, translucent/blurred, on the active screen, hides on focus loss | planned | P0 | gpui `WindowBackgroundAppearance::Blurred` (NSVisualEffectView), `NSPanel`-style non-activating window, screen of the mouse/key window | X11: override-redirect-free centered dialog, `_NET_WM_STATE_ABOVE`, ARGB visual; Wayland: `wlr-layer-shell` overlay (sway, Hyprland, KWin, COSMIC) with KDE blur protocol when offered; GNOME (no layer-shell): normal centered undecorated window |
 | LCH-12 | Command arguments inline in the search bar (`alias` + space focuses them) | planned | P1 | UI over `ScriptArgument` | same |
@@ -44,8 +44,8 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 | APP-03 | Running apps: quit, hide, force quit, show in Finder | planned | P1 | `NSRunningApplication` (platform crate) | `/proc` scan, `kill`; window-level actions via WIN mechanisms |
 | APP-04 | Switch windows (search open windows, focus one) | planned | P1 | AX window list + `CGWindowListCopyWindowInfo` (Screen Recording permission for titles on macOS 10.15+) | X11: EWMH `_NET_CLIENT_LIST`, `_NET_ACTIVE_WINDOW`. Wayland: `wlr-foreign-toplevel-management` / `ext-foreign-toplevel-list` (sway, Hyprland, COSMIC), KWin scripting over D-Bus, GNOME Shell extension (no protocol) |
 | APP-05 | Watch application folders and refresh without restart | planned | P1 | FSEvents via `notify` | inotify via `notify` on every `applications` dir |
-| FIL-01 | File and folder search by name | partial | P0 | built: `files` provider over Spotlight (`mdfind -onlyin ~ -name`), queries of 3+ characters, 200 paths at most, killed after 2 s or on cancel; `NSMetadataQuery` later | not yet: the provider is ready for quickhop's own index (`quickhop-index`: walk + inotify, gitignore-aware, SQLite FTS5 trigram); uses `plocate` or GNOME `localsearch`/KDE `baloo` results when present |
-| FIL-02 | File actions: open, open with, reveal, copy path, Quick Look, move to trash | partial | P1 | built: open, reveal (`open -R`), copy path, Quick Look (`qlmanage -p`), move to trash (`/usr/bin/trash`, macOS 15+, confirmed first); next: open with | built as actions: `xdg-open`, reveal via `org.freedesktop.FileManager1.ShowItems` (`dbus-send`), copy path, `gio trash`; next: open with (`gio launch`), `sushi` preview |
+| FIL-01 | File and folder search by name | partial | P0 | built: `files` provider over Spotlight (`mdfind -onlyin ~ -name`), queries of 3+ characters, 200 paths at most, killed after 2 s or on cancel; `NSMetadataQuery` later | quickhop's own index, built: `quickhop index [--watch]` (`quickhop-index`: parallel walk, `notify` watcher, gitignore-aware, SQLite FTS5 trigram), the same `files` provider through its `FileSource` trait; `plocate` or GNOME `localsearch`/KDE `baloo` results when present (later) |
+| FIL-02 | File actions: open, open with, reveal, copy path, Quick Look, move to trash | partial | P1 | built: open, reveal (`open -R`), copy path, Quick Look (`qlmanage -p`), move to trash (confirmed first); next: open with | built: `xdg-open`, `org.freedesktop.FileManager1.ShowItems` (D-Bus, parent folder as fallback), the home trash per the FreeDesktop.org spec (`gio trash` across filesystems); later `gio launch`, `sushi`/`gnome-sushi`. `quickhop launch <id> --action reveal\|copy\|trash` |
 | FIL-03 | File content search | planned | P2 | Spotlight `kMDItemTextContent` | index extension with FTS5 over text files; `localsearch` when present |
 | FIL-04 | Recent files and downloads | planned | P2 | Spotlight `kMDItemLastUsedDate`, `~/Downloads` | `recently-used.xbel` (GTK), `~/Downloads` |
 
@@ -63,9 +63,9 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | ID | Feature | Status | P | macOS | Linux (X11 / Wayland) |
 |----|---------|--------|---|-------|------------------------|
-| CLP-01 | Text clipboard history, searchable, kept in SQLite | partial | P0 | built: `NSPasteboard.changeCount` read by `quickhop_core::Watcher`, history deduplicated in `state.sqlite` with retention; next: the daemon polling every 250 ms (U1) and the clipboard view (U2) | X11: XFixes `SelectionNotify` on `CLIPBOARD`. Wayland: `ext-data-control-v1` / `wlr-data-control` (sway, Hyprland, KWin, COSMIC) or `wl-paste --watch`; GNOME has no data-control protocol: watch only while quickhop has focus, or the optional GNOME Shell extension |
+| CLP-01 | Text clipboard history, searchable, kept in SQLite | partial | P0 | built: `NSPasteboard.changeCount` read by `quickhop_core::Watcher`, history deduplicated in `state.sqlite` with retention; next: the daemon polling every 250 ms (U1) and the clipboard view (U2) | built: `quickhop clipboard watch\|add\|list\|clear`, history in `state.sqlite` with `[clipboard]` retention. X11: XFixes `SelectionNotify` on `CLIPBOARD`. Wayland: `wl-paste --watch` on compositors with `wlr-data-control` / `ext-data-control-v1` (sway, Hyprland, KWin, COSMIC); native `wayland-client` later; GNOME has no data-control protocol: watch only while quickhop has focus, or the optional GNOME Shell extension. The searchable view comes with the launcher window |
 | CLP-02 | Images, files and rich text in history | planned | P1 | pasteboard types `public.png`, `public.file-url`, `public.rtf` | MIME targets `image/png`, `text/uri-list`, `text/html` |
-| CLP-03 | Paste the chosen entry into the frontmost app | partial | P0 | built: `quickhop_core::paste::paste_text` (copy, then `⌘V` through `CGEventPost` when Accessibility is granted, else copy only with the reason); next: hide-then-paste from the clipboard view (U2) and the **[ax]** check that the text lands (from a headless agent session on m4 the posted HID events reached no app, so delivery is not yet verified) | set clipboard (`wl-copy` / X11 owner), then X11: XTest `Ctrl+V`; Wayland: `virtual-keyboard-unstable-v1` (wlroots), `RemoteDesktop` portal keyboard (GNOME, KDE), or `ydotool`; else copy only and say so |
+| CLP-03 | Paste the chosen entry into the frontmost app | partial | P0 | built: `quickhop_core::paste::paste_text` (copy, then `⌘V` through `CGEventPost` when Accessibility is granted, else copy only with the reason); next: hide-then-paste from the clipboard view (U2) and the **[ax]** check that the text lands (from a headless agent session on m4 the posted HID events reached no app, so delivery is not yet verified) | built: `quickhop clipboard paste [n]`, `launch`/`open --paste`; sets the clipboard (`xclip` / `wl-copy`), then X11: XTest `Ctrl+V` (done). Wayland: copy only and say so, until `virtual-keyboard-unstable-v1` (wlroots; `wtype` did not paste into GTK in headless sway 1.7) and the `RemoteDesktop` portal keyboard (GNOME, KDE) |
 | CLP-04 | Ignore secrets and chosen apps; pin entries; delete | partial | P1 | built: copies marked `org.nspasteboard.ConcealedType`/`TransientType` are never recorded, the frontmost app (`NSWorkspace`) is stored as the source; next: ignored apps, pinning, deleting from the view | skip `x-kde-passwordManagerHint=secret`; X11 `_NET_ACTIVE_WINDOW` class; Wayland: per-target MIME hints only |
 | CLP-05 | Paste as plain text | planned | P1 | write `public.utf8-plain-text` only | offer `text/plain;charset=utf-8` only |
 | CLP-06 | Retention limits and encryption at rest | planned | P2 | key in Keychain (Security framework) | key in Secret Service (`org.freedesktop.secrets`) via `oo7`/`secret-service` |
@@ -74,8 +74,8 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | ID | Feature | Status | P | macOS | Linux (X11 / Wayland) |
 |----|---------|--------|---|-------|------------------------|
-| SNP-01 | Snippet library: create, search, copy or paste | planned | P0 | store + `snippets.toml` in the config dir; paste as CLP-03 | same |
-| SNP-02 | Dynamic placeholders: `{clipboard}`, `{date}`/`{time}`/`{datetime}` with formats and offsets, `{cursor}`, `{uuid}`, `{argument name="..." default="..."}`, `{snippet name="..."}` | planned | P0 | pure expansion engine in core, shared | same |
+| SNP-01 | Snippet library: create, search, copy or paste | partial | P0 | `snippets.toml` in the config dir, `snippets` provider (name, keyword), `quickhop launch snippets:<name>` expands and prints; paste (CLP-03) and the snippet view next | same |
+| SNP-02 | Dynamic placeholders: `{clipboard}`, `{date}`/`{time}`/`{datetime}` with formats and offsets, `{cursor}`, `{uuid}`, `{argument name="..." default="..."}`, `{snippet name="..."}` | done | P0 | pure expansion engine in core (`placeholders`, LDML `datefmt`), plus `{day}`, `{selection}`, `options`, `{clipboard offset=N}` and the modifiers; Raycast manual goldens | same |
 | SNP-03 | Keyword auto-expansion while typing in any app | planned | P1 | `CGEventTap` listen-only (Input Monitoring permission), then delete + paste | X11: XRecord or XInput2 raw events. Wayland: no global key monitoring; `evdev` keyboard read with the user in `input` (opt-in), or an IBus/Fcitx5 input-method engine |
 | SNP-04 | Import and export (Raycast snippets JSON) | planned | P1 | shared | same |
 
@@ -171,12 +171,12 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 | CFG-04 | Live reload when config, scripts or snippets change | planned | P1 | FSEvents (`notify`) | inotify (`notify`) |
 | CFG-05 | Settings window that writes `config.toml` (comments preserved with `toml_edit`) | planned | P1 | UI | same |
 | CFG-06 | Themes: light, dark, follow system; custom theme TOML in `~/.config/quickhop/themes/` | planned | P1 | `NSApp.effectiveAppearance` | `Settings` portal `color-scheme` (GNOME, KDE) |
-| CFG-07 | Launch at login | planned | P0 | `SMAppService.mainApp` (macOS 13+) or a LaunchAgent plist | XDG autostart `~/.config/autostart/quickhop.desktop`, or a systemd user unit |
+| CFG-07 | Launch at login | partial | P0 | built: `quickhop autostart on\|off\|status` writes a LaunchAgent plist (`io.github.yuyudhan.quickhop`, `RunAtLoad`); to check on m4; `SMAppService.mainApp` with the `.app` | done: `quickhop autostart on\|off\|status` writes `~/.config/autostart/quickhop.desktop`; packages also ship a systemd user unit |
 | CFG-08 | Settings sync between machines | planned | P2 | plain files: the config dir is git/Syncthing friendly; `quickhop export/import` bundles config, snippets, quicklinks, encrypted with a passphrase (`age`) | same |
 | CFG-09 | Import a Raycast export (`.rayconfig`) | planned | P2 | decrypt with the user's export password, map snippets/quicklinks/aliases/hotkeys | same |
-| PLT-01 | Background daemon, single instance, IPC (`quickhop toggle`, `quickhop open <id>`) | planned | P0 | Unix socket in `$TMPDIR/quickhop-<uid>` | Unix socket in `$XDG_RUNTIME_DIR/quickhop.sock` |
+| PLT-01 | Background daemon, single instance, IPC (`quickhop toggle`, `quickhop open <id>`) | partial | P0 | built (Unix): `quickhop daemon` with lock file and socket in `$TMPDIR/quickhop-$USER/`, `daemon status\|stop`, `open <id>` (starts a daemon when none runs), `reload`; `toggle` comes with the window | same, in `$XDG_RUNTIME_DIR/quickhop/`; the daemon also watches the clipboard and keeps the file index current |
 | PLT-02 | Permission onboarding (Accessibility, Input Monitoring, Screen Recording, Calendar) | partial | P1 | built: Accessibility check and prompt (`AXIsProcessTrusted`, `AXIsProcessTrustedWithOptions`) and the settings deep link; next: the onboarding view, the other permissions | portal permission prompts; `input` group guidance for SNP-03 |
-| PLT-03 | Packages and install | partial | P1 | `cargo install` today; signed and notarized `.app` in a DMG, Homebrew cask | `cargo install` today; `.deb`, `.rpm`, AUR `PKGBUILD`, tarball with `.desktop` + icons; Flatpak later (host app launching needs `flatpak-spawn --host`) |
+| PLT-03 | Packages and install | partial | P1 | `cargo install` today; signed and notarized `.app` in a DMG, Homebrew cask | built: `.deb` and tarball with `.desktop`, icon and systemd user unit (`just bundle-linux`, checked in a clean Debian container by `just bundle-linux-test`); later `.rpm`, AUR `PKGBUILD`; Flatpak later (host app launching needs `flatpak-spawn --host`) |
 | PLT-04 | Updates | planned | P2 | update check against GitHub releases, cask upgrade | package managers |
 | PLT-05 | No telemetry, works offline (only currency rates, AI and store use the network, each opt-in) | done | P0 | principle | same |
 
@@ -184,21 +184,22 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | Priority | Features | done | partial | planned |
 |----------|---------:|-----:|--------:|--------:|
-| P0 | 30 | 17 | 5 | 8 |
-| P1 | 36 | 0 | 8 | 28 |
+| P0 | 30 | 19 | 7 | 4 |
+| P1 | 36 | 1 | 7 | 28 |
 | P2 | 29 | 0 | 0 | 29 |
-| All | 95 | 17 | 13 | 65 |
+| All | 95 | 20 | 14 | 61 |
 
 Counted from the tables above; recount when editing them.
 
 ## Gap summary
 
-Built (from the CLI): the fuzzy and frecency ranking core, the config, applications on
-macOS and Linux, calculator and units, emoji, system power commands, quicklinks, and Raycast
-script commands end to end (`quickhop run`, all metadata, modes and arguments).
+Built (from the CLI): the fuzzy and frecency ranking core, the config with per-command
+aliases, switches and root order, applications on macOS and Linux, calculator and units, emoji,
+system power commands, quicklinks, Raycast script commands end to end (`quickhop run`, all
+metadata, modes and arguments), and snippets with Raycast's dynamic placeholders.
 
 Missing for a first usable release (the P0 gaps): the launcher window and its global hotkey
-(LCH-01, LCH-07, LCH-10, LCH-11), the daemon and IPC (PLT-01), per-command aliases (LCH-04),
-file search (FIL-01), clipboard history with paste (CLP-01, CLP-03), snippets with placeholders
-(SNP-01, SNP-02), application icon rendering (APP-02) and launch at login (CFG-07).
+(LCH-01, LCH-07, LCH-10, LCH-11), `toggle` and the window in the daemon (PLT-01),
+Spotlight file search on macOS (FIL-01), the clipboard view, macOS clipboard watching and paste on Wayland and macOS (CLP-01, CLP-03), pasting snippets
+(SNP-01), application icon rendering (APP-02) and launch at login on macOS (CFG-07).
 [plan.md](plan.md) orders these into slices.

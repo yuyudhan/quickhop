@@ -5,7 +5,6 @@
 //! `cargo test -p quickhop-providers --test providers spotlight -- --include-ignored`.
 
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::{Duration, Instant};
 
 use quickhop_core::{Action, Cancel, Item, Provider, ProviderError, Query};
@@ -56,15 +55,9 @@ fn wait_for(provider: &FilesProvider, text: &str, path: &Path) -> Result<Item, S
     }
 }
 
-fn run(action: Option<&Action>) -> TestResult {
-    let Some(Action::Run { program, args, .. }) = action else {
-        return Err(format!("not a run action: {action:?}").into());
-    };
-    let status = Command::new(program).args(args).status()?;
-    if !status.success() {
-        return Err(format!("{program} {args:?} failed: {status}").into());
-    }
-    Ok(())
+/// The file's own path as an action argument.
+fn text(path: &Path) -> String {
+    path.to_string_lossy().into_owned()
 }
 
 #[test]
@@ -73,7 +66,7 @@ fn run(action: Option<&Action>) -> TestResult {
     ignore = "waits for Spotlight to index a new file; run on m4 with --ignored"
 )]
 #[cfg_attr(not(target_os = "macos"), ignore = "Spotlight exists only on macOS")]
-fn a_freshly_created_file_is_found_and_moved_to_the_trash() -> TestResult {
+fn a_freshly_created_file_is_found_with_its_file_actions() -> TestResult {
     let dir = indexed_dir()?;
     let unique = format!(
         "qhfresh-{}-{}",
@@ -92,16 +85,16 @@ fn a_freshly_created_file_is_found_and_moved_to_the_trash() -> TestResult {
     assert_eq!(
         item.default_action(),
         Some(&Action::Open {
-            target: path.to_string_lossy().into_owned()
+            target: text(&path)
         })
     );
-    assert!(item.actions.contains(&Action::Copy {
-        text: path.to_string_lossy().into_owned()
-    }));
-
-    // The last action moves the file to the Trash; it leaves the folder on disk.
-    run(item.actions.last())?;
-    assert!(!path.exists(), "{} is still there", path.display());
+    assert!(item.actions.contains(&Action::Reveal { path: text(&path) }));
+    assert!(item.actions.contains(&Action::Copy { text: text(&path) }));
+    // The trash action itself runs in `quickhop launch` (crates/quickhop/tests/cli.rs).
+    assert_eq!(
+        item.actions.last(),
+        Some(&Action::Trash { path: text(&path) })
+    );
     Ok(())
 }
 
