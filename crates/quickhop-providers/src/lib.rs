@@ -43,16 +43,18 @@ pub struct Warning {
 }
 
 /// The script-command directories for `config` in `env`: `scripts/` next to the config file
-/// (when it exists), then `[scripts] dirs`, without duplicates.
+/// (when it exists), then `[scripts] dirs` with a leading `~` expanded, without duplicates.
 pub fn script_dirs(config: &Config, env: &Env) -> Vec<PathBuf> {
     let default =
         quickhop_core::config::scripts_dir(&env.os, |name| env.var(name).map(str::to_owned))
             .ok()
             .filter(|dir| dir.is_dir());
+    let home = env.home();
     let mut dirs: Vec<PathBuf> = default.into_iter().collect();
     for dir in &config.scripts.dirs {
-        if !dirs.contains(dir) {
-            dirs.push(dir.clone());
+        let dir = scripts::expand_home(dir, home.as_deref());
+        if !dirs.contains(&dir) {
+            dirs.push(dir);
         }
     }
     dirs
@@ -97,4 +99,25 @@ pub fn builtin(config: &Config, env: &Env) -> (Vec<Box<dyn Provider>>, Vec<Warni
         providers.push(Box::new(emoji::EmojiProvider::new()));
     }
     (providers, warnings)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn script_dirs_expand_home_and_skip_duplicates() {
+        let mut config = Config::default();
+        config.scripts.dirs = vec![
+            PathBuf::from("~/raycast"),
+            PathBuf::from("/h/raycast"),
+            PathBuf::from("/abs"),
+        ];
+        // The default directory does not exist under this fake home, so it is left out.
+        let env = Env::new("linux", [("HOME", "/h")]);
+        assert_eq!(
+            script_dirs(&config, &env),
+            vec![PathBuf::from("/h/raycast"), PathBuf::from("/abs")]
+        );
+    }
 }

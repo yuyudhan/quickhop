@@ -88,7 +88,8 @@ pub struct Apps {
 #[serde(default, deny_unknown_fields)]
 pub struct Scripts {
     /// Directories scanned (not recursively) for `# @raycast.*` script commands, after
-    /// `scripts/` next to the config file (see [`scripts_dir`]).
+    /// `scripts/` next to the config file (see [`scripts_dir`]). A leading `~` means the
+    /// home directory.
     pub dirs: Vec<PathBuf>,
 }
 
