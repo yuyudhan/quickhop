@@ -9,6 +9,7 @@
 //! | `quicklinks` | [`quicklinks`] | `[[quicklinks]]` URL templates with `{query}`                  |
 //! | `scripts`    | [`scripts`]    | Raycast-compatible script commands from `~/.config/quickhop/scripts` and `[scripts] dirs` |
 //! | `snippets`   | [`snippets`]   | `snippets.toml` next to the config file, with Raycast placeholders |
+//! | `files`      | [`files`]      | the file index built by `quickhop index` (`quickhop-index`)   |
 //!
 //! Every provider takes its environment explicitly ([`Env`]) so tests can point it at
 //! fixture directories and a fixed OS.
@@ -18,6 +19,7 @@ pub mod apps;
 pub mod calc;
 pub mod emoji;
 mod env;
+pub mod files;
 pub mod quicklinks;
 pub mod scripts;
 pub mod snippets;
@@ -27,10 +29,10 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 pub use env::Env;
-use quickhop_core::{Config, Provider};
+use quickhop_core::{Config, ConfigError, Provider};
 
 /// Names of the built-in providers, matching the keys of `[providers]` in the config.
-pub const BUILTIN: [&str; 7] = [
+pub const BUILTIN: [&str; 8] = [
     "apps",
     "calc",
     "emoji",
@@ -38,10 +40,44 @@ pub const BUILTIN: [&str; 7] = [
     "quicklinks",
     "scripts",
     "snippets",
+    "files",
 ];
 
 /// How long an inline script command may run while its subtitle is computed.
 pub const INLINE_SCRIPT_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// The file index database in `env`'s data directory: `index.sqlite`.
+///
+/// # Errors
+/// When no data directory can be derived from the environment.
+pub fn index_path(env: &Env) -> Result<PathBuf, ConfigError> {
+    let dir = quickhop_core::config::data_dir(&env.os, |name| env.var(name).map(str::to_owned))?;
+    Ok(dir.join("index.sqlite"))
+}
+
+/// What `quickhop index` covers for `config` in `env`: `[files] roots` (`~` expanded) or the
+/// home folder, the default exclusions plus `[files] exclude`, never the data directory.
+pub fn index_options(config: &Config, env: &Env) -> quickhop_index::Options {
+    let home = env.home();
+    let roots = if config.files.roots.is_empty() {
+        home.iter().cloned().collect()
+    } else {
+        config
+            .files
+            .roots
+            .iter()
+            .map(|root| scripts::expand_home(root, home.as_deref()))
+            .collect()
+    };
+    let mut options = quickhop_index::Options::new(roots);
+    options.hidden = config.files.hidden;
+    options.exclude.extend(config.files.exclude.iter().cloned());
+    options.skip =
+        quickhop_core::config::data_dir(&env.os, |name| env.var(name).map(str::to_owned))
+            .into_iter()
+            .collect();
+    options
+}
 
 /// Something that went wrong while loading providers; loading continues without it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -126,6 +162,22 @@ pub fn builtin(config: &Config, env: &Env) -> (Vec<Box<dyn Provider>>, Vec<Warni
     }
     if enabled.emoji {
         providers.push(Box::new(emoji::EmojiProvider::new()));
+    }
+    if enabled.files {
+        match index_path(env) {
+            Ok(path) => {
+                let (files, problems) = files::FilesProvider::open(&path, env.home());
+                warnings.extend(problems.into_iter().map(|message| Warning {
+                    provider: "files",
+                    message,
+                }));
+                providers.push(Box::new(files));
+            }
+            Err(error) => warnings.push(Warning {
+                provider: "files",
+                message: error.to_string(),
+            }),
+        }
     }
     (providers, warnings)
 }

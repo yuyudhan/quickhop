@@ -135,6 +135,7 @@ provider_contract! {
     quicklinks => common::quicklinks(),
     scripts => common::scripts(),
     snippets => common::snippets(),
+    files => common::files(),
 }
 
 #[test]
@@ -147,6 +148,7 @@ fn every_builtin_provider_has_a_contract_test() {
         "quicklinks",
         "scripts",
         "snippets",
+        "files",
     ];
     assert_eq!(quickhop_providers::BUILTIN, tested);
     let names: Vec<String> = common::all_providers()

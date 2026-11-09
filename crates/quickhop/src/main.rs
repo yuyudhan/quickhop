@@ -79,6 +79,12 @@ enum Command {
     },
     /// Report the platform, paths, session, helper tools and enabled providers.
     Doctor,
+    /// Build the file index (`[files] roots`, default the home folder) for file search.
+    Index {
+        /// Keep running and apply file changes as they happen.
+        #[arg(long)]
+        watch: bool,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -130,6 +136,10 @@ enum CliError {
     ScriptRun(#[from] scripts::RunError),
     #[error("script failed: {0}")]
     ScriptFailed(String),
+    #[error(transparent)]
+    Index(#[from] quickhop_index::IndexError),
+    #[error("nothing to index: set [files] roots or HOME")]
+    NoIndexRoots,
 }
 
 fn var(name: &str) -> Option<String> {
@@ -426,8 +436,51 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
             run_script(&found, &args, yes, Duration::from_secs(timeout), out)?;
         }
         Command::Doctor => doctor(out)?,
+        Command::Index { watch } => index(watch, out)?,
     }
     Ok(())
+}
+
+/// Rebuilds the file index; with `watch`, then keeps it current until killed.
+fn index(watch: bool, out: &mut impl Write) -> Result<(), CliError> {
+    let config = load_config()?;
+    let env = Env::current();
+    let options = quickhop_providers::index_options(&config, &env);
+    if options.roots.is_empty() {
+        return Err(CliError::NoIndexRoots);
+    }
+    let path = quickhop_providers::index_path(&env)?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let mut index = quickhop_index::Index::open(&path)?;
+    let stats = index.rebuild(&options, &Cancel::new())?;
+    writeln!(
+        out,
+        "indexed {} files and {} folders in {} ms: {}",
+        stats.files,
+        stats.dirs,
+        stats.millis,
+        path.display()
+    )?;
+    if !watch {
+        return Ok(());
+    }
+    let roots: Vec<String> = options
+        .roots
+        .iter()
+        .map(|r| r.display().to_string())
+        .collect();
+    let index = std::sync::Arc::new(std::sync::Mutex::new(index));
+    let watcher = quickhop_index::Watcher::start(index, options)?;
+    writeln!(out, "watching {} (Ctrl+C stops)", roots.join(", "))?;
+    out.flush()?;
+    loop {
+        std::thread::sleep(Duration::from_secs(1));
+        for error in watcher.take_errors() {
+            let _ = writeln!(io::stderr(), "quickhop: {error}");
+        }
+    }
 }
 
 /// The script command `name`: an existing file, else the one script command in the script
@@ -564,6 +617,16 @@ fn doctor(out: &mut impl Write) -> Result<(), CliError> {
         Err(error) => writeln!(out, "data: {error} (frecency disabled)")?,
     }
     let env = Env::current();
+    if let Ok(path) = quickhop_providers::index_path(&env) {
+        let state = if path.is_file() {
+            quickhop_index::Index::open(&path)
+                .and_then(|index| index.len())
+                .map_or_else(|e| e.to_string(), |n| format!("{n} entries"))
+        } else {
+            "absent: run `quickhop index`".to_owned()
+        };
+        writeln!(out, "index: {} ({state})", path.display())?;
+    }
     let dirs = quickhop_providers::script_dirs(&config, &env);
     if dirs.is_empty() {
         match quickhop_core::config::scripts_dir(&env.os, var) {

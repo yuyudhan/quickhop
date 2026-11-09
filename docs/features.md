@@ -44,7 +44,7 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 | APP-03 | Running apps: quit, hide, force quit, show in Finder | planned | P1 | `NSRunningApplication` (platform crate) | `/proc` scan, `kill`; window-level actions via WIN mechanisms |
 | APP-04 | Switch windows (search open windows, focus one) | planned | P1 | AX window list + `CGWindowListCopyWindowInfo` (Screen Recording permission for titles on macOS 10.15+) | X11: EWMH `_NET_CLIENT_LIST`, `_NET_ACTIVE_WINDOW`. Wayland: `wlr-foreign-toplevel-management` / `ext-foreign-toplevel-list` (sway, Hyprland, COSMIC), KWin scripting over D-Bus, GNOME Shell extension (no protocol) |
 | APP-05 | Watch application folders and refresh without restart | planned | P1 | FSEvents via `notify` | inotify via `notify` on every `applications` dir |
-| FIL-01 | File and folder search by name | planned | P0 | Spotlight: `mdfind` (`NSMetadataQuery` later) scoped to home | quickhop's own index (`quickhop-index`: walk + inotify, gitignore-aware, SQLite FTS5 trigram); uses `plocate` or GNOME `localsearch`/KDE `baloo` results when present |
+| FIL-01 | File and folder search by name | partial | P0 | Spotlight: `mdfind` (`NSMetadataQuery` later) scoped to home (next, on m4); the index below works on macOS too | quickhop's own index, built: `quickhop index [--watch]` (`quickhop-index`: parallel walk, `notify` watcher, gitignore-aware, SQLite FTS5 trigram), `files` provider from 3 characters; `plocate` or GNOME `localsearch`/KDE `baloo` results when present (later) |
 | FIL-02 | File actions: open, open with, reveal, copy path, Quick Look, move to trash | planned | P1 | `open -a`, `open -R`, `qlmanage -p`, `NSFileManager trashItem` | `xdg-open`, `gio launch`, `org.freedesktop.FileManager1.ShowItems` (D-Bus), `sushi`/`gnome-sushi` or `xdg-open`, `gio trash` |
 | FIL-03 | File content search | planned | P2 | Spotlight `kMDItemTextContent` | index extension with FTS5 over text files; `localsearch` when present |
 | FIL-04 | Recent files and downloads | planned | P2 | Spotlight `kMDItemLastUsedDate`, `~/Downloads` | `recently-used.xbel` (GTK), `~/Downloads` |
@@ -184,10 +184,10 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | Priority | Features | done | partial | planned |
 |----------|---------:|-----:|--------:|--------:|
-| P0 | 30 | 19 | 2 | 9 |
+| P0 | 30 | 19 | 3 | 8 |
 | P1 | 36 | 1 | 4 | 31 |
 | P2 | 29 | 0 | 0 | 29 |
-| All | 95 | 20 | 6 | 69 |
+| All | 95 | 20 | 7 | 68 |
 
 Counted from the tables above; recount when editing them.
 
@@ -200,6 +200,6 @@ metadata, modes and arguments), and snippets with Raycast's dynamic placeholders
 
 Missing for a first usable release (the P0 gaps): the launcher window and its global hotkey
 (LCH-01, LCH-07, LCH-10, LCH-11), the daemon and IPC (PLT-01),
-file search (FIL-01), clipboard history with paste (CLP-01, CLP-03), pasting snippets
+Spotlight file search on macOS (FIL-01), clipboard history with paste (CLP-01, CLP-03), pasting snippets
 (SNP-01), application icon rendering (APP-02) and launch at login (CFG-07).
 [plan.md](plan.md) orders these into slices.

@@ -62,6 +62,8 @@ pub struct Providers {
     pub scripts: bool,
     /// Snippets from `snippets.toml` next to the config file.
     pub snippets: bool,
+    /// Files and folders from the index (`quickhop index`).
+    pub files: bool,
 }
 
 impl Default for Providers {
@@ -74,6 +76,7 @@ impl Default for Providers {
             quicklinks: true,
             scripts: true,
             snippets: true,
+            files: true,
         }
     }
 }
@@ -97,6 +100,19 @@ pub struct Scripts {
     /// `scripts/` next to the config file (see [`scripts_dir`]). A leading `~` means the
     /// home directory.
     pub dirs: Vec<PathBuf>,
+}
+
+/// What the file index covers.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Files {
+    /// Folders indexed; empty means the home folder. A leading `~` means the home folder.
+    pub roots: Vec<PathBuf>,
+    /// Index hidden files and folders (names starting with `.`).
+    pub hidden: bool,
+    /// More folder or file names to skip, besides version control, dependency, build and
+    /// cache folders.
+    pub exclude: Vec<String>,
 }
 
 /// A URL template opened with the query, e.g. a web search.
@@ -155,6 +171,8 @@ pub struct Config {
     pub apps: Apps,
     /// Script-command sources.
     pub scripts: Scripts,
+    /// File-index sources.
+    pub files: Files,
     /// Quicklinks, in display order.
     pub quicklinks: Vec<Quicklink>,
     /// Per-command aliases, switches, hotkeys and root order.
@@ -169,6 +187,7 @@ impl Default for Config {
             providers: Providers::default(),
             apps: Apps::default(),
             scripts: Scripts::default(),
+            files: Files::default(),
             quicklinks: Vec::new(),
             commands: Vec::new(),
         }

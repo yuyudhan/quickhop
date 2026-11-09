@@ -12,6 +12,7 @@ clap.workspace = true
 getrandom.workspace = true
 jiff.workspace = true
 quickhop-core.workspace = true
+quickhop-index.workspace = true
 quickhop-providers.workspace = true
 quickhop-store.workspace = true
 quickhop-ui.workspace = true

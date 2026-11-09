@@ -35,7 +35,7 @@ A free alternative to Raycast that runs your Raycast script commands unchanged.
 | Quicklinks with `{query}` and aliases | ✅ | `{clipboard}`, `{selection}`, open-with |
 | **Script commands** (all metadata, modes, arguments) | ✅ | inline refresh, ANSI output view |
 | Global hotkey and launcher window | | 🛠 next |
-| File and folder search | | 🛠 |
+| File and folder search (own index, `quickhop index`) | ✅ | Spotlight on macOS, reveal, trash, Quick Look |
 | Clipboard history with paste | | 🛠 |
 | Snippets with dynamic placeholders | ✅ | paste into the frontmost app, auto-expansion |
 | Window management | | 🛠 |
@@ -77,6 +77,7 @@ Then check your setup:
     quickhop query '5 km to miles' --json     # machine-readable
     quickhop launch emoji:1f604 --query smile # run a result's default action (prints 😄)
     quickhop run hello Ada                    # run a script command with an argument
+    quickhop index --watch                    # index files under ~ (or [files] roots), keep it current
     mkdir -p ~/.config/quickhop && quickhop config default > ~/.config/quickhop/config.toml
 
 ## Configuration

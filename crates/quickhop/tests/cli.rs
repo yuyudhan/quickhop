@@ -324,6 +324,47 @@ fn snippets_are_found_and_expanded_on_launch() -> TestResult {
 }
 
 #[test]
+fn index_then_query_finds_files_by_name_and_folder() -> TestResult {
+    let sandbox = Sandbox::new()?;
+    let tree = tempfile::tempdir()?;
+    let report = tree.path().join("work").join("quarterly-report.md");
+    std::fs::create_dir_all(report.parent().ok_or("no parent")?)?;
+    std::fs::write(&report, "q3")?;
+    std::fs::create_dir_all(tree.path().join("work").join("node_modules"))?;
+    std::fs::write(tree.path().join("work/node_modules/quarterly-dep.js"), "")?;
+    let root = tree.path().to_string_lossy().replace('\\', "/");
+    sandbox.add_config(&format!("[files]\nroots = [\"{root}\"]\n"))?;
+
+    let before = sandbox.query("quarterly")?;
+    assert!(
+        !ids(&before).iter().any(|id| id.starts_with("files:")),
+        "{before:#}"
+    );
+    let built = stdout(sandbox.cmd()?.arg("index"))?;
+    assert!(
+        built.starts_with("indexed 1 files and 1 folders"),
+        "{built}"
+    );
+
+    let id = format!("files:{}", report.display());
+    for text in ["quarterly", "work report"] {
+        let found = sandbox.query(text)?;
+        assert_eq!(first(&found)["id"], id.as_str(), "{found:#}");
+    }
+    let dry = stdout(
+        sandbox
+            .cmd()?
+            .args(["launch", &id, "--query", "quarterly", "--dry-run"]),
+    )?;
+    let action: Value = serde_json::from_str(&dry)?;
+    assert_eq!(action["kind"], "open");
+    assert_eq!(action["target"], report.display().to_string());
+    let doctor = stdout(sandbox.cmd()?.arg("doctor"))?;
+    assert!(doctor.contains("(2 entries)"), "{doctor}");
+    Ok(())
+}
+
+#[test]
 fn launching_records_frecency() -> TestResult {
     let sandbox = Sandbox::new()?;
     let id = "emoji:1f62c";

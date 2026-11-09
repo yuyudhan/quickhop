@@ -2,12 +2,14 @@
 
 use std::path::PathBuf;
 
-use quickhop_core::{Provider, Quicklink};
+use quickhop_core::{Cancel, Provider, Quicklink};
+use quickhop_index::Index;
 use quickhop_providers::Env;
 use quickhop_providers::apps::icons::IconSearch;
 use quickhop_providers::apps::{AppsProvider, Sources};
 use quickhop_providers::calc::CalcProvider;
 use quickhop_providers::emoji::EmojiProvider;
+use quickhop_providers::files::FilesProvider;
 use quickhop_providers::quicklinks::QuicklinksProvider;
 use quickhop_providers::scripts::ScriptsProvider;
 use quickhop_providers::snippets::SnippetsProvider;
@@ -107,6 +109,18 @@ pub(crate) fn snippets() -> SnippetsProvider {
     provider
 }
 
+/// The files provider over an index of the whole fixture folder.
+pub(crate) fn files() -> FilesProvider {
+    let options = quickhop_index::Options::new(vec![fixtures()]);
+    let index = Index::in_memory().ok().and_then(|mut index| {
+        let stats = index.rebuild(&options, &Cancel::new()).ok()?;
+        assert!(stats.files > 50, "{stats:?}");
+        Some(index)
+    });
+    assert!(index.is_some(), "the fixture index could not be built");
+    FilesProvider::new(index, None)
+}
+
 /// Every provider over fixtures, in the order `quickhop_providers::builtin` uses.
 pub(crate) fn all_providers() -> Vec<Box<dyn Provider>> {
     vec![
@@ -117,5 +131,7 @@ pub(crate) fn all_providers() -> Vec<Box<dyn Provider>> {
         Box::new(snippets()),
         Box::new(SystemProvider::for_os("linux")),
         Box::new(EmojiProvider::new()),
+        // No index: snapshot paths would depend on where the repository is checked out.
+        Box::new(FilesProvider::new(None, None)),
     ]
 }

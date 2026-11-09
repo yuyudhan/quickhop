@@ -13,9 +13,9 @@ order [plan.md](plan.md).
 | `quickhop-core` | built | Platform-independent model: `Item`, `ItemId`, `Action` (plain data: `Open`, `Copy`, `Run`, `Script`, `Snippet`), `Query`, `Cancel`, the `Provider` trait, the nucleo fuzzy matcher (`fuzzy`), `Search`/`rank` (tiers, frecency, dedupe, limit, `[[commands]]` overrides), `Config` (TOML, XDG paths, the one-time macOS migration), the snippet library (`snippets`) and Raycast's dynamic placeholders (`placeholders`, with LDML date patterns in `datefmt`), expanded from a caller-supplied context. |
 | `quickhop-providers` | built | Built-in providers over an explicit `Env` (OS + variables): `apps`, `calc`, `emoji`, `system`, `quicklinks`, `scripts`, `snippets`. `builtin(config, env)` loads the enabled ones; `script_dirs` resolves script directories. |
 | `quickhop-store` | built | SQLite (rusqlite, bundled): frecency per (query prefix, item), half-life 7 days. Grows the clipboard, snippet, favorites and chat tables. |
-| `quickhop` | built | The binary: `query`, `launch`, `run`, `config default\|path\|check`, `doctor`; later `daemon`, `toggle`, `open`. |
+| `quickhop` | built | The binary: `query`, `launch`, `run`, `index [--watch]`, `config default\|path\|check`, `doctor`; later `daemon`, `toggle`, `open`. |
 | `quickhop-ui` | empty | The launcher window in gpui ([ADR 0001](adr/0001-ui-toolkit.md)); `model` holds the toolkit-free view model. |
-| `quickhop-index` | planned | File index for Linux (and as a Spotlight fallback): walker, inotify/FSEvents watcher, SQLite FTS5. |
+| `quickhop-index` | built | File index for Linux (and as a Spotlight fallback): parallel walk (`ignore`), `notify` watcher, SQLite FTS5 trigram index searched through `fuzzy`. |
 | `quickhop-ext` | planned | Extension host: spawns extensions, speaks JSON-RPC over stdio, maps their views to the UI model. |
 | `quickhop-platform-macos` | planned | The only place for FFI on macOS: AX (window management, selected text, paste), `NSPasteboard`, `NSRunningApplication`, `NSStatusItem`, EventKit. |
 | `quickhop-platform-linux` | planned | Wayland protocols (data-control, virtual-keyboard, foreign-toplevel) via `wayland-client`, X11 via `x11rb`, D-Bus/portals via `zbus`/`ashpd`. |
@@ -39,7 +39,7 @@ Configuration is XDG on macOS and Linux alike (Windows keeps `%APPDATA%`):
     ~/.local/share/quickhop/            $XDG_DATA_HOME/quickhop, or $QUICKHOP_DATA
     ├── frecency.sqlite                 picks per query prefix
     ├── state.sqlite                    (planned) clipboard history, snippets usage, favorites, AI chats
-    ├── index.sqlite                    (planned) file index
+    ├── index.sqlite                    file index (`quickhop index`)
     └── extensions/                     (planned) installed extensions
 
     $XDG_RUNTIME_DIR/quickhop.sock      (planned) daemon socket; $TMPDIR/quickhop-<uid>.sock on macOS
@@ -78,6 +78,7 @@ user unit on Linux):
 | `quicklinks` | `[[quicklinks]]` with `{query}` templates (percent-encoded); `alias text` pins the link | `Open` |
 | `scripts` | Raycast script commands from `~/.config/quickhop/scripts` and `[scripts] dirs` (see below) | `Script` |
 | `snippets` | `[[snippets]]` in `snippets.toml` next to the config (name, text, keyword) | `Snippet`: expand placeholders, then copy |
+| `files` | the file index (`index.sqlite`), queries of 3 or more characters, 50 best | `Open`, then `Copy` the path |
 
 Ranking: `rank` classifies each candidate into a tier, best first: `Pinned` (an alias equals
 the query or its first word), `Computed` (calculator), `Matched` (nucleo score of the title, or
@@ -132,13 +133,18 @@ changing it; whether to build it is an open question in [plan.md](plan.md).
 
 ## Indexing
 
-`quickhop-index` serves file and folder search (FIL-01). On macOS the first source is Spotlight
-(`mdfind` scoped to the home folder), with the index as a fallback for excluded volumes. On
-Linux the index is primary: a parallel walk of configured roots (home by default, honouring
-`.gitignore`, skipping caches and hidden folders unless configured), names and paths stored in
-SQLite FTS5 with the trigram tokenizer, kept current by inotify (FSEvents on macOS) and a
-nightly rescan for missed events. Queries go through the same fuzzy ranking as every other
-provider. The indexer runs inside the daemon at low priority and is cancellable.
+`quickhop-index` serves file and folder search (FIL-01). On macOS the first source will be
+Spotlight (`mdfind` scoped to the home folder), with the index as a fallback for excluded
+volumes. On Linux the index is primary: a parallel walk of the configured roots (`[files]
+roots`, home by default, honouring `.gitignore` inside git repositories, skipping hidden
+folders and version-control, dependency, build and cache folders), paths stored in SQLite
+(`files`) with an FTS5 trigram index (`detail=none`, contentless) kept current by `notify`
+(inotify, FSEvents). A query looks up the two rarest trigrams of each word of 3 or more
+characters (entry counts are kept per trigram at each rebuild), verifies every word is a
+substring of the path, and ranks the candidates by the fuzzy score of the name, else of the
+path. `quickhop index` rebuilds it; `--watch` keeps it current until stopped; the daemon
+will run the watcher at low priority. On itlinux3 a 200,000-file tree indexes in about 4.5 s
+and queries answer in under 15 ms (`crates/quickhop-index/tests/scale.rs`).
 
 ## Storage
 

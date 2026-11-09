@@ -13,6 +13,7 @@ fend-core.workspace = true
 percent-encoding.workspace = true
 plist.workspace = true
 quickhop-core.workspace = true
+quickhop-index.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
