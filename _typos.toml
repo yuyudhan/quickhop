@@ -6,3 +6,7 @@ extend-exclude = [
     "crates/quickhop-providers/tests/fixtures/raycast-goldens",
     "crates/quickhop-providers/tests/providers/snapshots/providers__raycast_goldens__raycast_goldens.snap",
 ]
+
+[default.extend-identifiers]
+# Indian Standard Time, the time zone abbreviation in the date-format goldens.
+IST = "IST"

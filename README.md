@@ -37,7 +37,7 @@ A free alternative to Raycast that runs your Raycast script commands unchanged.
 | Global hotkey and launcher window | | 🛠 next |
 | File and folder search | | 🛠 |
 | Clipboard history with paste | | 🛠 |
-| Snippets with dynamic placeholders | | 🛠 |
+| Snippets with dynamic placeholders | ✅ | paste into the frontmost app, auto-expansion |
 | Window management | | 🛠 |
 | Aliases, enable/disable and root order per command | ✅ | per-command hotkeys, favorites, fallbacks |
 | AI chat, Quick AI, AI commands | | 🛠 |
@@ -87,6 +87,7 @@ honoured; `$QUICKHOP_CONFIG` points at another file). Data such as ranking histo
 
     ~/.config/quickhop/
     ├── config.toml          # settings, providers, quicklinks
+    ├── snippets.toml        # snippets with Raycast placeholders
     └── scripts/             # Raycast-compatible script commands
         ├── hello.sh
         └── ip.py
@@ -116,6 +117,19 @@ order = 1             # first in the empty root search
 id = "system:shutdown"
 enabled = false       # never shown; unknown ids are config errors
 ```
+
+```toml
+# ~/.config/quickhop/snippets.toml
+[[snippets]]
+name = "Reply"
+keyword = ";re"
+text = "Hi {argument name=\"name\"},\n\n{cursor}\n\nSent {date format=\"EEEE, MMM d\"} · {clipboard | trim}"
+```
+
+Snippets use Raycast's dynamic placeholders: `{clipboard}`, `{date}`, `{time}`, `{datetime}`
+and `{day}` with `format` and `offset`, `{uuid}`, `{cursor}`, `{argument}`, `{snippet}`, and
+the `| trim | uppercase | lowercase | percent-encode | json-stringify` modifiers.
+`quickhop launch snippets:reply --arg Ada` prints the expanded text.
 
 Upgrading from quickhop 0.1 on macOS moves `~/Library/Application Support/quickhop` to these
 locations automatically.

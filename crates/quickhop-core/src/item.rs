@@ -113,6 +113,11 @@ pub enum Action {
         /// Whether the user must confirm before it runs.
         confirm: bool,
     },
+    /// Expand a snippet's placeholders and copy (later: paste) the result.
+    Snippet {
+        /// The snippet text, placeholders unexpanded (see [`crate::placeholders`]).
+        text: String,
+    },
 }
 
 impl Action {
@@ -120,7 +125,7 @@ impl Action {
     pub fn needs_confirmation(&self) -> bool {
         match self {
             Self::Run { confirm, .. } | Self::Script { confirm, .. } => *confirm,
-            Self::Open { .. } | Self::Copy { .. } => false,
+            Self::Open { .. } | Self::Copy { .. } | Self::Snippet { .. } => false,
         }
     }
 }

@@ -6,10 +6,13 @@
 #![forbid(unsafe_code)]
 
 pub mod config;
+pub mod datefmt;
 pub mod fuzzy;
 pub mod item;
+pub mod placeholders;
 pub mod provider;
 pub mod search;
+pub mod snippets;
 
 pub use config::{Apps, CommandSettings, Config, ConfigError, Providers, Quicklink, Scripts};
 pub use fuzzy::{Match, Matcher, score};

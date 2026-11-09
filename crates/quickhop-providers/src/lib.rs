@@ -8,6 +8,7 @@
 //! | `system`     | [`system`]     | lock, log out, suspend, reboot, shut down, per OS             |
 //! | `quicklinks` | [`quicklinks`] | `[[quicklinks]]` URL templates with `{query}`                  |
 //! | `scripts`    | [`scripts`]    | Raycast-compatible script commands from `~/.config/quickhop/scripts` and `[scripts] dirs` |
+//! | `snippets`   | [`snippets`]   | `snippets.toml` next to the config file, with Raycast placeholders |
 //!
 //! Every provider takes its environment explicitly ([`Env`]) so tests can point it at
 //! fixture directories and a fixed OS.
@@ -19,6 +20,7 @@ pub mod emoji;
 mod env;
 pub mod quicklinks;
 pub mod scripts;
+pub mod snippets;
 pub mod system;
 
 use std::path::PathBuf;
@@ -28,7 +30,15 @@ pub use env::Env;
 use quickhop_core::{Config, Provider};
 
 /// Names of the built-in providers, matching the keys of `[providers]` in the config.
-pub const BUILTIN: [&str; 6] = ["apps", "calc", "emoji", "system", "quicklinks", "scripts"];
+pub const BUILTIN: [&str; 7] = [
+    "apps",
+    "calc",
+    "emoji",
+    "system",
+    "quicklinks",
+    "scripts",
+    "snippets",
+];
 
 /// How long an inline script command may run while its subtitle is computed.
 pub const INLINE_SCRIPT_TIMEOUT: Duration = Duration::from_secs(2);
@@ -91,6 +101,25 @@ pub fn builtin(config: &Config, env: &Env) -> (Vec<Box<dyn Provider>>, Vec<Warni
             message,
         }));
         providers.push(Box::new(scripts));
+    }
+    if enabled.snippets {
+        let path = quickhop_core::snippets::snippets_path(&env.os, |name| {
+            env.var(name).map(str::to_owned)
+        });
+        match path {
+            Ok(path) => {
+                let (snippets, problems) = snippets::SnippetsProvider::load(&path);
+                warnings.extend(problems.into_iter().map(|message| Warning {
+                    provider: "snippets",
+                    message,
+                }));
+                providers.push(Box::new(snippets));
+            }
+            Err(error) => warnings.push(Warning {
+                provider: "snippets",
+                message: error.to_string(),
+            }),
+        }
     }
     if enabled.system {
         providers.push(Box::new(system::SystemProvider::for_os(&env.os)));

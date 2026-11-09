@@ -134,11 +134,20 @@ provider_contract! {
     system_windows => quickhop_providers::system::SystemProvider::for_os("windows"),
     quicklinks => common::quicklinks(),
     scripts => common::scripts(),
+    snippets => common::snippets(),
 }
 
 #[test]
 fn every_builtin_provider_has_a_contract_test() {
-    let tested = ["apps", "calc", "emoji", "system", "quicklinks", "scripts"];
+    let tested = [
+        "apps",
+        "calc",
+        "emoji",
+        "system",
+        "quicklinks",
+        "scripts",
+        "snippets",
+    ];
     assert_eq!(quickhop_providers::BUILTIN, tested);
     let names: Vec<String> = common::all_providers()
         .iter()

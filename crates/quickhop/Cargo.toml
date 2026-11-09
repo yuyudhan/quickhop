@@ -9,6 +9,8 @@ publish.workspace = true
 
 [dependencies]
 clap.workspace = true
+getrandom.workspace = true
+jiff.workspace = true
 quickhop-core.workspace = true
 quickhop-providers.workspace = true
 quickhop-store.workspace = true

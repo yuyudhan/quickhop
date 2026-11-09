@@ -274,6 +274,55 @@ fn unknown_command_ids_are_config_errors() -> TestResult {
     Ok(())
 }
 
+const SNIPPETS: &str = r#"
+[[snippets]]
+name = "Today"
+text = "{date format=\"yyyy-MM-dd\"}"
+
+[[snippets]]
+name = "Signature"
+keyword = ";sig"
+text = "Best,\n{argument name=\"who\" default=\"Ada\"}"
+
+[[snippets]]
+name = "Reply"
+text = "Hi {argument name=\"name\"} ({argument options=\"formal, casual\"}),\n{cursor}\n{snippet name=\"signature\"}"
+"#;
+
+#[test]
+fn snippets_are_found_and_expanded_on_launch() -> TestResult {
+    let sandbox = Sandbox::new()?;
+    std::fs::write(sandbox.dir.path().join("snippets.toml"), SNIPPETS)?;
+    let launch = |args: &[&str]| -> Result<std::process::Output, Box<dyn Error>> {
+        Ok(sandbox
+            .cmd()?
+            .env_remove("WAYLAND_DISPLAY")
+            .env_remove("DISPLAY")
+            .arg("launch")
+            .args(args)
+            .output()?)
+    };
+    assert!(ids(&sandbox.query(";sig")?).contains(&"snippets:signature"));
+    let today = jiff::Zoned::now().strftime("%Y-%m-%d").to_string();
+    let date = launch(&["snippets:today"])?;
+    assert_eq!(String::from_utf8(date.stdout)?, format!("{today}\n"));
+    let reply = launch(&["snippets:reply", "--arg", "Grace", "--arg", "casual"])?;
+    assert_eq!(
+        String::from_utf8(reply.stdout)?,
+        "Hi Grace (casual),\n\nBest,\nAda\n"
+    );
+    let missing = launch(&["snippets:reply"])?;
+    assert!(!missing.status.success());
+    let stderr = String::from_utf8_lossy(&missing.stderr);
+    assert!(
+        stderr.contains("snippet needs name, argument 2"),
+        "{stderr}"
+    );
+    let wrong = launch(&["snippets:reply", "--arg", "G", "--arg", "rude"])?;
+    assert!(String::from_utf8_lossy(&wrong.stderr).contains("formal, casual"));
+    Ok(())
+}
+
 #[test]
 fn launching_records_frecency() -> TestResult {
     let sandbox = Sandbox::new()?;

@@ -74,8 +74,8 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | ID | Feature | Status | P | macOS | Linux (X11 / Wayland) |
 |----|---------|--------|---|-------|------------------------|
-| SNP-01 | Snippet library: create, search, copy or paste | planned | P0 | store + `snippets.toml` in the config dir; paste as CLP-03 | same |
-| SNP-02 | Dynamic placeholders: `{clipboard}`, `{date}`/`{time}`/`{datetime}` with formats and offsets, `{cursor}`, `{uuid}`, `{argument name="..." default="..."}`, `{snippet name="..."}` | planned | P0 | pure expansion engine in core, shared | same |
+| SNP-01 | Snippet library: create, search, copy or paste | partial | P0 | `snippets.toml` in the config dir, `snippets` provider (name, keyword), `quickhop launch snippets:<name>` expands and prints; paste (CLP-03) and the snippet view next | same |
+| SNP-02 | Dynamic placeholders: `{clipboard}`, `{date}`/`{time}`/`{datetime}` with formats and offsets, `{cursor}`, `{uuid}`, `{argument name="..." default="..."}`, `{snippet name="..."}` | done | P0 | pure expansion engine in core (`placeholders`, LDML `datefmt`), plus `{day}`, `{selection}`, `options`, `{clipboard offset=N}` and the modifiers; Raycast manual goldens | same |
 | SNP-03 | Keyword auto-expansion while typing in any app | planned | P1 | `CGEventTap` listen-only (Input Monitoring permission), then delete + paste | X11: XRecord or XInput2 raw events. Wayland: no global key monitoring; `evdev` keyboard read with the user in `input` (opt-in), or an IBus/Fcitx5 input-method engine |
 | SNP-04 | Import and export (Raycast snippets JSON) | planned | P1 | shared | same |
 
@@ -184,10 +184,10 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | Priority | Features | done | partial | planned |
 |----------|---------:|-----:|--------:|--------:|
-| P0 | 30 | 18 | 1 | 11 |
+| P0 | 30 | 19 | 2 | 9 |
 | P1 | 36 | 1 | 4 | 31 |
 | P2 | 29 | 0 | 0 | 29 |
-| All | 95 | 19 | 5 | 71 |
+| All | 95 | 20 | 6 | 69 |
 
 Counted from the tables above; recount when editing them.
 
@@ -195,11 +195,11 @@ Counted from the tables above; recount when editing them.
 
 Built (from the CLI): the fuzzy and frecency ranking core, the config with per-command
 aliases, switches and root order, applications on macOS and Linux, calculator and units, emoji,
-system power commands, quicklinks, and Raycast script commands end to end (`quickhop run`, all
-metadata, modes and arguments).
+system power commands, quicklinks, Raycast script commands end to end (`quickhop run`, all
+metadata, modes and arguments), and snippets with Raycast's dynamic placeholders.
 
 Missing for a first usable release (the P0 gaps): the launcher window and its global hotkey
 (LCH-01, LCH-07, LCH-10, LCH-11), the daemon and IPC (PLT-01),
-file search (FIL-01), clipboard history with paste (CLP-01, CLP-03), snippets with placeholders
-(SNP-01, SNP-02), application icon rendering (APP-02) and launch at login (CFG-07).
+file search (FIL-01), clipboard history with paste (CLP-01, CLP-03), pasting snippets
+(SNP-01), application icon rendering (APP-02) and launch at login (CFG-07).
 [plan.md](plan.md) orders these into slices.

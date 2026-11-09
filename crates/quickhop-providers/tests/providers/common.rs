@@ -10,6 +10,7 @@ use quickhop_providers::calc::CalcProvider;
 use quickhop_providers::emoji::EmojiProvider;
 use quickhop_providers::quicklinks::QuicklinksProvider;
 use quickhop_providers::scripts::ScriptsProvider;
+use quickhop_providers::snippets::SnippetsProvider;
 use quickhop_providers::system::SystemProvider;
 
 /// `tests/fixtures`.
@@ -98,6 +99,14 @@ pub(crate) fn quicklinks() -> QuicklinksProvider {
     ])
 }
 
+/// The fixture snippet library.
+pub(crate) fn snippets() -> SnippetsProvider {
+    let (provider, warnings) =
+        SnippetsProvider::load(&fixtures().join("snippets").join("snippets.toml"));
+    assert_eq!(warnings, Vec::<String>::new());
+    provider
+}
+
 /// Every provider over fixtures, in the order `quickhop_providers::builtin` uses.
 pub(crate) fn all_providers() -> Vec<Box<dyn Provider>> {
     vec![
@@ -105,6 +114,7 @@ pub(crate) fn all_providers() -> Vec<Box<dyn Provider>> {
         Box::new(CalcProvider::new()),
         Box::new(desktop_apps()),
         Box::new(scripts()),
+        Box::new(snippets()),
         Box::new(SystemProvider::for_os("linux")),
         Box::new(EmojiProvider::new()),
     ]

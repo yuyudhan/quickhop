@@ -10,8 +10,8 @@ order [plan.md](plan.md).
 
 | Crate | State | Role |
 |-------|-------|------|
-| `quickhop-core` | built | Platform-independent model: `Item`, `ItemId`, `Action` (plain data: `Open`, `Copy`, `Run`, `Script`), `Query`, `Cancel`, the `Provider` trait, the nucleo fuzzy matcher (`fuzzy`), `Search`/`rank` (tiers, frecency, dedupe, limit) and `Config` (TOML, XDG paths, the one-time macOS migration). |
-| `quickhop-providers` | built | Built-in providers over an explicit `Env` (OS + variables): `apps`, `calc`, `emoji`, `system`, `quicklinks`, `scripts`. `builtin(config, env)` loads the enabled ones; `script_dirs` resolves script directories. |
+| `quickhop-core` | built | Platform-independent model: `Item`, `ItemId`, `Action` (plain data: `Open`, `Copy`, `Run`, `Script`, `Snippet`), `Query`, `Cancel`, the `Provider` trait, the nucleo fuzzy matcher (`fuzzy`), `Search`/`rank` (tiers, frecency, dedupe, limit, `[[commands]]` overrides), `Config` (TOML, XDG paths, the one-time macOS migration), the snippet library (`snippets`) and Raycast's dynamic placeholders (`placeholders`, with LDML date patterns in `datefmt`), expanded from a caller-supplied context. |
+| `quickhop-providers` | built | Built-in providers over an explicit `Env` (OS + variables): `apps`, `calc`, `emoji`, `system`, `quicklinks`, `scripts`, `snippets`. `builtin(config, env)` loads the enabled ones; `script_dirs` resolves script directories. |
 | `quickhop-store` | built | SQLite (rusqlite, bundled): frecency per (query prefix, item), half-life 7 days. Grows the clipboard, snippet, favorites and chat tables. |
 | `quickhop` | built | The binary: `query`, `launch`, `run`, `config default\|path\|check`, `doctor`; later `daemon`, `toggle`, `open`. |
 | `quickhop-ui` | empty | The launcher window in gpui ([ADR 0001](adr/0001-ui-toolkit.md)); `model` holds the toolkit-free view model. |
@@ -32,7 +32,7 @@ Configuration is XDG on macOS and Linux alike (Windows keeps `%APPDATA%`):
     ~/.config/quickhop/                 $XDG_CONFIG_HOME/quickhop, or $QUICKHOP_CONFIG's folder
     ├── config.toml                     settings, providers, quicklinks, hotkeys, aliases
     ├── scripts/                        Raycast-compatible script commands, always scanned
-    ├── snippets.toml                   (planned) snippets, editable by hand
+    ├── snippets.toml                   snippets with Raycast placeholders, editable by hand
     ├── themes/                         (planned) custom themes
     └── extensions.toml                 (planned) installed extensions and their preferences
 
@@ -77,6 +77,7 @@ user unit on Linux):
 | `system` | lock, log out, suspend, reboot, shut down: logind, macOS `pmset`/`osascript`, Windows `shutdown.exe` | `Run` with `confirm: true` |
 | `quicklinks` | `[[quicklinks]]` with `{query}` templates (percent-encoded); `alias text` pins the link | `Open` |
 | `scripts` | Raycast script commands from `~/.config/quickhop/scripts` and `[scripts] dirs` (see below) | `Script` |
+| `snippets` | `[[snippets]]` in `snippets.toml` next to the config (name, text, keyword) | `Snippet`: expand placeholders, then copy |
 
 Ranking: `rank` classifies each candidate into a tier, best first: `Pinned` (an alias equals
 the query or its first word), `Computed` (calculator), `Matched` (nucleo score of the title, or

@@ -9,9 +9,10 @@ spelling and clippy gates. CI runs `just check`'s steps on Ubuntu, macOS and Win
 |-------|------|
 | `crates/*/src/**` `#[cfg(test)]` | Unit tests next to the code: desktop-entry parsing, `Exec` field codes, icon-theme sizes, plist reading, script headers, frecency maths, config validation. |
 | `crates/quickhop-core/tests/ranking_prop.rs` | proptest: fuzzy matches are exactly the subsequences, positions are increasing and correct; ranking is sorted, unique, limited and deterministic; matched results really match; an exact alias is always first; frecency never lowers an item. |
+| `crates/quickhop-core/tests/placeholders_prop.rs` | proptest: placeholder expansion never panics on any text or placeholder-shaped noise, and unknown placeholders (any keyword, attributes and modifiers) stay verbatim. The goldens from Raycast's dynamic-placeholder manual (formats, the pattern alphabet, offsets, modifiers, arguments) are unit tests in `placeholders.rs` and `datefmt.rs`. |
 | `crates/quickhop-store/tests/frecency_prop.rs` | proptest: decay is monotonic and composes, prefixes nest, more picks never score less. |
 | `crates/quickhop-providers/tests/providers/` | One test binary over `tests/fixtures/`: `contract.rs`, `apps.rs`, `scripts.rs`, `raycast_goldens.rs`, `snapshots.rs`, shared builders in `common.rs`. |
-| `crates/quickhop/tests/cli.rs` | End-to-end: the real binary with a sandboxed config and data dir (`QUICKHOP_CONFIG`, `QUICKHOP_DATA`, `HOME` pointing nowhere): `query --json` for apps, calculator, units, emoji, quicklinks; text output; `launch` confirmation, frecency recording, script commands; `run` by path, stem and title, `--yes`, the default `scripts/` directory; on macOS the move from `~/Library/Application Support/quickhop`. |
+| `crates/quickhop/tests/cli.rs` | End-to-end: the real binary with a sandboxed config and data dir (`QUICKHOP_CONFIG`, `QUICKHOP_DATA`, `HOME` pointing nowhere): `query --json` for apps, calculator, units, emoji, quicklinks; text output; `[[commands]]` aliases, switches, root order and unknown ids; `launch` confirmation, frecency recording, script commands, snippets (date format, arguments, options, nested snippets); `run` by path, stem and title, `--yes`, the default `scripts/` directory; on macOS the move from `~/Library/Application Support/quickhop`. |
 
 ## Provider contract
 
@@ -47,6 +48,8 @@ agree.
   argument and timeout cases, CRLF): the same Raycast scripts for every mode, arguments (text,
   dropdown, percent-encoded), `needsConfirmation`, `currentDirectoryPath`, failure, timeout,
   an invalid one, a hidden one and a non-script file.
+- `snippets/snippets.toml`: a keyword, multi-line text, arguments, `{cursor}`, a nested
+  `{snippet}`, a date format and clipboard modifiers.
 - `raycast-goldens/`: Raycast's own script commands, unmodified (MIT,
   `LICENSE-raycast-script-commands`, from raycast/script-commands at `cf612c2`): the eight
   language templates and ten community commands covering every mode, `refreshTime`,

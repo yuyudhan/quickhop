@@ -60,6 +60,8 @@ pub struct Providers {
     pub quicklinks: bool,
     /// Raycast-compatible script commands from `[scripts] dirs`.
     pub scripts: bool,
+    /// Snippets from `snippets.toml` next to the config file.
+    pub snippets: bool,
 }
 
 impl Default for Providers {
@@ -71,6 +73,7 @@ impl Default for Providers {
             system: true,
             quicklinks: true,
             scripts: true,
+            snippets: true,
         }
     }
 }
