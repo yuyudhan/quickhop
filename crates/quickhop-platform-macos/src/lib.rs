@@ -9,6 +9,8 @@
 #![deny(clippy::undocumented_unsafe_blocks)]
 
 pub mod icon;
+#[cfg(target_os = "macos")]
+pub mod pasteboard;
 
 /// The operation needs macOS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

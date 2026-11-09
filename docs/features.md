@@ -63,10 +63,10 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | ID | Feature | Status | P | macOS | Linux (X11 / Wayland) |
 |----|---------|--------|---|-------|------------------------|
-| CLP-01 | Text clipboard history, searchable, kept in SQLite | planned | P0 | daemon polls `NSPasteboard.changeCount` (250 ms) | X11: XFixes `SelectionNotify` on `CLIPBOARD`. Wayland: `ext-data-control-v1` / `wlr-data-control` (sway, Hyprland, KWin, COSMIC) or `wl-paste --watch`; GNOME has no data-control protocol: watch only while quickhop has focus, or the optional GNOME Shell extension |
+| CLP-01 | Text clipboard history, searchable, kept in SQLite | partial | P0 | built: `NSPasteboard.changeCount` read by `quickhop_core::Watcher`, history deduplicated in `state.sqlite` with retention; next: the daemon polling every 250 ms (U1) and the clipboard view (U2) | X11: XFixes `SelectionNotify` on `CLIPBOARD`. Wayland: `ext-data-control-v1` / `wlr-data-control` (sway, Hyprland, KWin, COSMIC) or `wl-paste --watch`; GNOME has no data-control protocol: watch only while quickhop has focus, or the optional GNOME Shell extension |
 | CLP-02 | Images, files and rich text in history | planned | P1 | pasteboard types `public.png`, `public.file-url`, `public.rtf` | MIME targets `image/png`, `text/uri-list`, `text/html` |
 | CLP-03 | Paste the chosen entry into the frontmost app | planned | P0 | set pasteboard, hide, synthesize `⌘V` with `CGEventPost` (Accessibility) | set clipboard (`wl-copy` / X11 owner), then X11: XTest `Ctrl+V`; Wayland: `virtual-keyboard-unstable-v1` (wlroots), `RemoteDesktop` portal keyboard (GNOME, KDE), or `ydotool`; else copy only and say so |
-| CLP-04 | Ignore secrets and chosen apps; pin entries; delete | planned | P1 | skip `org.nspasteboard.ConcealedType`/`TransientType`; frontmost app via `NSWorkspace` | skip `x-kde-passwordManagerHint=secret`; X11 `_NET_ACTIVE_WINDOW` class; Wayland: per-target MIME hints only |
+| CLP-04 | Ignore secrets and chosen apps; pin entries; delete | partial | P1 | built: copies marked `org.nspasteboard.ConcealedType`/`TransientType` are never recorded, the frontmost app (`NSWorkspace`) is stored as the source; next: ignored apps, pinning, deleting from the view | skip `x-kde-passwordManagerHint=secret`; X11 `_NET_ACTIVE_WINDOW` class; Wayland: per-target MIME hints only |
 | CLP-05 | Paste as plain text | planned | P1 | write `public.utf8-plain-text` only | offer `text/plain;charset=utf-8` only |
 | CLP-06 | Retention limits and encryption at rest | planned | P2 | key in Keychain (Security framework) | key in Secret Service (`org.freedesktop.secrets`) via `oo7`/`secret-service` |
 
@@ -184,10 +184,10 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | Priority | Features | done | partial | planned |
 |----------|---------:|-----:|--------:|--------:|
-| P0 | 30 | 17 | 2 | 11 |
-| P1 | 36 | 0 | 5 | 31 |
+| P0 | 30 | 17 | 3 | 10 |
+| P1 | 36 | 0 | 6 | 30 |
 | P2 | 29 | 0 | 0 | 29 |
-| All | 95 | 17 | 7 | 71 |
+| All | 95 | 17 | 9 | 69 |
 
 Counted from the tables above; recount when editing them.
 

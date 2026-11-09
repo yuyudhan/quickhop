@@ -12,12 +12,12 @@ order [plan.md](plan.md).
 |-------|-------|------|
 | `quickhop-core` | built | Platform-independent model: `Item`, `ItemId`, `Action` (plain data: `Open`, `Copy`, `Run`, `Script`), `Query`, `Cancel`, the `Provider` trait, the nucleo fuzzy matcher (`fuzzy`), `Search`/`rank` (tiers, frecency, dedupe, limit) and `Config` (TOML, XDG paths, the one-time macOS migration). |
 | `quickhop-providers` | built | Built-in providers over an explicit `Env` (OS + variables): `apps`, `calc`, `emoji`, `system`, `quicklinks`, `scripts`. `builtin(config, env)` loads the enabled ones; `script_dirs` resolves script directories. |
-| `quickhop-store` | built | SQLite (rusqlite, bundled): frecency per (query prefix, item), half-life 7 days. Grows the clipboard, snippet, favorites and chat tables. |
+| `quickhop-store` | built | SQLite (rusqlite, bundled): `frecency.sqlite`, frecency per (query prefix, item), half-life 7 days; `state.sqlite` (`state`), the clipboard history. Grows the snippet, favorites and chat tables. |
 | `quickhop` | built | The binary: `query`, `launch`, `run`, `config default\|path\|check`, `doctor`; later `daemon`, `toggle`, `open`. |
 | `quickhop-ui` | model built | The launcher window in gpui ([ADR 0001](adr/0001-ui-toolkit.md)). `model` is built: the toolkit-free view model (query and numbered searches, results, wrapping selection, navigation stack, action panel with filtering, toasts). The window and its views are next (plan slice U2); `examples/spike.rs` is the U0 toolkit spike. |
 | `quickhop-index` | planned | File index for Linux (and as a Spotlight fallback): walker, inotify/FSEvents watcher, SQLite FTS5. |
 | `quickhop-ext` | planned | Extension host: spawns extensions, speaks JSON-RPC over stdio, maps their views to the UI model. |
-| `quickhop-platform-macos` | started | The only place for FFI on macOS. Built: `icon` (any file's or app's icon as PNG through `NSWorkspace iconForFile:`, behind the `IconRenderer` trait). Planned: AX (window management, selected text, paste), `NSPasteboard`, `NSRunningApplication`, `NSStatusItem`, EventKit. |
+| `quickhop-platform-macos` | started | The only place for FFI on macOS. Built: `icon` (any file's or app's icon as PNG through `NSWorkspace iconForFile:`, behind the `IconRenderer` trait), `pasteboard` (the `NSPasteboard` as a `ClipboardSource`, secrets skipped, writing text). Planned: AX (window management, selected text, paste), `NSRunningApplication`, `NSStatusItem`, EventKit. |
 | `quickhop-platform-linux` | planned | Wayland protocols (data-control, virtual-keyboard, foreign-toplevel) via `wayland-client`, X11 via `x11rb`, D-Bus/portals via `zbus`/`ashpd`. |
 
 Unsafe code is forbidden everywhere except the two platform crates, which must document every
@@ -143,9 +143,12 @@ provider. The indexer runs inside the daemon at low priority and is cancellable.
 
 - `frecency.sqlite` (built): one row per (normalised query prefix, item id) holding a score
   already decayed to its last update.
-- `state.sqlite` (planned), migrated with `rusqlite_migration`: `clipboard` (content hash,
-  kind, text or blob path, source app, pinned, timestamps; images and files stored as files
-  beside it), `snippets_usage`, `favorites`, `aliases`, `hotkeys`, `chats`/`messages`.
+- `state.sqlite` (clipboard built), migrated by `PRAGMA user_version` with a list of SQL steps
+  in `quickhop-store` (`rusqlite_migration` lags behind the `rusqlite` version in use):
+  `clipboard` (SHA-256 content hash for dedupe, kind, text or blob path, source app, pinned,
+  first and last copy times, copy count, a sequence number for order; images and files stored
+  as files beside it), later `snippets_usage`, `favorites`, `aliases`, `hotkeys`,
+  `chats`/`messages`.
   Clipboard retention is configurable; encryption at rest uses a key from the OS keyring
   (Keychain, Secret Service).
 - Snippets and quicklinks are authored in TOML under the config directory so they sync and

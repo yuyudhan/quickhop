@@ -102,6 +102,10 @@ emoji = true          # apps, calc, emoji, system, quicklinks, scripts
 [scripts]
 dirs = ["~/code/raycast-scripts"]   # more folders, after ~/.config/quickhop/scripts
 
+[clipboard]
+retention_days = 90   # history entries older than this are deleted
+max_entries = 1000
+
 [[quicklinks]]
 name = "GitHub search"
 url = "https://github.com/search?q={query}"

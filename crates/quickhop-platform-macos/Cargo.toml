@@ -8,6 +8,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+quickhop-core.workspace = true
 thiserror.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
@@ -17,6 +18,8 @@ objc2-app-kit = { workspace = true, features = [
     "NSGraphicsContext",
     "NSImage",
     "NSImageRep",
+    "NSPasteboard",
+    "NSRunningApplication",
     "NSWorkspace",
     "objc2-core-graphics",
 ] }
@@ -30,6 +33,7 @@ objc2-foundation = { workspace = true, features = [
 
 [dev-dependencies]
 png.workspace = true
+quickhop-store.workspace = true
 
 # The workspace lints, except that unsafe code is allowed here: it is how this crate calls
 # AppKit. The crate root denies `unsafe_op_in_unsafe_fn` and undocumented unsafe blocks, and

@@ -93,6 +93,35 @@ pub struct Scripts {
     pub dirs: Vec<PathBuf>,
 }
 
+/// Longest accepted `[clipboard] retention_days`: ten years.
+pub const MAX_RETENTION_DAYS: u32 = 3_650;
+
+/// Largest accepted `[clipboard] max_entries`.
+pub const MAX_CLIPBOARD_ENTRIES: u32 = 100_000;
+
+/// Clipboard history.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Clipboard {
+    /// Whether copied text is recorded.
+    pub enabled: bool,
+    /// Entries last copied longer ago than this many days are deleted, 1 to
+    /// [`MAX_RETENTION_DAYS`].
+    pub retention_days: u32,
+    /// Only the newest this many entries are kept, 1 to [`MAX_CLIPBOARD_ENTRIES`].
+    pub max_entries: u32,
+}
+
+impl Default for Clipboard {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            retention_days: 90,
+            max_entries: 1_000,
+        }
+    }
+}
+
 /// A URL template opened with the query, e.g. a web search.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -120,6 +149,8 @@ pub struct Config {
     pub apps: Apps,
     /// Script-command sources.
     pub scripts: Scripts,
+    /// Clipboard history.
+    pub clipboard: Clipboard,
     /// Quicklinks, in display order.
     pub quicklinks: Vec<Quicklink>,
 }
@@ -132,6 +163,7 @@ impl Default for Config {
             providers: Providers::default(),
             apps: Apps::default(),
             scripts: Scripts::default(),
+            clipboard: Clipboard::default(),
             quicklinks: Vec::new(),
         }
     }
@@ -178,6 +210,18 @@ impl Config {
             return Err(ConfigError::Invalid(format!(
                 "max_results must be between 1 and {MAX_RESULTS_LIMIT}, got {}",
                 self.max_results
+            )));
+        }
+        if !(1..=MAX_RETENTION_DAYS).contains(&self.clipboard.retention_days) {
+            return Err(ConfigError::Invalid(format!(
+                "clipboard.retention_days must be between 1 and {MAX_RETENTION_DAYS}, got {}",
+                self.clipboard.retention_days
+            )));
+        }
+        if !(1..=MAX_CLIPBOARD_ENTRIES).contains(&self.clipboard.max_entries) {
+            return Err(ConfigError::Invalid(format!(
+                "clipboard.max_entries must be between 1 and {MAX_CLIPBOARD_ENTRIES}, got {}",
+                self.clipboard.max_entries
             )));
         }
         for link in &self.quicklinks {
@@ -378,6 +422,32 @@ mod tests {
             Config::from_toml("hotkey = \" \""),
             Err(ConfigError::Invalid(_))
         ));
+    }
+
+    #[test]
+    fn clipboard_limits_are_checked() {
+        let config = Config::from_toml("[clipboard]\nretention_days = 7\n").unwrap();
+        assert_eq!(config.clipboard.retention_days, 7);
+        assert_eq!(
+            config.clipboard.max_entries, 1_000,
+            "the rest keeps its default"
+        );
+        assert!(config.clipboard.enabled);
+        for bad in [
+            "retention_days = 0",
+            "retention_days = 3651",
+            "max_entries = 0",
+            "max_entries = 100001",
+        ] {
+            assert!(
+                matches!(
+                    Config::from_toml(&format!("[clipboard]\n{bad}\n")),
+                    Err(ConfigError::Invalid(_))
+                ),
+                "{bad} must be rejected"
+            );
+        }
+        assert!(Config::from_toml("[clipboard]\nmax_entries = 100000\n").is_ok());
     }
 
     #[test]

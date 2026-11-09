@@ -1,6 +1,6 @@
 [package]
 name = "quickhop-store"
-description = "SQLite store for quickhop: frecency of picked items."
+description = "SQLite stores for quickhop: frecency of picked items, clipboard history."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 quickhop-core.workspace = true
 rusqlite.workspace = true
+sha2.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]
