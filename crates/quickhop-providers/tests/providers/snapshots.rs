@@ -9,7 +9,7 @@ use quickhop_core::{Boosts, Cancel, ItemId, Query, Search};
 use quickhop_store::Store;
 
 /// Queries covering every provider, aliases, keywords, computed answers and misses.
-const QUERIES: [&str; 22] = [
+const QUERIES: [&str; 23] = [
     "",
     "fire",
     "firefox",
@@ -32,6 +32,7 @@ const QUERIES: [&str; 22] = [
     "hello",
     "search",
     "qqqqzzzz",
+    "budget",
 ];
 
 fn render(text: &str, boosts: &Boosts) -> String {

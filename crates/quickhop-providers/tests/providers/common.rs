@@ -2,12 +2,13 @@
 
 use std::path::PathBuf;
 
-use quickhop_core::{Provider, Quicklink};
+use quickhop_core::{Cancel, Provider, ProviderError, Quicklink};
 use quickhop_providers::Env;
 use quickhop_providers::apps::icons::IconSearch;
 use quickhop_providers::apps::{AppsProvider, Sources};
 use quickhop_providers::calc::CalcProvider;
 use quickhop_providers::emoji::EmojiProvider;
+use quickhop_providers::files::{self, FileSource, FilesProvider};
 use quickhop_providers::quicklinks::QuicklinksProvider;
 use quickhop_providers::scripts::ScriptsProvider;
 use quickhop_providers::system::SystemProvider;
@@ -98,6 +99,50 @@ pub(crate) fn quicklinks() -> QuicklinksProvider {
     ])
 }
 
+/// File paths answered by name like Spotlight does: case-insensitive substring of the name.
+struct FixtureFiles;
+
+const FIXTURE_FILES: [&str; 4] = [
+    "/home/ada/Documents/budget-2026.ods",
+    "/home/ada/Downloads/Budget.xlsx",
+    "/home/ada/projects/budget-app",
+    "/home/ada/Pictures/holiday.jpg",
+];
+
+impl FileSource for FixtureFiles {
+    fn find(
+        &self,
+        text: &str,
+        limit: usize,
+        cancel: &Cancel,
+    ) -> Result<Vec<PathBuf>, ProviderError> {
+        if cancel.is_cancelled() {
+            return Err(ProviderError::Cancelled {
+                provider: files::NAME.into(),
+            });
+        }
+        let text = text.to_lowercase();
+        Ok(FIXTURE_FILES
+            .iter()
+            .map(PathBuf::from)
+            .filter(|path| {
+                path.file_name()
+                    .is_some_and(|name| name.to_string_lossy().to_lowercase().contains(&text))
+            })
+            .take(limit)
+            .collect())
+    }
+}
+
+/// Files over [`FIXTURE_FILES`] with the Linux actions and `/home/ada` as home.
+pub(crate) fn files() -> FilesProvider {
+    FilesProvider::new(
+        Box::new(FixtureFiles),
+        "linux",
+        Some(PathBuf::from("/home/ada")),
+    )
+}
+
 /// Every provider over fixtures, in the order `quickhop_providers::builtin` uses.
 pub(crate) fn all_providers() -> Vec<Box<dyn Provider>> {
     vec![
@@ -107,5 +152,6 @@ pub(crate) fn all_providers() -> Vec<Box<dyn Provider>> {
         Box::new(scripts()),
         Box::new(SystemProvider::for_os("linux")),
         Box::new(EmojiProvider::new()),
+        Box::new(files()),
     ]
 }

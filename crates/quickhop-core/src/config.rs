@@ -57,6 +57,8 @@ pub struct Providers {
     pub quicklinks: bool,
     /// Raycast-compatible script commands from `[scripts] dirs`.
     pub scripts: bool,
+    /// Files and folders by name (Spotlight on macOS).
+    pub files: bool,
 }
 
 impl Default for Providers {
@@ -68,6 +70,7 @@ impl Default for Providers {
             system: true,
             quicklinks: true,
             scripts: true,
+            files: true,
         }
     }
 }

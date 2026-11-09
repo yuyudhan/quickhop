@@ -1,0 +1,8 @@
+---
+source: crates/quickhop-providers/tests/providers/snapshots.rs
+expression: "render(text, &Boosts::new())"
+---
+query: "budget"
+matched    174  files:/home/ada/Documents/budget-2026.ods budget-2026.ods | ~/Documents
+matched    174  files:/home/ada/Downloads/Budget.xlsx    Budget.xlsx | ~/Downloads
+matched    174  files:/home/ada/projects/budget-app      budget-app | ~/projects

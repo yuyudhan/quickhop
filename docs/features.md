@@ -44,8 +44,8 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 | APP-03 | Running apps: quit, hide, force quit, show in Finder | planned | P1 | `NSRunningApplication` (platform crate) | `/proc` scan, `kill`; window-level actions via WIN mechanisms |
 | APP-04 | Switch windows (search open windows, focus one) | planned | P1 | AX window list + `CGWindowListCopyWindowInfo` (Screen Recording permission for titles on macOS 10.15+) | X11: EWMH `_NET_CLIENT_LIST`, `_NET_ACTIVE_WINDOW`. Wayland: `wlr-foreign-toplevel-management` / `ext-foreign-toplevel-list` (sway, Hyprland, COSMIC), KWin scripting over D-Bus, GNOME Shell extension (no protocol) |
 | APP-05 | Watch application folders and refresh without restart | planned | P1 | FSEvents via `notify` | inotify via `notify` on every `applications` dir |
-| FIL-01 | File and folder search by name | planned | P0 | Spotlight: `mdfind` (`NSMetadataQuery` later) scoped to home | quickhop's own index (`quickhop-index`: walk + inotify, gitignore-aware, SQLite FTS5 trigram); uses `plocate` or GNOME `localsearch`/KDE `baloo` results when present |
-| FIL-02 | File actions: open, open with, reveal, copy path, Quick Look, move to trash | planned | P1 | `open -a`, `open -R`, `qlmanage -p`, `NSFileManager trashItem` | `xdg-open`, `gio launch`, `org.freedesktop.FileManager1.ShowItems` (D-Bus), `sushi`/`gnome-sushi` or `xdg-open`, `gio trash` |
+| FIL-01 | File and folder search by name | partial | P0 | built: `files` provider over Spotlight (`mdfind -onlyin ~ -name`), queries of 3+ characters, 200 paths at most, killed after 2 s or on cancel; `NSMetadataQuery` later | not yet: the provider is ready for quickhop's own index (`quickhop-index`: walk + inotify, gitignore-aware, SQLite FTS5 trigram); uses `plocate` or GNOME `localsearch`/KDE `baloo` results when present |
+| FIL-02 | File actions: open, open with, reveal, copy path, Quick Look, move to trash | partial | P1 | built: open, reveal (`open -R`), copy path, Quick Look (`qlmanage -p`), move to trash (`/usr/bin/trash`, macOS 15+, confirmed first); next: open with | built as actions: `xdg-open`, reveal via `org.freedesktop.FileManager1.ShowItems` (`dbus-send`), copy path, `gio trash`; next: open with (`gio launch`), `sushi` preview |
 | FIL-03 | File content search | planned | P2 | Spotlight `kMDItemTextContent` | index extension with FTS5 over text files; `localsearch` when present |
 | FIL-04 | Recent files and downloads | planned | P2 | Spotlight `kMDItemLastUsedDate`, `~/Downloads` | `recently-used.xbel` (GTK), `~/Downloads` |
 
@@ -65,7 +65,7 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 |----|---------|--------|---|-------|------------------------|
 | CLP-01 | Text clipboard history, searchable, kept in SQLite | partial | P0 | built: `NSPasteboard.changeCount` read by `quickhop_core::Watcher`, history deduplicated in `state.sqlite` with retention; next: the daemon polling every 250 ms (U1) and the clipboard view (U2) | X11: XFixes `SelectionNotify` on `CLIPBOARD`. Wayland: `ext-data-control-v1` / `wlr-data-control` (sway, Hyprland, KWin, COSMIC) or `wl-paste --watch`; GNOME has no data-control protocol: watch only while quickhop has focus, or the optional GNOME Shell extension |
 | CLP-02 | Images, files and rich text in history | planned | P1 | pasteboard types `public.png`, `public.file-url`, `public.rtf` | MIME targets `image/png`, `text/uri-list`, `text/html` |
-| CLP-03 | Paste the chosen entry into the frontmost app | partial | P0 | built: `quickhop_core::paste::paste_text` (copy, then `⌘V` through `CGEventPost` when Accessibility is granted, else copy only with the reason); next: hide-then-paste from the clipboard view (U2) | set clipboard (`wl-copy` / X11 owner), then X11: XTest `Ctrl+V`; Wayland: `virtual-keyboard-unstable-v1` (wlroots), `RemoteDesktop` portal keyboard (GNOME, KDE), or `ydotool`; else copy only and say so |
+| CLP-03 | Paste the chosen entry into the frontmost app | partial | P0 | built: `quickhop_core::paste::paste_text` (copy, then `⌘V` through `CGEventPost` when Accessibility is granted, else copy only with the reason); next: hide-then-paste from the clipboard view (U2) and the **[ax]** check that the text lands (from a headless agent session on m4 the posted HID events reached no app, so delivery is not yet verified) | set clipboard (`wl-copy` / X11 owner), then X11: XTest `Ctrl+V`; Wayland: `virtual-keyboard-unstable-v1` (wlroots), `RemoteDesktop` portal keyboard (GNOME, KDE), or `ydotool`; else copy only and say so |
 | CLP-04 | Ignore secrets and chosen apps; pin entries; delete | partial | P1 | built: copies marked `org.nspasteboard.ConcealedType`/`TransientType` are never recorded, the frontmost app (`NSWorkspace`) is stored as the source; next: ignored apps, pinning, deleting from the view | skip `x-kde-passwordManagerHint=secret`; X11 `_NET_ACTIVE_WINDOW` class; Wayland: per-target MIME hints only |
 | CLP-05 | Paste as plain text | planned | P1 | write `public.utf8-plain-text` only | offer `text/plain;charset=utf-8` only |
 | CLP-06 | Retention limits and encryption at rest | planned | P2 | key in Keychain (Security framework) | key in Secret Service (`org.freedesktop.secrets`) via `oo7`/`secret-service` |
@@ -184,10 +184,10 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | Priority | Features | done | partial | planned |
 |----------|---------:|-----:|--------:|--------:|
-| P0 | 30 | 17 | 4 | 9 |
-| P1 | 36 | 0 | 7 | 29 |
+| P0 | 30 | 17 | 5 | 8 |
+| P1 | 36 | 0 | 8 | 28 |
 | P2 | 29 | 0 | 0 | 29 |
-| All | 95 | 17 | 11 | 67 |
+| All | 95 | 17 | 13 | 65 |
 
 Counted from the tables above; recount when editing them.
 

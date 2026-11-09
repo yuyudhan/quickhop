@@ -35,7 +35,7 @@ A free alternative to Raycast that runs your Raycast script commands unchanged.
 | Quicklinks with `{query}` and aliases | ✅ | `{clipboard}`, `{selection}`, open-with |
 | **Script commands** (all metadata, modes, arguments) | ✅ | inline refresh, ANSI output view |
 | Global hotkey and launcher window | | 🛠 next |
-| File and folder search | | 🛠 |
+| File and folder search | macOS via Spotlight (CLI) | 🛠 Linux index, window |
 | Clipboard history with paste | | 🛠 |
 | Snippets with dynamic placeholders | | 🛠 |
 | Window management | | 🛠 |
@@ -97,7 +97,7 @@ hotkey = "Alt+Space"
 max_results = 8
 
 [providers]
-emoji = true          # apps, calc, emoji, system, quicklinks, scripts
+emoji = true          # apps, calc, emoji, system, quicklinks, scripts, files
 
 [scripts]
 dirs = ["~/code/raycast-scripts"]   # more folders, after ~/.config/quickhop/scripts

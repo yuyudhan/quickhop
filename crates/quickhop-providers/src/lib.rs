@@ -8,6 +8,7 @@
 //! | `system`     | [`system`]     | lock, log out, suspend, reboot, shut down, per OS             |
 //! | `quicklinks` | [`quicklinks`] | `[[quicklinks]]` URL templates with `{query}`                  |
 //! | `scripts`    | [`scripts`]    | Raycast-compatible script commands from `~/.config/quickhop/scripts` and `[scripts] dirs` |
+//! | `files`      | [`files`]      | files and folders by name: Spotlight (`mdfind`) on macOS       |
 //!
 //! Every provider takes its environment explicitly ([`Env`]) so tests can point it at
 //! fixture directories and a fixed OS.
@@ -17,6 +18,7 @@ pub mod apps;
 pub mod calc;
 pub mod emoji;
 mod env;
+pub mod files;
 pub mod quicklinks;
 pub mod scripts;
 pub mod system;
@@ -28,7 +30,15 @@ pub use env::Env;
 use quickhop_core::{Config, Provider};
 
 /// Names of the built-in providers, matching the keys of `[providers]` in the config.
-pub const BUILTIN: [&str; 6] = ["apps", "calc", "emoji", "system", "quicklinks", "scripts"];
+pub const BUILTIN: [&str; 7] = [
+    "apps",
+    "calc",
+    "emoji",
+    "system",
+    "quicklinks",
+    "scripts",
+    "files",
+];
 
 /// How long an inline script command may run while its subtitle is computed.
 pub const INLINE_SCRIPT_TIMEOUT: Duration = Duration::from_secs(2);
@@ -58,6 +68,25 @@ pub fn script_dirs(config: &Config, env: &Env) -> Vec<PathBuf> {
         }
     }
     dirs
+}
+
+/// The file source for `env`: Spotlight over the home directory on macOS. Other systems
+/// have none until quickhop's own index lands (plan slice F1).
+fn files_source(env: &Env) -> Result<Box<dyn files::FileSource>, String> {
+    if env.os != "macos" {
+        return Err(format!(
+            "no file search on {} yet (quickhop's file index is not built)",
+            env.os
+        ));
+    }
+    match env.home() {
+        Some(home) if home.is_dir() => Ok(Box::new(files::Spotlight::new(
+            home,
+            files::SPOTLIGHT_TIMEOUT,
+        ))),
+        Some(home) => Err(format!("home directory {} not found", home.display())),
+        None => Err("HOME is not set".into()),
+    }
 }
 
 /// The providers enabled in `config`, loaded for `env`, in display-priority order, plus
@@ -97,6 +126,19 @@ pub fn builtin(config: &Config, env: &Env) -> (Vec<Box<dyn Provider>>, Vec<Warni
     }
     if enabled.emoji {
         providers.push(Box::new(emoji::EmojiProvider::new()));
+    }
+    if enabled.files {
+        match files_source(env) {
+            Ok(source) => providers.push(Box::new(files::FilesProvider::new(
+                source,
+                &env.os,
+                env.home(),
+            ))),
+            Err(message) => warnings.push(Warning {
+                provider: files::NAME,
+                message,
+            }),
+        }
     }
     (providers, warnings)
 }

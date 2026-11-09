@@ -1,6 +1,6 @@
 [package]
 name = "quickhop-providers"
-description = "Built-in quickhop providers: applications, calculator, emoji, system commands, quicklinks and script commands."
+description = "Built-in quickhop providers: applications, calculator, emoji, system commands, quicklinks, script commands and files."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

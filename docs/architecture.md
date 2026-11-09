@@ -11,7 +11,7 @@ order [plan.md](plan.md).
 | Crate | State | Role |
 |-------|-------|------|
 | `quickhop-core` | built | Platform-independent model: `Item`, `ItemId`, `Action` (plain data: `Open`, `Copy`, `Run`, `Script`), `Query`, `Cancel`, the `Provider` trait, the nucleo fuzzy matcher (`fuzzy`), `Search`/`rank` (tiers, frecency, dedupe, limit) and `Config` (TOML, XDG paths, the one-time macOS migration). |
-| `quickhop-providers` | built | Built-in providers over an explicit `Env` (OS + variables): `apps`, `calc`, `emoji`, `system`, `quicklinks`, `scripts`. `builtin(config, env)` loads the enabled ones; `script_dirs` resolves script directories. |
+| `quickhop-providers` | built | Built-in providers over an explicit `Env` (OS + variables): `apps`, `calc`, `emoji`, `system`, `quicklinks`, `scripts`, `files` (behind the `FileSource` trait: Spotlight on macOS, quickhop's index on Linux once built). `builtin(config, env)` loads the enabled ones; `script_dirs` resolves script directories. |
 | `quickhop-store` | built | SQLite (rusqlite, bundled): `frecency.sqlite`, frecency per (query prefix, item), half-life 7 days; `state.sqlite` (`state`), the clipboard history. Grows the snippet, favorites and chat tables. |
 | `quickhop` | built | The binary: `query`, `launch`, `run`, `config default\|path\|check`, `doctor`; later `daemon`, `toggle`, `open`. |
 | `quickhop-ui` | model built | The launcher window in gpui ([ADR 0001](adr/0001-ui-toolkit.md)). `model` is built: the toolkit-free view model (query and numbered searches, results, wrapping selection, navigation stack, action panel with filtering, toasts). The window and its views are next (plan slice U2); `examples/spike.rs` is the U0 toolkit spike. |
