@@ -20,7 +20,7 @@ SSH (hence no session):
     tool xclip: found
     tool loginctl: found
     tool systemctl: found
-    hotkey: Alt+Space
+    hotkey: Alt+Space (not registered yet: the Linux window is still being built)
     provider apps: enabled (49 items)
     provider calc: enabled (0 items)
     provider emoji: enabled (1923 items)
@@ -146,6 +146,13 @@ Privacy & Security → Accessibility. On Wayland, synthetic paste is not availab
 **The daemon does not start at login.** `quickhop autostart status` shows whether the login
 entry exists and where. After moving or reinstalling the binary, run `quickhop autostart on`
 again so the entry starts the new one.
+
+**The hotkey does nothing, or opens another launcher too (macOS).** `quickhop daemon status`
+ends with the hotkey the daemon holds, or `hotkey: off (...)` and why: `Alt+Space is taken by
+another app` means another app holds that combination for itself. macOS otherwise lets
+several apps register the same combination, so another launcher bound to it may open as
+well. Either way, set another `hotkey` in `config.toml` and run `quickhop reload`. With no
+daemon running there is no hotkey: `quickhop autostart on`, or run `quickhop toggle` once.
 
 ## Reporting a problem
 

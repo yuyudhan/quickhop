@@ -790,6 +790,15 @@ fn helper_tools(os: &str) -> &'static [&'static str] {
     }
 }
 
+/// How the global hotkey is bound on this system, for `doctor`.
+fn hotkey_path() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "registered by `quickhop daemon` through RegisterEventHotKey"
+    } else {
+        "not registered yet: the Linux window is still being built"
+    }
+}
+
 fn doctor(out: &mut impl Write) -> Result<(), CliError> {
     writeln!(out, "quickhop {}", env!("CARGO_PKG_VERSION"))?;
     writeln!(
@@ -863,7 +872,7 @@ fn doctor(out: &mut impl Write) -> Result<(), CliError> {
         };
         writeln!(out, "tool {tool}: {state}")?;
     }
-    writeln!(out, "hotkey: {}", config.hotkey)?;
+    writeln!(out, "hotkey: {} ({})", config.hotkey, hotkey_path())?;
     let (providers, warnings) = quickhop_providers::builtin(&config, &env);
     let cancel = Cancel::new();
     for name in quickhop_providers::BUILTIN {

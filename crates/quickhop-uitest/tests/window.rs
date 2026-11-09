@@ -61,6 +61,30 @@ fn the_global_hotkey_shows_the_window_and_hides_it_again() -> Fallible {
 
 #[test]
 #[ignore = "drives the real window: run with `just ui-test` in a GUI session"]
+fn a_reloaded_hotkey_replaces_the_old_one() -> Fallible {
+    const NEW: &str = "Ctrl+Alt+Cmd+F14";
+    let _screen = ax::take_over()?;
+    let config = |hotkey: &str| format!("hotkey = \"{hotkey}\"\n{}", quickhop_uitest::TEST_CONFIG);
+    let daemon = Daemon::start_with(&config(HOTKEY))?;
+    daemon.reload_with(&config(NEW))?;
+    daemon.press_hotkey(NEW)?;
+    daemon.wait_for_window()?;
+    daemon.press_hotkey(NEW)?;
+    daemon.wait_for_no_window()?;
+    // The old combination was released: pressing it shows nothing.
+    quickhop_platform_macos::input::press_hotkey(&quickhop_core::Hotkey::parse(HOTKEY)?)?;
+    std::thread::sleep(std::time::Duration::from_secs(1));
+    assert_eq!(
+        daemon.window(),
+        None,
+        "the old hotkey still shows the window"
+    );
+    assert_eq!(daemon.snapshot()?["visible"], false);
+    Ok(())
+}
+
+#[test]
+#[ignore = "drives the real window: run with `just ui-test` in a GUI session"]
 fn toggle_shows_the_window_in_front_then_hides_it() -> Fallible {
     let _screen = ax::take_over()?;
     let daemon = Daemon::start()?;

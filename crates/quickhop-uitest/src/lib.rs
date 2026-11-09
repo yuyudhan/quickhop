@@ -94,6 +94,24 @@ impl Daemon {
         std::fs::read_to_string(self.dir.path().join("daemon.log")).unwrap_or_default()
     }
 
+    /// Replaces the daemon's `config.toml` with `config` and runs `quickhop reload`.
+    ///
+    /// # Errors
+    /// When the file cannot be written or the daemon refuses the reload.
+    pub fn reload_with(&self, config: &str) -> Fallible {
+        std::fs::write(self.dir.path().join("config.toml"), config)?;
+        let output = self.quickhop(&["reload"])?;
+        if output.status.success() {
+            Ok(())
+        } else {
+            Err(format!(
+                "reload failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            )
+            .into())
+        }
+    }
+
     /// `quickhop` with this daemon's private configuration, data, runtime directory and
     /// pasteboard.
     fn command_in(dir: &Path) -> Command {
