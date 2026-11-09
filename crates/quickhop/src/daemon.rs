@@ -2,9 +2,9 @@
 //! `daemon.lock`), reached over the Unix socket `daemon.sock`, both in
 //! [`runtime_dir`](quickhop_core::config::runtime_dir). It watches the clipboard, rebuilds the
 //! file index and keeps it current, and serves `status`, `open`, `toggle`, `show`, `hide`,
-//! `reload` and `stop` requests: one JSON line in, one JSON line out per connection. On macOS
-//! it owns the launcher window: the main thread runs the window, the requests are served on a
-//! thread of their own.
+//! `onboarding`, `app-opened`, `reload` and `stop` requests: one JSON line in, one JSON line
+//! out per connection. On macOS it owns the launcher window and the onboarding window: the
+//! main thread runs the windows, the requests are served on a thread of their own.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -52,6 +52,11 @@ pub(crate) enum Request {
     Show,
     /// Hide the launcher window.
     Hide,
+    /// Open the onboarding window: whether quickhop may paste, and how to allow it.
+    Onboarding,
+    /// quickhop.app was opened again: show the launcher, or the onboarding window while
+    /// quickhop may not paste.
+    AppOpened,
     /// Exit.
     Stop,
 }
@@ -63,6 +68,9 @@ pub(crate) struct Options {
     pub window: bool,
     /// Where to answer `snapshot` with what the window shows (the UI tests).
     pub test_socket: Option<PathBuf>,
+    /// Whether this is quickhop.app being opened: once the window runs, show it, or the
+    /// onboarding window while quickhop may not paste.
+    pub app: bool,
 }
 
 /// The launcher window, once the app runs: set by the main thread, used by the request thread.
@@ -429,8 +437,16 @@ impl State {
             Request::Show => window(&self.ui, quickhop_ui::window::Command::Show),
             #[cfg(target_os = "macos")]
             Request::Hide => window(&self.ui, quickhop_ui::window::Command::Hide),
+            #[cfg(target_os = "macos")]
+            Request::Onboarding => window(&self.ui, quickhop_ui::window::Command::Onboarding),
+            #[cfg(target_os = "macos")]
+            Request::AppOpened => window(&self.ui, quickhop_ui::window::Command::AppOpened),
             #[cfg(not(target_os = "macos"))]
-            Request::Toggle | Request::Show | Request::Hide => (
+            Request::Toggle
+            | Request::Show
+            | Request::Hide
+            | Request::Onboarding
+            | Request::AppOpened => (
                 false,
                 "the launcher window is not built for this system yet".into(),
             ),
@@ -440,9 +456,12 @@ impl State {
     }
 }
 
-/// Carries out a show, hide or toggle `command`; says whether the window is shown afterwards.
+/// Carries out a window `command`; says whether the launcher is shown afterwards, or, when
+/// the onboarding window came instead, what it says.
 #[cfg(target_os = "macos")]
 fn window(ui: &Ui, command: quickhop_ui::window::Command) -> (bool, String) {
+    use quickhop_ui::window::Command;
+
     let Some(ui) = ui.get() else {
         return (
             false,
@@ -451,10 +470,23 @@ fn window(ui: &Ui, command: quickhop_ui::window::Command) -> (bool, String) {
                 .into(),
         );
     };
-    match ui.send(command) {
-        Ok(snapshot) if snapshot.visible => (true, "shown".into()),
-        Ok(_) => (true, "hidden".into()),
-        Err(gone) => (false, gone.to_string()),
+    let snapshot = match ui.send(command) {
+        Ok(snapshot) => snapshot,
+        Err(gone) => return (false, gone.to_string()),
+    };
+    let onboarding =
+        command == Command::Onboarding || (command == Command::AppOpened && !snapshot.visible);
+    if !onboarding {
+        let shown = if snapshot.visible { "shown" } else { "hidden" };
+        return (true, shown.into());
+    }
+    match snapshot.onboarding {
+        Some(status) if status.granted => (true, "onboarding: Accessibility allowed".into()),
+        Some(_) => (true, "onboarding: Accessibility not allowed".into()),
+        None => (
+            false,
+            "the onboarding window did not open (the daemon's output says why)".into(),
+        ),
     }
 }
 
@@ -462,9 +494,11 @@ impl State {
     /// The window's backend, loaded on first use.
     #[cfg(target_os = "macos")]
     fn launcher(&mut self) -> Arc<crate::window::Launcher> {
+        let hotkey = Arc::clone(&self.hotkey);
         Arc::clone(
-            self.launcher
-                .get_or_insert_with(|| Arc::new(crate::window::Launcher::new(&self.config))),
+            self.launcher.get_or_insert_with(|| {
+                Arc::new(crate::window::Launcher::new(&self.config, hotkey))
+            }),
         )
     }
 }
@@ -565,6 +599,7 @@ pub(crate) fn serve(
     #[cfg(target_os = "macos")]
     if let Some(launcher) = launcher {
         let test_socket = options.test_socket.clone();
+        let app = options.app;
         let backend: Arc<dyn quickhop_ui::window::Backend> = Arc::clone(&launcher) as _;
         // Returns early only when the window cannot be opened; the requests go on without it.
         quickhop_ui::window::run(backend, move |handle| {
@@ -572,6 +607,9 @@ pub(crate) fn serve(
             *hotkey.lock().unwrap_or_else(PoisonError::into_inner) =
                 bind_hotkey(&handle, &hotkey_text);
             crate::window::refresh_inline(Arc::clone(&launcher), handle.clone());
+            if app {
+                let _ = handle.send(quickhop_ui::window::Command::AppOpened);
+            }
             // Last: a test socket that answers means the window and the hotkey are ready.
             if let Some(path) = test_socket {
                 serve_snapshots(&path, handle, launcher);
@@ -667,7 +705,8 @@ fn bind_hotkey(ui: &quickhop_ui::window::Handle, text: &str) -> String {
 
 /// Answers the UI tests on the Unix socket `path`, one JSON line per line asked: `snapshot`
 /// with what the window shows ([`quickhop_ui::model::Snapshot`]), `advance <seconds>` by
-/// moving the clock of inline script refreshes ahead.
+/// moving the clock of inline script refreshes ahead, `permission granted|denied|system` by
+/// setting what the onboarding window hears when it asks whether quickhop may paste.
 #[cfg(target_os = "macos")]
 fn serve_snapshots(
     path: &Path,
@@ -715,6 +754,22 @@ fn answer_snapshots(
         {
             launcher.advance(Duration::from_secs(seconds));
             serde_json::json!({ "advanced": seconds })
+        } else if let Some(answer) = line.strip_prefix("permission ") {
+            let granted = match answer.trim() {
+                "granted" => Ok(Some(true)),
+                "denied" => Ok(Some(false)),
+                "system" => Ok(None),
+                other => Err(other),
+            };
+            match granted {
+                Ok(granted) => {
+                    launcher.set_permission(granted);
+                    serde_json::json!({ "permission": answer.trim() })
+                }
+                Err(other) => serde_json::json!({
+                    "error": format!("permission {other:?}: expected granted, denied or system")
+                }),
+            }
         } else {
             serde_json::json!({ "error": format!("unknown command {line:?}") })
         };

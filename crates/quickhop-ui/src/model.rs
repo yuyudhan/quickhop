@@ -690,6 +690,8 @@ pub struct Snapshot {
     pub detail: Option<String>,
     /// The HUD's message while one shows: filled in by the window, which shows it.
     pub hud: Option<String>,
+    /// What the onboarding window says while it is open: filled in by the window.
+    pub onboarding: Option<crate::onboarding::Status>,
 }
 
 impl Model {
@@ -739,6 +741,7 @@ impl Model {
                 PageKind::Root | PageKind::List { .. } => None,
             },
             hud: None,
+            onboarding: None,
         }
     }
 
@@ -981,6 +984,7 @@ mod tests {
                 argument: None,
                 detail: None,
                 hud: None,
+                onboarding: None,
             }
         );
         model.select_next();

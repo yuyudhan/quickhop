@@ -203,24 +203,39 @@ pub fn frontmost_pid() -> Option<i32> {
 pub fn focused_pid() -> Option<i32> {
     // SAFETY: no arguments; returns a new reference.
     let system = unsafe { AXUIElement::new_system_wide() };
+    let app = attribute(&system, "AXFocusedApplication")?
+        .downcast::<AXUIElement>()
+        .ok()?;
+    let mut pid = 0;
+    // SAFETY: `pid` receives the element's process id.
+    let error = unsafe { app.pid(NonNull::from(&mut pid)) };
+    (error == AXError::Success).then_some(pid)
+}
+
+/// The title of the focused window of the app with process id `pid`, as Accessibility
+/// reports it: System Settings names the pane it shows. Needs the Accessibility permission.
+pub fn focused_window_title(pid: i32) -> Option<String> {
+    // SAFETY: any process id is accepted; returns a new reference.
+    let app = unsafe { AXUIElement::new_application(pid) };
+    let window = attribute(&app, "AXFocusedWindow")?
+        .downcast::<AXUIElement>()
+        .ok()?;
+    let title = attribute(&window, "AXTitle")?.downcast::<CFString>().ok()?;
+    Some(title.to_string())
+}
+
+/// The value of `element`'s attribute `name`, when it has one.
+fn attribute(element: &AXUIElement, name: &'static str) -> Option<CFRetained<CFType>> {
     let mut value: *const CFType = std::ptr::null();
     // SAFETY: `value` receives a +1 reference when the call succeeds.
     let error = unsafe {
-        system.copy_attribute_value(
-            &CFString::from_static_str("AXFocusedApplication"),
-            NonNull::from(&mut value),
-        )
+        element.copy_attribute_value(&CFString::from_static_str(name), NonNull::from(&mut value))
     };
     if error != AXError::Success {
         return None;
     }
     // SAFETY: the +1 reference just returned, released when dropped.
-    let value = unsafe { CFRetained::from_raw(NonNull::new(value.cast_mut())?) };
-    let app = value.downcast::<AXUIElement>().ok()?;
-    let mut pid = 0;
-    // SAFETY: `pid` receives the element's process id.
-    let error = unsafe { app.pid(NonNull::from(&mut pid)) };
-    (error == AXError::Success).then_some(pid)
+    Some(unsafe { CFRetained::from_raw(NonNull::new(value.cast_mut())?) })
 }
 
 /// The bundle identifier of the running app with process id `pid`, else its name, for

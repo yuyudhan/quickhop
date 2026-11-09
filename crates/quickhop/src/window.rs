@@ -10,9 +10,11 @@ use std::time::{Duration, Instant};
 
 use quickhop_core::paste::Pasted;
 use quickhop_core::{
-    Action, Boosts, Cancel, Config, Item, ItemId, Query, Ranked, ScriptMode, Search, View, rank,
+    Action, Boosts, Cancel, Config, Hotkey, Item, ItemId, Query, Ranked, ScriptMode, Search, View,
+    rank,
 };
 use quickhop_platform_macos::icon::{IconRenderer as _, SystemIcons};
+use quickhop_platform_macos::keys;
 use quickhop_providers::{scripts, views};
 use quickhop_ui::model::Outcome;
 use quickhop_ui::window::{Backend, Command, Handle, ICON_PIXELS};
@@ -37,6 +39,11 @@ pub(crate) struct Launcher {
     inline: Mutex<Vec<Inline>>,
     /// How far the UI tests moved the refresh clock ahead (`advance` on the test socket).
     ahead: Mutex<Duration>,
+    /// The daemon's hotkey status: the hotkey as bound, or why none is.
+    hotkey: Arc<Mutex<String>>,
+    /// The answer the UI tests set for whether quickhop may paste (`permission` on the test
+    /// socket); `None` asks the system.
+    permission: Mutex<Option<bool>>,
 }
 
 /// An inline script command and its newest first line of output.
@@ -50,11 +57,14 @@ struct Inline {
 
 impl Launcher {
     /// Loads the providers `config` enables; problems loading them go to standard error.
-    pub(crate) fn new(config: &Config) -> Self {
+    /// `hotkey` is the daemon's hotkey status, which the onboarding window names.
+    pub(crate) fn new(config: &Config, hotkey: Arc<Mutex<String>>) -> Self {
         Self {
             search: Mutex::new(Arc::new(load(config))),
             inline: Mutex::new(inline_scripts(config, Instant::now())),
             ahead: Mutex::new(Duration::ZERO),
+            hotkey,
+            permission: Mutex::new(None),
         }
     }
 
@@ -69,6 +79,15 @@ impl Launcher {
     /// Moves the refresh clock `by` ahead, for the UI tests.
     pub(crate) fn advance(&self, by: Duration) {
         *self.ahead.lock().unwrap_or_else(PoisonError::into_inner) += by;
+    }
+
+    /// Makes [`Backend::may_paste`] answer `granted` instead of asking the system (`None`:
+    /// ask it again), for the UI tests.
+    pub(crate) fn set_permission(&self, granted: Option<bool>) {
+        *self
+            .permission
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = granted;
     }
 
     fn now(&self) -> Instant {
@@ -346,5 +365,29 @@ impl Backend for Launcher {
             _ => None,
         })?;
         SystemIcons.render(path, ICON_PIXELS).ok()
+    }
+
+    fn may_paste(&self) -> bool {
+        self.permission
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .unwrap_or_else(keys::is_trusted)
+    }
+
+    fn allow_paste(&self) -> Result<(), String> {
+        // Puts quickhop in the Accessibility list, so the user only has to turn it on.
+        keys::request_trust();
+        let settings = Action::Open {
+            target: keys::ACCESSIBILITY_SETTINGS_URL.into(),
+        };
+        crate::launch::perform(&settings, &[])
+            .map(drop)
+            .map_err(|error| error.to_string())
+    }
+
+    fn hotkey(&self) -> Option<String> {
+        // The status is the hotkey as bound, else `off (why)` or `starting`.
+        let status = self.hotkey.lock().unwrap_or_else(PoisonError::into_inner);
+        Hotkey::parse(&status).ok().map(|hotkey| hotkey.to_string())
     }
 }

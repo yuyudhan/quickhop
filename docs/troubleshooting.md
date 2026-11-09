@@ -136,7 +136,9 @@ GNOME on Wayland gives no other program the clipboard. Use an X11 session, or ad
 
 **`copied, not pasted: ...`.** The text is on the clipboard but no paste key was sent; the
 reason follows. On macOS, grant Accessibility to the app running quickhop in System Settings →
-Privacy & Security → Accessibility. On Wayland, synthetic paste is not available: press Ctrl+V.
+Privacy & Security → Accessibility; for quickhop.app, `quickhop onboarding` opens the window
+that leads there and says when it is allowed. On Wayland, synthetic paste is not available:
+press Ctrl+V.
 
 ## The daemon
 

@@ -195,6 +195,20 @@ impl Daemon {
         }
     }
 
+    /// Sets what the onboarding window hears when it asks whether quickhop may paste:
+    /// `granted`, `denied`, or `system` to ask macOS again.
+    ///
+    /// # Errors
+    /// When the socket does not confirm it.
+    pub fn set_permission(&self, answer: &str) -> Fallible {
+        let reply = self.ask(&format!("permission {answer}"))?;
+        if reply["permission"] == answer {
+            Ok(())
+        } else {
+            Err(format!("permission {answer}: {reply}").into())
+        }
+    }
+
     /// Sends `line` on the test socket and reads the JSON line answering it.
     fn ask(&self, line: &str) -> Fallible<Value> {
         let mut stream = UnixStream::connect(self.dir.path().join("test.sock"))?;
@@ -261,7 +275,8 @@ pub mod ax {
     use quickhop_core::{ClipboardSource as _, Contents, Hotkey};
     use quickhop_platform_macos::input::{self, focused_pid};
     pub use quickhop_platform_macos::input::{
-        Key, OnScreen, frontmost_pid, is_running, quit, windows_on_screen,
+        Key, OnScreen, app_name, focused_window_title, frontmost_pid, is_running, quit,
+        windows_on_screen,
     };
     use quickhop_platform_macos::pasteboard::{Pasteboard, Saved};
 
@@ -603,5 +618,154 @@ pub mod ax {
         let frame = reader.next_frame(&mut pixels)?;
         pixels.truncate(frame.buffer_size());
         Ok((pixels, frame.width, frame.color_type.samples()))
+    }
+
+    /// The bundle identifier of System Settings.
+    pub const SYSTEM_SETTINGS: &str = "com.apple.systempreferences";
+
+    /// System Settings, which a test opens: quit when dropped. The test needs it closed
+    /// before, so it never quits a window the user had open.
+    pub struct SystemSettings;
+
+    impl SystemSettings {
+        /// Takes System Settings for one test.
+        ///
+        /// # Errors
+        /// When it runs already.
+        pub fn closed() -> Fallible<Self> {
+            if is_running(SYSTEM_SETTINGS) {
+                return Err("System Settings is open: quit it first (the test opens it)".into());
+            }
+            Ok(Self)
+        }
+    }
+
+    impl Drop for SystemSettings {
+        fn drop(&mut self) {
+            quit(SYSTEM_SETTINGS);
+            let deadline = Instant::now() + PATIENCE;
+            while is_running(SYSTEM_SETTINGS) && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+    }
+
+    /// quickhop.app built around [`super::binary`] by `scripts/bundle-macos.sh` and opened
+    /// with `open`, as Finder opens it, over private directories as [`Daemon`] uses; stopped
+    /// when dropped.
+    pub struct App {
+        dir: tempfile::TempDir,
+        /// The app's process id, which is its daemon's.
+        pub pid: i32,
+    }
+
+    impl App {
+        /// Bundles the binary under test with `config`, opens the bundle and waits until its
+        /// daemon answers.
+        ///
+        /// # Errors
+        /// When bundling or `open` fail, or no daemon answers within [`PATIENCE`].
+        pub fn open(config: &str) -> Fallible<Self> {
+            let dir = tempfile::tempdir()?;
+            std::fs::create_dir(dir.path().join("run"))?;
+            std::fs::write(dir.path().join("config.toml"), config)?;
+            let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("../../scripts/bundle-macos.sh");
+            let bundled = Command::new(&script)
+                .arg("--bin")
+                .arg(super::binary())
+                .arg("--out")
+                .arg(dir.path())
+                .output()?;
+            if !bundled.status.success() {
+                return Err(format!(
+                    "{} failed: {}",
+                    script.display(),
+                    String::from_utf8_lossy(&bundled.stderr)
+                )
+                .into());
+            }
+            let path = |name: &str| dir.path().join(name).display().to_string();
+            let opened = Command::new("open")
+                .arg("-n")
+                .args(["--env", &format!("QUICKHOP_CONFIG={}", path("config.toml"))])
+                .args(["--env", &format!("QUICKHOP_DATA={}", path("data"))])
+                .args(["--env", &format!("QUICKHOP_RUNTIME={}", path("run"))])
+                .args([
+                    "--env",
+                    &format!("QUICKHOP_PASTEBOARD={}", super::PASTEBOARD),
+                ])
+                .args(["--stdout", &path("app.log")])
+                .args(["--stderr", &path("app.err")])
+                .arg(path("quickhop.app"))
+                .status()?;
+            if !opened.success() {
+                return Err(format!("open quickhop.app failed: {opened}").into());
+            }
+            let deadline = Instant::now() + PATIENCE;
+            loop {
+                let status = Daemon::command_in(dir.path(), Some(super::PASTEBOARD))
+                    .args(["daemon", "status"])
+                    .output()?;
+                let pid = String::from_utf8_lossy(&status.stdout)
+                    .strip_prefix("running (pid ")
+                    .and_then(|rest| rest.split(')').next()?.parse().ok());
+                if let Some(pid) = pid {
+                    return Ok(Self { dir, pid });
+                }
+                if Instant::now() > deadline {
+                    let log =
+                        std::fs::read_to_string(dir.path().join("app.err")).unwrap_or_default();
+                    return Err(format!("quickhop.app's daemon never answered: {log}").into());
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+
+        /// Runs `quickhop <args>` against the app's daemon.
+        ///
+        /// # Errors
+        /// When the command cannot run.
+        pub fn quickhop(&self, args: &[&str]) -> Fallible<std::process::Output> {
+            Ok(Daemon::command_in(self.dir.path(), Some(super::PASTEBOARD))
+                .args(args)
+                .output()?)
+        }
+
+        /// The app's window on screen that `matches`, once there.
+        ///
+        /// # Errors
+        /// When none is within [`PATIENCE`].
+        pub fn wait_for_window(&self, matches: impl Fn(&OnScreen) -> bool) -> Fallible<OnScreen> {
+            let deadline = Instant::now() + PATIENCE;
+            loop {
+                let windows: Vec<OnScreen> = windows_on_screen()
+                    .into_iter()
+                    .filter(|window| window.pid == self.pid)
+                    .collect();
+                if let Some(window) = windows.iter().find(|window| matches(window)) {
+                    return Ok(*window);
+                }
+                if Instant::now() > deadline {
+                    return Err(format!(
+                        "no such window of quickhop.app (pid {}); its windows: {windows:?}; {}",
+                        self.pid,
+                        focus()
+                    )
+                    .into());
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
+    }
+
+    impl Drop for App {
+        fn drop(&mut self) {
+            let _ = self.quickhop(&["daemon", "stop"]);
+            let deadline = Instant::now() + PATIENCE;
+            while app_name(self.pid).is_some() && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+        }
     }
 }

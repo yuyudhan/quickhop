@@ -28,13 +28,14 @@ exactly what works where today, and which system tool or API each feature uses.
 | Paste into the focused app | copies, then ⌘V once Accessibility is granted | copies, then Ctrl+V (XTest) | copies; you press Ctrl+V |
 | Copy results | the pasteboard | `xclip` | `wl-copy` |
 | Daemon and autostart | LaunchAgent in `~/Library/LaunchAgents` | XDG autostart entry in `~/.config/autostart`, or the systemd user unit from the `.deb` | same as X11 |
-| Packages | build from source | `.deb` and tarball (`just bundle-linux`), build from source | same as X11 |
+| Packages | `quickhop.app` (`just bundle-macos`), build from source | `.deb` and tarball (`just bundle-linux`), build from source | same as X11 |
 
 ## Permissions
 
-- **macOS Accessibility** lets quickhop press ⌘V for `--paste` and `clipboard paste`. Grant it
-  in System Settings → Privacy & Security → Accessibility to the program that runs quickhop
-  (your terminal while you use the command line). Without it quickhop copies and tells you so.
+- **macOS Accessibility** lets quickhop press ⌘V for `--paste`, `clipboard paste` and Clipboard
+  History. Grant it in System Settings → Privacy & Security → Accessibility to the program that
+  runs quickhop: quickhop.app, whose onboarding window leads there (`quickhop onboarding`), or
+  your terminal while you use the command line. Without it quickhop copies and tells you so.
 - **Linux** needs no permission on X11. On Wayland, clipboard watching relies on the
   compositor's data-control protocol rather than a permission prompt.
 

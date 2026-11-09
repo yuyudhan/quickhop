@@ -2,6 +2,8 @@
 
 #![forbid(unsafe_code)]
 
+#[cfg(target_os = "macos")]
+mod app;
 mod autostart;
 mod clipboard;
 #[cfg(unix)]
@@ -130,6 +132,11 @@ enum Command {
     /// Hide the launcher window.
     #[cfg(unix)]
     Hide,
+    /// Show the onboarding window: whether quickhop may paste into other apps (the macOS
+    /// Accessibility permission) and the button that allows it. Starts the daemon when none
+    /// runs.
+    #[cfg(unix)]
+    Onboarding,
     /// Run a result's action in the daemon, starting the daemon when none runs.
     #[cfg(unix)]
     Open {
@@ -536,6 +543,7 @@ fn daemon_command(command: Command, out: &mut impl Write) -> Result<(), CliError
                 let options = daemon::Options {
                     window: !no_window,
                     test_socket,
+                    app: false,
                 };
                 return Ok(daemon::serve(load_config()?, &options, out)?);
             }
@@ -545,6 +553,7 @@ fn daemon_command(command: Command, out: &mut impl Write) -> Result<(), CliError
         Command::Toggle => (daemon::Request::Toggle, true),
         Command::Show => (daemon::Request::Show, true),
         Command::Hide => (daemon::Request::Hide, false),
+        Command::Onboarding => (daemon::Request::Onboarding, true),
         Command::Reload => (daemon::Request::Reload, false),
         Command::Open {
             id,
@@ -612,6 +621,7 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
         | Command::Toggle
         | Command::Show
         | Command::Hide
+        | Command::Onboarding
         | Command::Open { .. }
         | Command::Reload) => daemon_command(command, out)?,
         Command::Config {
@@ -904,10 +914,20 @@ fn doctor(out: &mut impl Write) -> Result<(), CliError> {
 }
 
 fn main() -> ExitCode {
+    #[cfg(target_os = "macos")]
+    if app::opened() {
+        migrate_legacy_files();
+        return exit_code(app::run(&mut io::stdout().lock()));
+    }
     let cli = Cli::parse();
     migrate_legacy_files();
     let mut stdout = io::stdout().lock();
-    match run(cli, &mut stdout) {
+    exit_code(run(cli, &mut stdout))
+}
+
+/// Success, or the error reported on standard error and a failure.
+fn exit_code(result: Result<(), CliError>) -> ExitCode {
+    match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(error) => {
             // Reporting to stderr is the CLI's job; nothing else can be done if this fails.

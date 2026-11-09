@@ -50,6 +50,19 @@ The package installs `/usr/bin/quickhop`, a desktop entry, the icon, both licenc
 systemd user unit. The same build writes a tarball, `quickhop-<version>-<arch>-linux.tar.gz`,
 with that tree under `quickhop-<version>/`.
 
+## macOS app
+
+From a clone, on macOS 14 or later with the Command Line Tools:
+
+    just bundle-macos
+    cp -R target/bundle/quickhop.app /Applications/
+
+`quickhop.app` holds the release binary as its executable, the icon and an ad-hoc signature
+(no Developer ID yet). Open it from Finder or Spotlight: it starts the daemon with the
+launcher window and the hotkey (`Alt+Space` unless `hotkey` in `config.toml` says otherwise)
+and shows the launcher, or the onboarding window while quickhop may not paste yet. It is an
+agent app, without a Dock icon or menu bar; `quickhop daemon stop` quits it.
+
 ## The installer script
 
 `scripts/install.sh` installs quickhop for one user, without `sudo`:
@@ -74,7 +87,8 @@ To use the installer today, package your own build and install from the director
     scripts/dist.sh --target x86_64-unknown-linux-gnu --bin target/release/quickhop
     scripts/install.sh --from target/dist
 
-On macOS use `--target universal-apple-darwin`.
+On macOS use `--target universal-apple-darwin`, and add `--app target/bundle/quickhop.app`
+(from `just bundle-macos`) to install the app as well.
 
 | Option | Does |
 |--------|------|

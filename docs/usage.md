@@ -140,12 +140,22 @@ answers `open` and `reload`, and on macOS owns the launcher window and its globa
     quickhop daemon status                     # what it runs and watches, the hotkey it holds
     quickhop toggle                            # show the window, or hide it (macOS)
     quickhop show                              # also `quickhop hide`
+    quickhop onboarding                        # may quickhop paste? (macOS Accessibility)
     quickhop reload                            # re-read the config without a restart
     quickhop daemon stop
 
-`toggle`, `show` and `open` start a daemon when none runs. A second `quickhop daemon` exits at
-once: a lock file in the runtime directory keeps it to one. `quickhop daemon --no-window` runs
-it without the window and the hotkey.
+`toggle`, `show`, `onboarding` and `open` start a daemon when none runs. A second `quickhop
+daemon` exits at once: a lock file in the runtime directory keeps it to one. `quickhop daemon
+--no-window` runs it without the window and the hotkey.
+
+On macOS, opening `quickhop.app` ([install](install.md#macos-app)) from Finder or Spotlight
+runs the daemon inside the app and shows the launcher; when one runs already, opening the app
+shows its window instead. While quickhop may not paste into other apps, the app shows the
+onboarding window instead of the launcher: it says whether Accessibility is allowed, its
+button (or `Return`) opens System Settings › Privacy & Security › Accessibility with quickhop
+already in the list, and it checks again when you come back to quickhop, then names the
+hotkey; `Return` or `Esc` closes it. `quickhop onboarding` opens it any time and prints what it
+says. Everything but pasting works without the permission.
 
 In the window, type to search, `↑`/`↓` to move, `Return` to run the selected result, `⌘K` to
 list all its actions (type to filter them) and `Esc` to close the panel, then the window. It

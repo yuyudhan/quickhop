@@ -42,8 +42,9 @@ quickhop doctor
 quickhop autostart on
 ```
 
-A `.deb`, the no-sudo installer script (`install.sh`, SHA-256 verified), updating and
-uninstalling: [docs/install.md](docs/install.md).
+A `.deb`, the macOS app (`quickhop.app`, from `just bundle-macos` in a clone), the no-sudo
+installer script (`install.sh`, SHA-256 verified), updating and uninstalling:
+[docs/install.md](docs/install.md).
 
 ## First steps
 
@@ -61,8 +62,10 @@ clipboard and keeps the file index current. The full tour, with every command:
 [docs/usage.md](docs/usage.md).
 
 On macOS the daemon also shows the launcher window when you press the global hotkey
-(`Alt+Space`) or run `quickhop toggle`; the Linux window is being built ([plan](docs/plan.md)).
-Everything else on this page works from the command line on both.
+(`Alt+Space`) or run `quickhop toggle`; opening `quickhop.app` starts it, and until quickhop may
+paste into other apps its onboarding window shows where to allow that. The Linux window is
+being built ([plan](docs/plan.md)). Everything else on this page works from the command line
+on both.
 
 ## What works today
 
@@ -183,8 +186,8 @@ until you delete them. For the `.deb` and the installer script, see
   `PATH`.
 - **Clipboard history stays empty**: run `quickhop autostart on`, then `quickhop daemon status`
   says what is watched and why not. GNOME on Wayland gives no app the clipboard.
-- **`copied, not pasted`**: on macOS, grant Accessibility to the app running quickhop; on
-  Wayland, press Ctrl+V yourself.
+- **`copied, not pasted`**: on macOS, grant Accessibility to the app running quickhop
+  (`quickhop onboarding` leads there); on Wayland, press Ctrl+V yourself.
 - **A setting is ignored**: `quickhop config check`, then `quickhop reload` for a running
   daemon.
 

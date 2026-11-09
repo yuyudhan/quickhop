@@ -1,12 +1,15 @@
 //! The launcher window on macOS: one gpui window over the [`Model`], created hidden when the
 //! app starts and shown and hidden from then on (ADR 0001: reopening doubles the show time).
+//! Beside it, on demand, the onboarding window that asks for the permission pasting needs.
 //!
 //! [`run`] takes over the main thread; everything else talks to the window through a
 //! [`Handle`] from other threads. Searches and actions go to a [`Backend`] on gpui's
 //! background threads, so the window never waits for a provider.
 
+use std::cell::{Cell, OnceCell};
 use std::collections::HashMap;
 use std::io::Write as _;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc;
 
@@ -22,6 +25,7 @@ use crate::model::{
     Effect, Model, Outcome, PageKind, SearchRequest, Snapshot, ToastStyle, highlight_ranges,
     keeps_window,
 };
+use crate::onboarding_window::{self, OnboardingView};
 
 const ROW_HEIGHT: f32 = 44.0;
 const WINDOW_WIDTH: f32 = 750.0;
@@ -61,6 +65,21 @@ pub trait Backend: Send + Sync + 'static {
     /// The icon of `item` as PNG data at least [`ICON_PIXELS`] square, when the system has
     /// one for it (an application, a file); `None` leaves the row's text icon, if any.
     fn icon(&self, item: &Item) -> Option<Vec<u8>>;
+
+    /// Whether quickhop may paste into the app in front: whether the user allowed it under
+    /// Privacy & Security › Accessibility. The onboarding window asks again whenever quickhop
+    /// becomes the active app.
+    fn may_paste(&self) -> bool;
+
+    /// Leads the user to allow pasting: the system's prompt, which also puts quickhop in the
+    /// Accessibility list, then that pane of System Settings.
+    ///
+    /// # Errors
+    /// Why System Settings did not open.
+    fn allow_paste(&self) -> Result<(), String>;
+
+    /// The global hotkey that shows the launcher, as bound; `None` when none is.
+    fn hotkey(&self) -> Option<String>;
 }
 
 /// A result's icon in the window's cache.
@@ -86,6 +105,12 @@ pub enum Command {
     Snapshot,
     /// Search the page shown again: its items changed (an inline script's new subtitle).
     Refresh,
+    /// Open the onboarding window, or bring it to the front and ask again whether quickhop
+    /// may paste.
+    Onboarding,
+    /// quickhop.app was opened (Finder, Spotlight, `open`): show the launcher, or the
+    /// onboarding window while quickhop may not paste yet.
+    AppOpened,
     /// End the app: [`run`] returns.
     Quit,
 }
@@ -140,50 +165,65 @@ impl Handle {
 /// soon as the app runs.
 pub fn run(backend: Arc<dyn Backend>, started: impl FnOnce(Handle) + Send + 'static) {
     let (messages, incoming) = async_channel::unbounded::<Message>();
-    gpui_platform::application()
-        .with_quit_mode(QuitMode::Explicit)
-        .run(move |cx: &mut App| {
-            // An agent app: no Dock icon, no menu bar.
-            cx.set_activation_policy(gpui::ActivationPolicy::Accessory);
-            let launcher = match open(backend, cx) {
-                Ok(launcher) => launcher,
-                Err(error) => {
-                    let _ = writeln!(
-                        std::io::stderr(),
-                        "quickhop: cannot open the launcher window: {error}"
-                    );
-                    cx.quit();
-                    return;
-                }
-            };
-            cx.spawn(async move |cx| {
-                while let Ok(message) = incoming.recv().await {
-                    let (command, reply) = match message {
-                        Message::Command(command, reply) => (command, reply),
-                        Message::Job(job) => {
-                            job();
-                            continue;
-                        }
-                    };
-                    let quit = command == Command::Quit;
-                    let snapshot = cx.update(|cx| launcher.carry_out(command, cx));
-                    let _ = reply.send(snapshot);
-                    if quit {
-                        cx.update(|cx| cx.quit());
-                        break;
+    let application = gpui_platform::application().with_quit_mode(QuitMode::Explicit);
+    let windows = Rc::new(OnceCell::<Opened>::new());
+    let reopened = Rc::clone(&windows);
+    // quickhop.app opened again while it runs (Finder, Spotlight, `open`).
+    application.on_reopen(move |cx| {
+        if let Some(opened) = reopened.get() {
+            opened.carry_out(Command::AppOpened, cx);
+        }
+    });
+    application.run(move |cx: &mut App| {
+        // An agent app: no Dock icon, no menu bar.
+        cx.set_activation_policy(gpui::ActivationPolicy::Accessory);
+        let launcher = match open(backend, cx) {
+            Ok(launcher) => launcher,
+            Err(error) => {
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "quickhop: cannot open the launcher window: {error}"
+                );
+                cx.quit();
+                return;
+            }
+        };
+        let _ = windows.set(launcher.clone());
+        cx.spawn(async move |cx| {
+            while let Ok(message) = incoming.recv().await {
+                let (command, reply) = match message {
+                    Message::Command(command, reply) => (command, reply),
+                    Message::Job(job) => {
+                        job();
+                        continue;
                     }
+                };
+                let quit = command == Command::Quit;
+                let snapshot = cx.update(|cx| launcher.carry_out(command, cx));
+                let _ = reply.send(snapshot);
+                if quit {
+                    cx.update(|cx| cx.quit());
+                    break;
                 }
-            })
-            .detach();
-            let handle = Handle { messages };
-            std::thread::spawn(move || started(handle));
-        });
+            }
+        })
+        .detach();
+        let handle = Handle { messages };
+        std::thread::spawn(move || started(handle));
+    });
 }
 
-/// The window and the view in it.
+/// The onboarding window while it is open: shared by the commands and the launcher window,
+/// whose activation also makes it ask again.
+type OnboardingSlot = Rc<Cell<Option<WindowHandle<OnboardingView>>>>;
+
+/// The windows and the views in them.
+#[derive(Clone)]
 struct Opened {
     window: WindowHandle<Launcher>,
     launcher: Entity<Launcher>,
+    backend: Arc<dyn Backend>,
+    onboarding: OnboardingSlot,
 }
 
 impl Opened {
@@ -193,13 +233,18 @@ impl Opened {
             Command::Show => true,
             Command::Toggle => !visible,
             Command::Hide | Command::Quit => false,
-            Command::Snapshot => return self.launcher.read(cx).snapshot(),
+            Command::Snapshot => return self.snapshot(cx),
             Command::Refresh => {
                 self.launcher.update(cx, |launcher, cx| {
                     let effect = launcher.model.refresh();
                     launcher.apply(effect, cx);
                 });
-                return self.launcher.read(cx).snapshot();
+                return self.snapshot(cx);
+            }
+            Command::AppOpened if self.backend.may_paste() => true,
+            Command::Onboarding | Command::AppOpened => {
+                self.show_onboarding(cx);
+                return self.snapshot(cx);
             }
         };
         let _ = self.window.update(cx, |launcher, window, cx| {
@@ -209,7 +254,37 @@ impl Opened {
                 launcher.hide(cx);
             }
         });
-        self.launcher.read(cx).snapshot()
+        self.snapshot(cx)
+    }
+
+    /// What the windows show.
+    fn snapshot(&self, cx: &App) -> Snapshot {
+        let mut snapshot = self.launcher.read(cx).snapshot();
+        snapshot.onboarding = self
+            .onboarding
+            .get()
+            .and_then(|handle| handle.read(cx).ok())
+            .map(OnboardingView::status);
+        snapshot
+    }
+
+    /// Brings the onboarding window to the front, opening it unless it is open.
+    fn show_onboarding(&self, cx: &mut App) {
+        if let Some(handle) = self.onboarding.get()
+            && handle.update(cx, OnboardingView::bring_to_front).is_ok()
+        {
+            return;
+        }
+        match onboarding_window::open(Arc::clone(&self.backend), cx) {
+            Ok(handle) => self.onboarding.set(Some(handle)),
+            Err(error) => {
+                self.onboarding.set(None);
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "quickhop: cannot open the onboarding window: {error}"
+                );
+            }
+        }
     }
 }
 
@@ -229,13 +304,32 @@ fn open(backend: Arc<dyn Backend>, cx: &mut App) -> Result<Opened, Box<dyn std::
         ..WindowOptions::default()
     };
     let mut launcher = None;
+    let onboarding = OnboardingSlot::default();
     let window = cx.open_window(options, |window, cx| {
-        let entity = cx.new(|cx| Launcher::new(backend, window, cx));
+        let entity = cx.new(|cx| Launcher::new(Arc::clone(&backend), window, cx));
+        // The launcher in front (the hotkey) means quickhop became the active app: the
+        // onboarding window, when open, asks again whether quickhop may paste.
+        let slot = Rc::clone(&onboarding);
+        entity.update(cx, |_, cx| {
+            cx.observe_window_activation(window, move |_, window, cx| {
+                if window.is_window_active()
+                    && let Some(handle) = slot.get()
+                {
+                    let _ = handle.update(cx, |view, _, cx| view.recheck(cx));
+                }
+            })
+            .detach();
+        });
         launcher = Some(entity.clone());
         entity
     })?;
     let launcher = launcher.ok_or("the window has no view")?;
-    Ok(Opened { window, launcher })
+    Ok(Opened {
+        window,
+        launcher,
+        backend,
+        onboarding,
+    })
 }
 
 /// The launcher view: the search bar, the results, the action panel and a toast.
