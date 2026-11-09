@@ -146,7 +146,13 @@ pub(crate) fn send(request: &Request) -> Result<Response, DaemonError> {
     let mut line = serde_json::to_string(request)?;
     line.push('\n');
     stream.write_all(line.as_bytes())?;
-    stream.shutdown(std::net::Shutdown::Write)?;
+    // A daemon that answers at once and ends (`stop`) may have closed the connection already;
+    // its answer is still there to read.
+    if let Err(error) = stream.shutdown(std::net::Shutdown::Write)
+        && error.kind() != io::ErrorKind::NotConnected
+    {
+        return Err(error.into());
+    }
     let mut reply = String::new();
     stream.read_to_string(&mut reply)?;
     Ok(serde_json::from_str(reply.trim())?)
