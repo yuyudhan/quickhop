@@ -15,9 +15,20 @@ quickhop-providers = { path = "crates/quickhop-providers" }
 quickhop-store = { path = "crates/quickhop-store" }
 quickhop-ui = { path = "crates/quickhop-ui" }
 assert_cmd = "2"
+async-channel = "2.5"
 clap = { version = "4.6", features = ["derive"] }
 emojis = "0.9"
 fend-core = "1.5"
+# gpui is pinned to one reviewed Zed revision (ADR 0001); move the pin deliberately.
+gpui = { git = "https://github.com/zed-industries/zed", rev = "ec237216460f8a34a4ac7c6b068e838593976ede" }
+# `runtime_shaders` compiles the Metal shaders at start-up, so macOS builds need only the
+# Command Line Tools, not Xcode's `metal` compiler.
+gpui_platform = { git = "https://github.com/zed-industries/zed", rev = "ec237216460f8a34a4ac7c6b068e838593976ede", features = [
+    "font-kit",
+    "runtime_shaders",
+    "wayland",
+    "x11",
+] }
 insta = "1.49"
 nucleo-matcher = "0.3"
 percent-encoding = "2.3"

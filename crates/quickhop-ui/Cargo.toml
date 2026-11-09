@@ -1,6 +1,6 @@
 [package]
 name = "quickhop-ui"
-description = "The quickhop launcher window (toolkit not yet chosen)."
+description = "The quickhop launcher window, built with gpui."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,6 +9,18 @@ publish.workspace = true
 
 [dependencies]
 quickhop-core.workspace = true
+
+[dev-dependencies]
+# The toolkit spike (examples/spike.rs, plan slice U0) measures gpui before the window code
+# depends on it.
+async-channel.workspace = true
+gpui.workspace = true
+gpui_platform.workspace = true
+
+[[example]]
+name = "spike"
+# Its unit tests (highlight ranges, percentiles, fake data) run with `cargo test`.
+test = true
 
 [lints]
 workspace = true

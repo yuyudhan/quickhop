@@ -3,6 +3,15 @@ all-features = true
 
 [advisories]
 yanked = "deny"
+# Unmaintained crates inside gpui's tree (ADR 0001) with no maintained release to move to;
+# they leave when the gpui pin moves past them.
+ignore = [
+    { id = "RUSTSEC-2026-0192", reason = "ttf-parser, gpui's font parsing" },
+    { id = "RUSTSEC-2026-0206", reason = "rustybuzz, text shaping in gpui's SVG renderer (usvg)" },
+    { id = "RUSTSEC-2026-0370", reason = "zvariant, gpui's Linux accessibility and portals (zbus)" },
+    { id = "RUSTSEC-2026-0371", reason = "zbus_names, gpui's Linux accessibility and portals (zbus)" },
+    { id = "RUSTSEC-2026-0372", reason = "zvariant_derive, gpui's Linux accessibility and portals (zbus)" },
+]
 
 [licenses]
 confidence-threshold = 0.9
@@ -28,7 +37,19 @@ exceptions = [{ crate = "nucleo-matcher", allow = ["MPL-2.0"] }]
 multiple-versions = "deny"
 wildcards = "deny"
 allow-wildcard-paths = true
+# gpui's tree (ADR 0001) still builds on syn 2 while the rest has moved to syn 3.
+skip = [{ crate = "syn@2.0.119", reason = "gpui's proc-macro and build dependencies" }]
 
 [sources]
 unknown-registry = "deny"
 unknown-git = "deny"
+# gpui is a git dependency pinned to one Zed revision (ADR 0001); these are the git sources its
+# tree uses at that revision.
+allow-git = [
+    "https://github.com/gfx-rs/wgpu",
+    "https://github.com/zed-industries/font-kit",
+    "https://github.com/zed-industries/oo7",
+    "https://github.com/zed-industries/wasm_thread",
+    "https://github.com/zed-industries/xim-rs.git",
+    "https://github.com/zed-industries/zed",
+]
