@@ -3397,6 +3397,7 @@ dependencies = [
  "block2 0.6.2",
  "objc2 0.6.5",
  "objc2-core-foundation",
+ "objc2-core-graphics",
  "objc2-foundation 0.3.2",
  "objc2-uniform-type-identifiers",
 ]
@@ -4147,6 +4148,18 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.21",
  "toml 1.2.1+spec-1.1.0",
+]
+
+[[package]]
+name = "quickhop-platform-macos"
+version = "0.1.0"
+dependencies = [
+ "objc2 0.6.5",
+ "objc2-app-kit 0.3.2",
+ "objc2-core-graphics",
+ "objc2-foundation 0.3.2",
+ "png 0.18.1",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

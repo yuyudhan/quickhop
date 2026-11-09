@@ -17,7 +17,7 @@ order [plan.md](plan.md).
 | `quickhop-ui` | model built | The launcher window in gpui ([ADR 0001](adr/0001-ui-toolkit.md)). `model` is built: the toolkit-free view model (query and numbered searches, results, wrapping selection, navigation stack, action panel with filtering, toasts). The window and its views are next (plan slice U2); `examples/spike.rs` is the U0 toolkit spike. |
 | `quickhop-index` | planned | File index for Linux (and as a Spotlight fallback): walker, inotify/FSEvents watcher, SQLite FTS5. |
 | `quickhop-ext` | planned | Extension host: spawns extensions, speaks JSON-RPC over stdio, maps their views to the UI model. |
-| `quickhop-platform-macos` | planned | The only place for FFI on macOS: AX (window management, selected text, paste), `NSPasteboard`, `NSRunningApplication`, `NSStatusItem`, EventKit. |
+| `quickhop-platform-macos` | started | The only place for FFI on macOS. Built: `icon` (any file's or app's icon as PNG through `NSWorkspace iconForFile:`, behind the `IconRenderer` trait). Planned: AX (window management, selected text, paste), `NSPasteboard`, `NSRunningApplication`, `NSStatusItem`, EventKit. |
 | `quickhop-platform-linux` | planned | Wayland protocols (data-control, virtual-keyboard, foreign-toplevel) via `wayland-client`, X11 via `x11rb`, D-Bus/portals via `zbus`/`ashpd`. |
 
 Unsafe code is forbidden everywhere except the two platform crates, which must document every
