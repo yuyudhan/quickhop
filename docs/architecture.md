@@ -178,10 +178,13 @@ runs any of an item's actions by kind.
 - Clipboard watching (`quickhop clipboard watch`, and inside the daemon): every platform
   watcher reports `quickhop_core::clipboard::Contents`, and copies a password manager marks as
   concealed or transient are never recorded. macOS polls `NSPasteboard`'s change count through
-  `Watcher`; X11 uses `XFixes` selection-owner events on `CLIPBOARD`, reading `UTF8_STRING`
-  (large texts in `INCR` chunks); Wayland compositors with a data-control protocol go through
-  `wl-paste --watch quickhop clipboard add`. GNOME's Wayland session has no such protocol, so
-  there copies are only seen while quickhop has focus (with the window, later).
+  `Watcher` and skips `org.nspasteboard.ConcealedType`/`TransientType`; X11 uses `XFixes`
+  selection-owner events on `CLIPBOARD`, asks the owner for `TARGETS` and, unless it offers
+  `x-kde-passwordManagerHint`, for `UTF8_STRING` (large texts in `INCR` chunks); Wayland
+  compositors with a data-control protocol go through `wl-paste --watch quickhop clipboard
+  add`, which skips what `wl-paste` calls `sensitive` (older `wl-paste`: the hint in
+  `--list-types`). GNOME's Wayland session has no such protocol, so there copies are only seen
+  while quickhop has focus (with the window, later).
 - Pasting (`quickhop clipboard paste [n]`, `launch`/`open --paste` for copy and snippet
   results, checked before anything runs) is `quickhop_core::paste::paste_text`: the text goes
   on the clipboard first, then the paste shortcut is sent when the platform allows it: `⌘V`

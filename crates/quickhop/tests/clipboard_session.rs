@@ -252,6 +252,134 @@ fn x11_copies_are_listed_newest_first() -> TestResult {
     Ok(())
 }
 
+/// Owns the clipboard of the X server `display` from a thread, offering `offers` (target name
+/// and bytes) as a password manager does with its extra hint target, until another owner
+/// takes over or the server goes away.
+fn own_x11(display: &str, offers: &[(&str, &[u8])]) -> Result<(), Box<dyn Error>> {
+    use x11rb::connection::Connection as _;
+    use x11rb::protocol::Event;
+    use x11rb::protocol::xproto::{
+        AtomEnum, ConnectionExt as _, CreateWindowAux, EventMask, PropMode, SELECTION_NOTIFY_EVENT,
+        SelectionNotifyEvent, WindowClass,
+    };
+    use x11rb::wrapper::ConnectionExt as _;
+
+    let (conn, screen) = x11rb::connect(Some(display))?;
+    let root = conn.setup().roots.get(screen).ok_or("no screen")?.root;
+    let window = conn.generate_id()?;
+    conn.create_window(
+        x11rb::COPY_DEPTH_FROM_PARENT,
+        window,
+        root,
+        0,
+        0,
+        1,
+        1,
+        0,
+        WindowClass::INPUT_OUTPUT,
+        x11rb::COPY_FROM_PARENT,
+        &CreateWindowAux::new(),
+    )?;
+    let atom = |name: &str| -> Result<u32, Box<dyn Error>> {
+        Ok(conn.intern_atom(false, name.as_bytes())?.reply()?.atom)
+    };
+    let clipboard = atom("CLIPBOARD")?;
+    let targets = atom("TARGETS")?;
+    let offered = offers
+        .iter()
+        .map(|(name, bytes)| Ok((atom(name)?, bytes.to_vec())))
+        .collect::<Result<Vec<_>, Box<dyn Error>>>()?;
+    conn.set_selection_owner(window, clipboard, x11rb::CURRENT_TIME)?;
+    conn.flush()?;
+    std::thread::spawn(move || {
+        let serve = || -> Result<(), Box<dyn Error>> {
+            loop {
+                let request = match conn.wait_for_event()? {
+                    Event::SelectionRequest(request) => request,
+                    Event::SelectionClear(_) => return Ok(()),
+                    _ => continue,
+                };
+                let mut property = request.property;
+                if request.target == targets {
+                    let list: Vec<u32> = std::iter::once(targets)
+                        .chain(offered.iter().map(|(target, _)| *target))
+                        .collect();
+                    conn.change_property32(
+                        PropMode::REPLACE,
+                        request.requestor,
+                        property,
+                        AtomEnum::ATOM,
+                        &list,
+                    )?;
+                } else if let Some((target, bytes)) =
+                    offered.iter().find(|(target, _)| *target == request.target)
+                {
+                    conn.change_property8(
+                        PropMode::REPLACE,
+                        request.requestor,
+                        property,
+                        *target,
+                        bytes,
+                    )?;
+                } else {
+                    property = x11rb::NONE;
+                }
+                conn.send_event(
+                    false,
+                    request.requestor,
+                    EventMask::NO_EVENT,
+                    SelectionNotifyEvent {
+                        response_type: SELECTION_NOTIFY_EVENT,
+                        sequence: 0,
+                        time: request.time,
+                        requestor: request.requestor,
+                        selection: request.selection,
+                        target: request.target,
+                        property,
+                    },
+                )?;
+                conn.flush()?;
+            }
+        };
+        // The server goes away when the test ends.
+        let _ = serve();
+    });
+    Ok(())
+}
+
+#[test]
+#[ignore = "needs Xvfb and xclip"]
+fn x11_password_manager_copies_are_never_recorded() -> TestResult {
+    let data = tempfile::tempdir()?;
+    let (xvfb, display) = xvfb()?;
+    let mut children = Killed(vec![xvfb]);
+    let mut watcher = quickhop(data.path());
+    watcher.env("DISPLAY", &display);
+    children.0.push(watch(watcher)?);
+    let xclip = || {
+        let mut xclip = Command::new("xclip");
+        xclip
+            .args(["-selection", "clipboard"])
+            .env("DISPLAY", &display);
+        xclip
+    };
+
+    copy_all(data.path(), &["before"], xclip)?;
+    // KeePassXC's copy: the password as text, and the hint.
+    own_x11(
+        &display,
+        &[
+            ("UTF8_STRING", b"hunter2"),
+            (quickhop_core::clipboard::PASSWORD_MANAGER_HINT, b"secret"),
+        ],
+    )?;
+    // Long enough for the watcher to read it, were it to record it.
+    std::thread::sleep(Duration::from_secs(1));
+    copy_all(data.path(), &["after"], xclip)?;
+    assert_eq!(history(data.path(), |_| true)?, ["after", "before"]);
+    Ok(())
+}
+
 #[test]
 #[ignore = "needs sway and wl-clipboard"]
 fn wayland_copies_are_listed_newest_first() -> TestResult {

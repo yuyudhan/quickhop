@@ -5,6 +5,11 @@
 //! [`Watcher::poll`] on a timer and stores what it returns. Everything here is plain logic, so
 //! it is tested with a fake source on every OS.
 
+/// The clipboard type (an X11 target, a Wayland MIME type) password managers such as
+/// `KeePassXC` offer beside a secret they copy, after KDE's Klipper. A copy that offers it is
+/// [`Contents::Secret`], whatever its value, as `wl-paste` treats it.
+pub const PASSWORD_MANAGER_HINT: &str = "x-kde-passwordManagerHint";
+
 /// What the clipboard holds.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Contents {

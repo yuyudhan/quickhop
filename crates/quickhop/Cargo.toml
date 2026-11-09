@@ -32,8 +32,8 @@ assert_cmd.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
 
-[target.'cfg(target_os = "macos")'.dev-dependencies]
-quickhop-platform-macos.workspace = true
+[target.'cfg(all(unix, not(target_os = "macos")))'.dev-dependencies]
+x11rb.workspace = true
 
 [lints]
 workspace = true

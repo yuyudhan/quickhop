@@ -9,6 +9,7 @@ use std::io::{self, Read, Write};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
+use quickhop_core::clipboard::PASSWORD_MANAGER_HINT;
 use quickhop_core::config::data_dir;
 use quickhop_core::{Clipboard, Config, Contents};
 use quickhop_store::state::{State, StateError};
@@ -126,10 +127,11 @@ pub(crate) fn run(
             io::stdin()
                 .read_to_end(&mut bytes)
                 .map_err(ClipboardError::Stdin)?;
-            let contents = Contents::Text {
-                text: String::from_utf8_lossy(&bytes).into_owned(),
-                source_app: None,
-            };
+            let contents = added(
+                String::from_utf8_lossy(&bytes).into_owned(),
+                std::env::var("CLIPBOARD_STATE").ok().as_deref(),
+                offered_types,
+            );
             keep(&mut state, contents, &config.clipboard, now())?;
         }
         ClipboardAction::List { json, limit } => {
@@ -169,6 +171,58 @@ pub(crate) fn run(
         }
     }
     Ok(())
+}
+
+/// Set on the `wl-paste --watch` quickhop starts, so the `quickhop clipboard add` it runs
+/// knows the copy came from the Wayland clipboard.
+const WL_WATCH: &str = "QUICKHOP_WL_WATCH";
+
+/// What `quickhop clipboard add` records for `text`. Under `wl-paste --watch` (2.2 and
+/// later) `clipboard_state` says whether the copy is `sensitive` (its owner offers
+/// [`PASSWORD_MANAGER_HINT`]) or gone (`nil`, `clear`); older `wl-paste` does not set it, so
+/// the types the copy offers are asked (`offered`) when quickhop's own watcher runs it.
+/// Text added by hand is text.
+fn added(
+    text: String,
+    clipboard_state: Option<&str>,
+    offered: impl FnOnce() -> Vec<String>,
+) -> Contents {
+    let secret = match clipboard_state {
+        Some("sensitive") => true,
+        Some("nil" | "clear") => return Contents::Other,
+        Some(_) => false,
+        None => offered().iter().any(|kind| kind == PASSWORD_MANAGER_HINT),
+    };
+    if secret {
+        Contents::Secret
+    } else {
+        Contents::Text {
+            text,
+            source_app: None,
+        }
+    }
+}
+
+/// The MIME types the Wayland clipboard offers, when this `add` runs under quickhop's
+/// `wl-paste --watch`; nothing otherwise, or when `wl-paste --list-types` fails.
+fn offered_types() -> Vec<String> {
+    if std::env::var_os(WL_WATCH).is_none() {
+        return Vec::new();
+    }
+    std::process::Command::new("wl-paste")
+        .arg("--list-types")
+        .stdin(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output()
+        .ok()
+        .filter(|output| output.status.success())
+        .map(|output| {
+            String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .map(str::to_owned)
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 /// The first line of `text`, at most 100 characters, with `…` when anything was cut.
@@ -266,6 +320,7 @@ pub(crate) fn start(settings: Settings, now: fn() -> i64) -> Result<Watching, Cl
             .args(["--type", "text", "--watch"])
             .arg(exe)
             .args(["clipboard", "add"])
+            .env(WL_WATCH, "1")
             .stdin(std::process::Stdio::null())
             .spawn()
             .map_err(ClipboardError::WlPaste)?;
@@ -392,6 +447,46 @@ pub(crate) fn start(_settings: Settings, _now: fn() -> i64) -> Result<Watching, 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn text(text: &str) -> Contents {
+        Contents::Text {
+            text: text.into(),
+            source_app: None,
+        }
+    }
+
+    #[test]
+    fn wl_paste_sensitive_copies_are_secrets_and_gone_ones_nothing() {
+        let never = || -> Vec<String> { panic!("the types are not needed") };
+        assert_eq!(
+            added("hunter2".into(), Some("sensitive"), never),
+            Contents::Secret
+        );
+        assert_eq!(added(String::new(), Some("nil"), never), Contents::Other);
+        assert_eq!(added(String::new(), Some("clear"), never), Contents::Other);
+        assert_eq!(added("hello".into(), Some("data"), never), text("hello"));
+    }
+
+    #[test]
+    fn without_a_state_the_offered_types_decide() {
+        let offered = |types: &[&str]| {
+            let types: Vec<String> = types.iter().map(|&t| t.to_owned()).collect();
+            move || types
+        };
+        assert_eq!(
+            added(
+                "hunter2".into(),
+                None,
+                offered(&["text/plain", PASSWORD_MANAGER_HINT])
+            ),
+            Contents::Secret
+        );
+        assert_eq!(
+            added("hello".into(), None, offered(&["text/plain"])),
+            text("hello")
+        );
+        assert_eq!(added("by hand".into(), None, offered(&[])), text("by hand"));
+    }
 
     #[test]
     fn one_line_cuts_long_and_multi_line_texts() {

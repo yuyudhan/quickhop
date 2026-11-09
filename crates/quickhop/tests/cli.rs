@@ -462,6 +462,31 @@ fn clipboard_add_list_retention_and_clear() -> TestResult {
     Ok(())
 }
 
+/// `wl-paste --watch` runs `clipboard add` with `CLIPBOARD_STATE` set: a password manager's
+/// copy (`sensitive`) and an emptied clipboard (`nil`, `clear`) are never recorded (CLP-04).
+#[test]
+fn clipboard_add_skips_what_wl_paste_calls_sensitive() -> TestResult {
+    let sandbox = Sandbox::new()?;
+    for (state, text) in [
+        ("data", "kept"),
+        ("sensitive", "hunter2"),
+        ("nil", "gone"),
+        ("clear", "cleared"),
+        ("data", "also kept"),
+    ] {
+        sandbox
+            .cmd()?
+            .env("CLIPBOARD_STATE", state)
+            .args(["clipboard", "add"])
+            .write_stdin(text)
+            .assert()
+            .success();
+    }
+    let listed = stdout(sandbox.cmd()?.args(["clipboard", "list"]))?;
+    assert_eq!(listed, "also kept\nkept\n");
+    Ok(())
+}
+
 #[test]
 fn paste_refuses_missing_entries_non_text_results_and_no_session() -> TestResult {
     let sandbox = Sandbox::new()?;
