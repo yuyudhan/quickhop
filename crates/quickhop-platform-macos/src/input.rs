@@ -10,11 +10,13 @@ use std::ptr::NonNull;
 
 use objc2_app_kit::{NSRunningApplication, NSWorkspace};
 use objc2_application_services::{AXError, AXUIElement};
-use objc2_core_foundation::{CFArray, CFDictionary, CFNumber, CFRetained, CFString, CFType};
+use objc2_core_foundation::{
+    CFArray, CFBoolean, CFDictionary, CFNumber, CFRetained, CFString, CFType,
+};
 use objc2_core_graphics::{
     CGEvent, CGEventFlags, CGEventSource, CGEventSourceStateID, CGEventTapLocation, CGEventType,
-    CGWindowListCopyWindowInfo, CGWindowListOption, kCGNullWindowID, kCGWindowBounds,
-    kCGWindowLayer, kCGWindowNumber, kCGWindowOwnerPID,
+    CGSessionCopyCurrentDictionary, CGWindowListCopyWindowInfo, CGWindowListOption,
+    kCGNullWindowID, kCGWindowBounds, kCGWindowLayer, kCGWindowNumber, kCGWindowOwnerPID,
 };
 use objc2_foundation::NSString;
 use quickhop_core::hotkey::{Hotkey, Modifiers};
@@ -171,6 +173,21 @@ pub fn seconds_since_input() -> f64 {
     // `kCGAnyInputEventType`: every kind of input.
     let any_input = CGEventType(u32::MAX);
     CGEventSource::seconds_since_last_event_type(CGEventSourceStateID::HIDSystemState, any_input)
+}
+
+/// Whether the console's screen is locked (an ssh session sees the console's too), or `None`
+/// when the window server reports no session at all. Keys posted while it is locked go to the
+/// lock screen's password field, so the UI tests never post any then.
+pub fn screen_locked() -> Option<bool> {
+    let session = CGSessionCopyCurrentDictionary()?;
+    // SAFETY: the session dictionary maps `CFString` keys to property-list values.
+    let session: &CFDictionary<CFString, CFType> = unsafe { session.cast_unchecked() };
+    // Undocumented but long stable: the window server sets it to true while locked.
+    let locked = session
+        .get(&CFString::from_static_str("CGSSessionScreenIsLocked"))
+        .and_then(|value| value.downcast::<CFBoolean>().ok())
+        .is_some_and(|value| value.as_bool());
+    Some(locked)
 }
 
 /// The process id of the frontmost app.

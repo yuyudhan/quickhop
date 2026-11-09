@@ -250,13 +250,19 @@ pub mod ax {
     }
 
     /// Takes the screen for one test, waiting for the test before it to end. The first one
-    /// refuses to go on while a person is using the Mac: the tests post real keys.
+    /// refuses to go on while a person is using the Mac: the tests post real keys. Every one
+    /// refuses while the screen is locked, where those keys would reach the password field.
     ///
     /// # Errors
-    /// When there was input in the last [`IDLE_BEFORE_TESTS`] seconds, or keys cannot be
-    /// posted.
+    /// Without a window server session, while the screen is locked, when there was input in
+    /// the last [`IDLE_BEFORE_TESTS`] seconds, or when keys cannot be posted.
     pub fn take_over() -> Fallible<Screen> {
         let mut checked = SCREEN.lock().unwrap_or_else(PoisonError::into_inner);
+        match input::screen_locked() {
+            None => return Err("the window server reports no session: log in first".into()),
+            Some(true) => return Err("the screen is locked: unlock it first".into()),
+            Some(false) => {}
+        }
         if !*checked {
             if !quickhop_platform_macos::keys::is_trusted() {
                 return Err(

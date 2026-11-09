@@ -47,6 +47,7 @@ objc2-core-graphics = { workspace = true, features = [
     "CGEventTypes",
     "CGImage",
     "CGRemoteOperation",
+    "CGSession",
     "CGWindow",
 ] }
 objc2-foundation = { workspace = true, features = [
