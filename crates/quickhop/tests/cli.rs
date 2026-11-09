@@ -352,7 +352,12 @@ fn index_then_query_finds_files_by_name_and_folder() -> TestResult {
         "{built}"
     );
 
-    let id = format!("files:{}", report.display());
+    // The index keeps a root as configured (forward slashes here, also on Windows) and joins
+    // what it finds below it with the OS separator.
+    let indexed = PathBuf::from(&root)
+        .join("work")
+        .join("quarterly-report.md");
+    let id = format!("files:{}", indexed.display());
     for text in ["quarterly", "work report"] {
         let found = sandbox.query(text)?;
         assert_eq!(first(&found)["id"], id.as_str(), "{found:#}");
@@ -364,7 +369,7 @@ fn index_then_query_finds_files_by_name_and_folder() -> TestResult {
     )?;
     let action: Value = serde_json::from_str(&dry)?;
     assert_eq!(action["kind"], "open");
-    assert_eq!(action["target"], report.display().to_string());
+    assert_eq!(action["target"], indexed.display().to_string());
     let doctor = stdout(sandbox.cmd()?.arg("doctor"))?;
     assert!(doctor.contains("(2 entries)"), "{doctor}");
     Ok(())
@@ -525,7 +530,8 @@ fn paste_refuses_missing_entries_non_text_results_and_no_session() -> TestResult
         "{power}"
     );
     // Without DISPLAY and WAYLAND_DISPLAY a Linux session has no clipboard; a Mac always has
-    // its pasteboard, and the private one the tests use is never pasted.
+    // its pasteboard, and the private one the tests use is never pasted; Windows copies and
+    // leaves Ctrl+V to the user.
     let pasted = sandbox
         .cmd()?
         .env_remove("DISPLAY")
@@ -537,6 +543,12 @@ fn paste_refuses_missing_entries_non_text_results_and_no_session() -> TestResult
         assert!(pasted.status.success(), "{stderr}");
         assert!(
             stderr.contains("copied, not pasted: a private pasteboard"),
+            "{stderr}"
+        );
+    } else if cfg!(windows) {
+        assert!(pasted.status.success(), "{stderr}");
+        assert!(
+            stderr.contains("copied, not pasted: synthetic paste on Windows"),
             "{stderr}"
         );
     } else {
