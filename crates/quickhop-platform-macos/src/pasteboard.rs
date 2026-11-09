@@ -5,8 +5,9 @@
 //! every copy, so the daemon polls it (every 250 ms) through [`quickhop_core::Watcher`].
 
 use objc2::rc::{Retained, autoreleasepool};
-use objc2_app_kit::{NSPasteboard, NSWorkspace};
-use objc2_foundation::NSString;
+use objc2::runtime::ProtocolObject;
+use objc2_app_kit::{NSPasteboard, NSPasteboardItem, NSPasteboardWriting, NSWorkspace};
+use objc2_foundation::{NSArray, NSData, NSString};
 use quickhop_core::{ClipboardSource, Contents};
 
 /// The type of plain UTF-8 text (`NSPasteboardTypeString`).
@@ -64,6 +65,62 @@ impl Pasteboard {
             written
         })
     }
+
+    /// Everything on the pasteboard now, item by item with the data of each type, for
+    /// [`Self::restore`]. Data an app only promised is asked for now.
+    pub fn save(&self) -> Saved {
+        autoreleasepool(|_| {
+            let items = self
+                .get()
+                .pasteboardItems()
+                .map(|items| items.to_vec())
+                .unwrap_or_default();
+            let items = items
+                .iter()
+                .map(|item| {
+                    item.types()
+                        .to_vec()
+                        .iter()
+                        .filter_map(|kind| {
+                            let data = item.dataForType(kind)?;
+                            Some((kind.to_string(), data.to_vec()))
+                        })
+                        .collect()
+                })
+                .collect();
+            Saved { items }
+        })
+    }
+
+    /// Replaces the contents with what [`Self::save`] returned. Returns whether the pasteboard
+    /// took it.
+    pub fn restore(&self, saved: &Saved) -> bool {
+        autoreleasepool(|_| {
+            let pasteboard = self.get();
+            pasteboard.clearContents();
+            if saved.items.is_empty() {
+                return true;
+            }
+            let items: Vec<Retained<ProtocolObject<dyn NSPasteboardWriting>>> = saved
+                .items
+                .iter()
+                .map(|types| {
+                    let item = NSPasteboardItem::new();
+                    for (kind, data) in types {
+                        item.setData_forType(&NSData::with_bytes(data), &NSString::from_str(kind));
+                    }
+                    ProtocolObject::from_retained(item)
+                })
+                .collect();
+            pasteboard.writeObjects(&NSArray::from_retained_slice(&items))
+        })
+    }
+}
+
+/// What a pasteboard held, from [`Pasteboard::save`]: its items, each a list of type and data.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Saved {
+    items: Vec<Vec<(String, Vec<u8>)>>,
 }
 
 impl ClipboardSource for Pasteboard {
@@ -151,5 +208,31 @@ mod tests {
         board.write_text("x", false);
         assert!(board.change_count() > before);
         assert!(matches!(board.contents(), Contents::Text { text, .. } if text == "x"));
+    }
+
+    #[test]
+    fn saved_contents_come_back_item_by_item() {
+        let board = private("saved");
+        let original = Saved {
+            items: vec![
+                vec![
+                    (TEXT_TYPE.to_owned(), b"first".to_vec()),
+                    ("dev.quickhop.binary".to_owned(), vec![0, 159, 255]),
+                ],
+                vec![(TEXT_TYPE.to_owned(), b"second".to_vec())],
+            ],
+        };
+        assert!(board.restore(&original));
+        assert_eq!(board.save(), original);
+        assert!(board.write_text("something else", false));
+        assert_ne!(board.save(), original);
+        assert!(board.restore(&original));
+        assert_eq!(
+            board.save(),
+            original,
+            "what was saved comes back over a later copy"
+        );
+        assert!(board.restore(&Saved::default()));
+        assert_eq!(board.save(), Saved::default());
     }
 }

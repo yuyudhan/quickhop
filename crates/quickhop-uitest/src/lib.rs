@@ -45,6 +45,8 @@ pub struct Daemon {
     dir: tempfile::TempDir,
     /// The daemon's process id.
     pub pid: i32,
+    /// The pasteboard it copies to, `None` for the general one.
+    pasteboard: Option<&'static str>,
 }
 
 /// The configuration the tests run with: no file search, whose results depend on the
@@ -75,6 +77,23 @@ impl Daemon {
     /// # Errors
     /// As [`Self::start`], or when a file cannot be written.
     pub fn start_with_files(config: &str, files: &[(&str, &str)]) -> Fallible<Self> {
+        Self::launch(config, files, Some(PASTEBOARD))
+    }
+
+    /// As [`Self::start_with`], but on the general pasteboard, the one `⌘V` pastes from: for
+    /// a paste test only, which borrows the user's clipboard with [`ax::Clipboard`].
+    ///
+    /// # Errors
+    /// As [`Self::start`].
+    pub fn start_on_the_general_pasteboard(config: &str) -> Fallible<Self> {
+        Self::launch(config, &[], None)
+    }
+
+    fn launch(
+        config: &str,
+        files: &[(&str, &str)],
+        pasteboard: Option<&'static str>,
+    ) -> Fallible<Self> {
         let binary = binary();
         if !binary.is_file() {
             return Err(format!("{} is missing: run `just ui-test`", binary.display()).into());
@@ -86,7 +105,7 @@ impl Daemon {
             std::fs::write(dir.path().join(path), content)?;
         }
         let log = std::fs::File::create(dir.path().join("daemon.log"))?;
-        let child = Self::command_in(dir.path())
+        let child = Self::command_in(dir.path(), pasteboard)
             .arg("daemon")
             .arg("--test-socket")
             .arg(dir.path().join("test.sock"))
@@ -94,7 +113,12 @@ impl Daemon {
             .stderr(log)
             .spawn()?;
         let pid = i32::try_from(child.id())?;
-        let daemon = Self { child, dir, pid };
+        let daemon = Self {
+            child,
+            dir,
+            pid,
+            pasteboard,
+        };
         daemon
             .wait_for("the test socket", |_| true)
             .map_err(|error| format!("{error}; daemon output: {}", daemon.log()))?;
@@ -125,15 +149,18 @@ impl Daemon {
     }
 
     /// `quickhop` with this daemon's private configuration, data, runtime directory and
-    /// pasteboard.
-    fn command_in(dir: &Path) -> Command {
+    /// pasteboard (`None`: the general one).
+    fn command_in(dir: &Path, pasteboard: Option<&str>) -> Command {
         let mut command = Command::new(binary());
         command
             .env("QUICKHOP_CONFIG", dir.join("config.toml"))
             .env("QUICKHOP_DATA", dir.join("data"))
             .env("QUICKHOP_RUNTIME", dir.join("run"))
-            .env("QUICKHOP_PASTEBOARD", PASTEBOARD)
             .stdin(Stdio::null());
+        match pasteboard {
+            Some(name) => command.env("QUICKHOP_PASTEBOARD", name),
+            None => command.env_remove("QUICKHOP_PASTEBOARD"),
+        };
         command
     }
 
@@ -142,7 +169,9 @@ impl Daemon {
     /// # Errors
     /// When the command cannot run.
     pub fn quickhop(&self, args: &[&str]) -> Fallible<Output> {
-        Ok(Self::command_in(self.dir.path()).args(args).output()?)
+        Ok(Self::command_in(self.dir.path(), self.pasteboard)
+            .args(args)
+            .output()?)
     }
 
     /// What the window shows now, from the test socket.
@@ -224,6 +253,8 @@ pub mod ax {
     //! The macOS driver: key events through the HID event tap, the frontmost app and the
     //! window list from the window server, `screencapture` for images.
 
+    use std::io::Write as _;
+    use std::process::Command;
     use std::sync::{Mutex, MutexGuard, PoisonError};
     use std::time::{Duration, Instant};
 
@@ -232,7 +263,7 @@ pub mod ax {
     pub use quickhop_platform_macos::input::{
         Key, OnScreen, frontmost_pid, is_running, quit, windows_on_screen,
     };
-    use quickhop_platform_macos::pasteboard::Pasteboard;
+    use quickhop_platform_macos::pasteboard::{Pasteboard, Saved};
 
     use super::{Daemon, Fallible, PATIENCE};
 
@@ -414,6 +445,133 @@ pub mod ax {
             Ok(())
         } else {
             Err("the private pasteboard refused the text".into())
+        }
+    }
+
+    /// The user's clipboard, borrowed by a test that pastes (`⌘V` pastes from the general
+    /// pasteboard) and put back, every item and type, when dropped. Declare it before the
+    /// daemon, so the daemon is gone before the clipboard comes back.
+    pub struct Clipboard {
+        saved: Saved,
+    }
+
+    impl Clipboard {
+        /// Saves what the general pasteboard holds now.
+        pub fn borrow() -> Self {
+            Self {
+                saved: Pasteboard::general().save(),
+            }
+        }
+
+        /// Copies `text` to the general pasteboard, as an app would.
+        ///
+        /// # Errors
+        /// When the pasteboard refuses it.
+        pub fn copy(&self, text: &str) -> Fallible {
+            if Pasteboard::general().write_text(text, false) {
+                Ok(())
+            } else {
+                Err("the general pasteboard refused the text".into())
+            }
+        }
+    }
+
+    impl Drop for Clipboard {
+        fn drop(&mut self) {
+            if !Pasteboard::general().restore(&self.saved) {
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "quickhop-uitest: the clipboard could not be put back"
+                );
+            }
+        }
+    }
+
+    /// The bundle identifier of [`PasteTarget`].
+    const PASTE_TARGET: &str = "dev.quickhop.pastetarget";
+
+    const PASTE_TARGET_PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleIdentifier</key>
+    <string>dev.quickhop.pastetarget</string>
+    <key>CFBundleExecutable</key>
+    <string>PasteTarget</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+</dict>
+</plist>
+"#;
+
+    /// The app a paste test pastes into: one text window in front, built with `swiftc` from
+    /// `tests/fixtures/paste_target.swift`, that writes what it holds to a file. Quit when
+    /// dropped.
+    pub struct PasteTarget {
+        dir: tempfile::TempDir,
+    }
+
+    impl PasteTarget {
+        /// Builds the app, opens it and waits until it is in front.
+        ///
+        /// # Errors
+        /// When one already runs, `swiftc` or `open` fails, or it does not come to the front
+        /// within [`PATIENCE`].
+        pub fn open() -> Fallible<Self> {
+            if is_running(PASTE_TARGET) {
+                return Err("a paste target from an earlier test still runs".into());
+            }
+            let dir = tempfile::tempdir()?;
+            let app = dir.path().join("PasteTarget.app");
+            std::fs::create_dir_all(app.join("Contents/MacOS"))?;
+            std::fs::write(app.join("Contents/Info.plist"), PASTE_TARGET_PLIST)?;
+            let source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/paste_target.swift");
+            let built = Command::new("swiftc")
+                .arg("-o")
+                .arg(app.join("Contents/MacOS/PasteTarget"))
+                .arg(&source)
+                .status()?;
+            if !built.success() {
+                return Err(format!("swiftc {} failed: {built}", source.display()).into());
+            }
+            let target = Self { dir };
+            let opened = Command::new("open")
+                .arg("-n")
+                .arg(&app)
+                .arg("--args")
+                .arg(target.file())
+                .status()?;
+            if !opened.success() {
+                return Err(format!("open {} failed: {opened}", app.display()).into());
+            }
+            let deadline = Instant::now() + PATIENCE;
+            while frontmost_pid().and_then(input::app_name).as_deref() != Some(PASTE_TARGET) {
+                if Instant::now() > deadline {
+                    return Err(format!("the paste target is not in front; {}", focus()).into());
+                }
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Ok(target)
+        }
+
+        fn file(&self) -> std::path::PathBuf {
+            self.dir.path().join("text.txt")
+        }
+
+        /// The text in its window, as last written to its file.
+        pub fn text(&self) -> String {
+            std::fs::read_to_string(self.file()).unwrap_or_default()
+        }
+    }
+
+    impl Drop for PasteTarget {
+        fn drop(&mut self) {
+            quit(PASTE_TARGET);
+            let deadline = Instant::now() + PATIENCE;
+            while is_running(PASTE_TARGET) && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(50));
+            }
         }
     }
 

@@ -26,6 +26,7 @@ objc2-app-kit = { workspace = true, features = [
     "NSImage",
     "NSImageRep",
     "NSPasteboard",
+    "NSPasteboardItem",
     "NSResponder",
     "NSRunningApplication",
     "NSView",

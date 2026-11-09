@@ -86,6 +86,56 @@ fn clipboard_history_lists_copies_newest_first_and_pastes_the_chosen_one() -> Fa
     Ok(())
 }
 
+/// The whole of C2: the window hides and the chosen entry lands in the app that was in front.
+/// It needs the general pasteboard (`⌘V` pastes from it), so it borrows the user's clipboard
+/// and puts it back; a clipboard manager running meanwhile sees its two copies.
+#[test]
+#[ignore = "drives the real window: run with `just ui-test` in a GUI session"]
+fn a_chosen_clipboard_entry_is_pasted_into_the_app_in_front() -> Fallible {
+    // A word nothing on the user's clipboard holds, so typing it leaves only this entry.
+    const CHOSEN: &str = "qhpastecheck: quickhop pasted this";
+    let _screen = ax::take_over()?;
+    let clipboard = ax::Clipboard::borrow();
+    let daemon = Daemon::start_on_the_general_pasteboard(TEST_CONFIG)?;
+    let target = ax::PasteTarget::open()?;
+    for text in [CHOSEN, "a later copy"] {
+        clipboard.copy(text)?;
+        std::thread::sleep(Duration::from_millis(600));
+    }
+    open_list(
+        &daemon,
+        "clipboard history",
+        "views:clipboard",
+        "Clipboard History",
+    )?;
+    daemon.type_text("qhpastecheck")?;
+    daemon.wait_for("only the chosen entry", |s| {
+        strings(s, "titles") == [CHOSEN]
+    })?;
+    daemon.press(Key::Return, false)?;
+    daemon.wait_for_no_window()?;
+    let deadline = std::time::Instant::now() + PATIENCE;
+    while target.text() != CHOSEN {
+        if std::time::Instant::now() > deadline {
+            let snapshot = daemon.snapshot()?;
+            return Err(format!(
+                "the target holds {:?}; hud: {}; {}",
+                target.text(),
+                snapshot["hud"],
+                ax::focus()
+            )
+            .into());
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(
+        daemon.snapshot()?["hud"],
+        Value::Null,
+        "a real paste shows no HUD"
+    );
+    Ok(())
+}
+
 #[test]
 #[ignore = "drives the real window: run with `just ui-test` in a GUI session"]
 fn search_snippets_lists_every_snippet_and_copies_the_chosen_one_expanded() -> Fallible {
