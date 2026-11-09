@@ -65,7 +65,7 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 |----|---------|--------|---|-------|------------------------|
 | CLP-01 | Text clipboard history, searchable, kept in SQLite | partial | P0 | built: `NSPasteboard.changeCount` read by `quickhop_core::Watcher`, history deduplicated in `state.sqlite` with retention; next: the daemon polling every 250 ms (U1) and the clipboard view (U2) | X11: XFixes `SelectionNotify` on `CLIPBOARD`. Wayland: `ext-data-control-v1` / `wlr-data-control` (sway, Hyprland, KWin, COSMIC) or `wl-paste --watch`; GNOME has no data-control protocol: watch only while quickhop has focus, or the optional GNOME Shell extension |
 | CLP-02 | Images, files and rich text in history | planned | P1 | pasteboard types `public.png`, `public.file-url`, `public.rtf` | MIME targets `image/png`, `text/uri-list`, `text/html` |
-| CLP-03 | Paste the chosen entry into the frontmost app | planned | P0 | set pasteboard, hide, synthesize `⌘V` with `CGEventPost` (Accessibility) | set clipboard (`wl-copy` / X11 owner), then X11: XTest `Ctrl+V`; Wayland: `virtual-keyboard-unstable-v1` (wlroots), `RemoteDesktop` portal keyboard (GNOME, KDE), or `ydotool`; else copy only and say so |
+| CLP-03 | Paste the chosen entry into the frontmost app | partial | P0 | built: `quickhop_core::paste::paste_text` (copy, then `⌘V` through `CGEventPost` when Accessibility is granted, else copy only with the reason); next: hide-then-paste from the clipboard view (U2) | set clipboard (`wl-copy` / X11 owner), then X11: XTest `Ctrl+V`; Wayland: `virtual-keyboard-unstable-v1` (wlroots), `RemoteDesktop` portal keyboard (GNOME, KDE), or `ydotool`; else copy only and say so |
 | CLP-04 | Ignore secrets and chosen apps; pin entries; delete | partial | P1 | built: copies marked `org.nspasteboard.ConcealedType`/`TransientType` are never recorded, the frontmost app (`NSWorkspace`) is stored as the source; next: ignored apps, pinning, deleting from the view | skip `x-kde-passwordManagerHint=secret`; X11 `_NET_ACTIVE_WINDOW` class; Wayland: per-target MIME hints only |
 | CLP-05 | Paste as plain text | planned | P1 | write `public.utf8-plain-text` only | offer `text/plain;charset=utf-8` only |
 | CLP-06 | Retention limits and encryption at rest | planned | P2 | key in Keychain (Security framework) | key in Secret Service (`org.freedesktop.secrets`) via `oo7`/`secret-service` |
@@ -175,7 +175,7 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 | CFG-08 | Settings sync between machines | planned | P2 | plain files: the config dir is git/Syncthing friendly; `quickhop export/import` bundles config, snippets, quicklinks, encrypted with a passphrase (`age`) | same |
 | CFG-09 | Import a Raycast export (`.rayconfig`) | planned | P2 | decrypt with the user's export password, map snippets/quicklinks/aliases/hotkeys | same |
 | PLT-01 | Background daemon, single instance, IPC (`quickhop toggle`, `quickhop open <id>`) | planned | P0 | Unix socket in `$TMPDIR/quickhop-<uid>` | Unix socket in `$XDG_RUNTIME_DIR/quickhop.sock` |
-| PLT-02 | Permission onboarding (Accessibility, Input Monitoring, Screen Recording, Calendar) | planned | P1 | `AXIsProcessTrustedWithOptions`, deep links to System Settings panes | portal permission prompts; `input` group guidance for SNP-03 |
+| PLT-02 | Permission onboarding (Accessibility, Input Monitoring, Screen Recording, Calendar) | partial | P1 | built: Accessibility check and prompt (`AXIsProcessTrusted`, `AXIsProcessTrustedWithOptions`) and the settings deep link; next: the onboarding view, the other permissions | portal permission prompts; `input` group guidance for SNP-03 |
 | PLT-03 | Packages and install | partial | P1 | `cargo install` today; signed and notarized `.app` in a DMG, Homebrew cask | `cargo install` today; `.deb`, `.rpm`, AUR `PKGBUILD`, tarball with `.desktop` + icons; Flatpak later (host app launching needs `flatpak-spawn --host`) |
 | PLT-04 | Updates | planned | P2 | update check against GitHub releases, cask upgrade | package managers |
 | PLT-05 | No telemetry, works offline (only currency rates, AI and store use the network, each opt-in) | done | P0 | principle | same |
@@ -184,10 +184,10 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | Priority | Features | done | partial | planned |
 |----------|---------:|-----:|--------:|--------:|
-| P0 | 30 | 17 | 3 | 10 |
-| P1 | 36 | 0 | 6 | 30 |
+| P0 | 30 | 17 | 4 | 9 |
+| P1 | 36 | 0 | 7 | 29 |
 | P2 | 29 | 0 | 0 | 29 |
-| All | 95 | 17 | 9 | 69 |
+| All | 95 | 17 | 11 | 67 |
 
 Counted from the tables above; recount when editing them.
 

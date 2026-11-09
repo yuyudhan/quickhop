@@ -9,6 +9,7 @@ pub mod clipboard;
 pub mod config;
 pub mod fuzzy;
 pub mod item;
+pub mod paste;
 pub mod provider;
 pub mod search;
 

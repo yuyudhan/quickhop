@@ -10,6 +10,8 @@
 
 pub mod icon;
 #[cfg(target_os = "macos")]
+pub mod keys;
+#[cfg(target_os = "macos")]
 pub mod pasteboard;
 
 /// The operation needs macOS.
