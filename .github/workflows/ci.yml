@@ -44,12 +44,13 @@ jobs:
                   scripts/check-unsafe.sh
             - name: Typos
               run: typos
-            - name: Shell scripts and installer
+            - name: Shell scripts, installer and macOS bundle
               if: runner.os != 'Windows'
               run: |
                   command -v shellcheck >/dev/null || brew install shellcheck
                   shellcheck scripts/*.sh .githooks/*
                   scripts/test-install.sh
+                  scripts/test-bundle-macos.sh
             - name: Clippy
               run: cargo clippy --workspace --all-targets --all-features -- -D warnings
             - name: Test

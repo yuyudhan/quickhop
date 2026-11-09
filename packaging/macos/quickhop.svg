@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- packaging/linux/quickhop.svg on Apple's app icon grid: the 112-unit tile becomes the
+       824-point rounded square centred in the 1024-point canvas. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#5b6cff"/>
+      <stop offset="1" stop-color="#9a4dff"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(100 100) scale(7.357142857) translate(-8 -8)">
+    <rect x="8" y="8" width="112" height="112" rx="26" fill="url(#bg)"/>
+    <circle cx="58" cy="58" r="26" fill="none" stroke="#fff" stroke-width="11"/>
+    <path d="M76 76 L96 96" stroke="#fff" stroke-width="11" stroke-linecap="round"/>
+    <path d="M46 58 Q58 40 70 58" fill="none" stroke="#fff" stroke-width="7" stroke-linecap="round"/>
+  </g>
+</svg>

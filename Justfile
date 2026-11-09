@@ -34,13 +34,15 @@ clippy:
 clippy-all:
     scripts/clippy-all.sh {{targets}}
 
-# Shell scripts: shellcheck, then the installer's end-to-end test (skipped on Windows).
+# Shell scripts: shellcheck, then the installer's and the macOS bundle's end-to-end tests
+# (skipped on Windows; the bundle's also on Linux).
 shell:
     #!/usr/bin/env bash
     set -euo pipefail
     case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) echo "shell: skipped on Windows"; exit 0 ;; esac
     shellcheck scripts/*.sh .githooks/*
     scripts/test-install.sh
+    scripts/test-bundle-macos.sh
 
 # The everyday gate (pre-commit, CI): format, guards, spelling, shell, host clippy, tests.
 check: fmt-check guards typos shell clippy test
@@ -65,6 +67,10 @@ verify: check clippy-all deny
 # Linux .deb and tarball in target/bundle/ (needs dpkg-dev).
 bundle-linux:
     scripts/bundle-linux.sh
+
+# quickhop.app in target/bundle/, from the release build (macOS 14 or later).
+bundle-macos:
+    scripts/bundle-macos.sh
 
 # Install the .deb in a clean Debian container and run it (needs docker).
 bundle-linux-test: bundle-linux
