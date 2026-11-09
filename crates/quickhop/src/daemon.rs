@@ -16,11 +16,10 @@ use quickhop_core::config::runtime_dir;
 use quickhop_core::{Cancel, Config};
 use quickhop_index::{Index, Watcher};
 use quickhop_providers::Env;
-use quickhop_store::clipboard::Retention;
 use serde::{Deserialize, Serialize};
 
-use crate::clipboard::{self, Watching};
-use crate::{LaunchRequest, launch, load_config, now};
+use crate::clipboard::{self, Settings, Watching};
+use crate::{LaunchRequest, launch, load_config, now_ms};
 
 /// How long a client waits for a started daemon to answer.
 const START_TIMEOUT: Duration = Duration::from_secs(5);
@@ -170,7 +169,7 @@ pub(crate) fn send_starting(request: &Request) -> Result<Response, DaemonError> 
 /// The running services and the configuration they were started with.
 struct State {
     config: Config,
-    retention: Arc<Mutex<Retention>>,
+    clipboard_settings: Settings,
     clipboard: Result<Watching, String>,
     index: Result<IndexService, String>,
 }
@@ -205,15 +204,9 @@ impl IndexService {
     }
 }
 
-fn retention(config: &Config) -> Retention {
-    Retention {
-        max_entries: config.clipboard.max_entries,
-        max_age_days: config.clipboard.max_age_days,
-    }
-}
-
 /// Rebuilds the index of `config`'s roots on a thread, then keeps it current; why not when
-/// file search is off or there is nothing to index.
+/// file search is off, there is nothing to index, or (on macOS, where Spotlight answers file
+/// search) no index has been built with `quickhop index`.
 fn start_index(config: &Config) -> Result<IndexService, String> {
     if !config.providers.files {
         return Err("[providers] files = false".into());
@@ -224,6 +217,11 @@ fn start_index(config: &Config) -> Result<IndexService, String> {
         return Err("no [files] roots and no HOME".into());
     }
     let path = quickhop_providers::index_path(&env).map_err(|e| e.to_string())?;
+    if env.os == "macos" && !path.is_file() {
+        return Err(
+            "Spotlight answers file search; `quickhop index` builds an index instead".into(),
+        );
+    }
     let service = IndexService {
         cancel: Cancel::new(),
         watcher: Arc::new(Mutex::new(None)),
@@ -254,14 +252,26 @@ fn start_index(config: &Config) -> Result<IndexService, String> {
     spawned.map(|_| service).map_err(|e| e.to_string())
 }
 
+/// Starts the clipboard watcher when `[clipboard] enabled` is set.
+fn start_clipboard(settings: &Settings) -> Result<Watching, String> {
+    let enabled = settings
+        .lock()
+        .unwrap_or_else(PoisonError::into_inner)
+        .enabled;
+    if !enabled {
+        return Err("[clipboard] enabled = false".into());
+    }
+    clipboard::start(Arc::clone(settings), now_ms).map_err(|e| e.to_string())
+}
+
 impl State {
     fn start(config: Config) -> Self {
-        let retention = Arc::new(Mutex::new(retention(&config)));
-        let clipboard = clipboard::start(Arc::clone(&retention), now).map_err(|e| e.to_string());
+        let clipboard_settings = Arc::new(Mutex::new(config.clipboard.clone()));
+        let clipboard = start_clipboard(&clipboard_settings);
         let index = start_index(&config);
         Self {
             config,
-            retention,
+            clipboard_settings,
             clipboard,
             index,
         }
@@ -282,9 +292,15 @@ impl State {
     fn reload(&mut self) -> Result<String, String> {
         let config = load_config().map_err(|e| e.to_string())?;
         *self
-            .retention
+            .clipboard_settings
             .lock()
-            .unwrap_or_else(PoisonError::into_inner) = retention(&config);
+            .unwrap_or_else(PoisonError::into_inner) = config.clipboard.clone();
+        if config.clipboard.enabled != self.clipboard.is_ok() {
+            if let Ok(watching) = &mut self.clipboard {
+                watching.stop();
+            }
+            self.clipboard = start_clipboard(&self.clipboard_settings);
+        }
         if let Ok(index) = std::mem::replace(&mut self.index, Err(String::new())) {
             index.stop();
         }

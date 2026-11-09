@@ -36,7 +36,7 @@ A free alternative to Raycast that runs your Raycast script commands unchanged.
 | **Script commands** (all metadata, modes, arguments) | ✅ | inline refresh, ANSI output view |
 | Global hotkey and launcher window | | 🛠 next |
 | File and folder search (Spotlight on macOS, own index on Linux with `quickhop index`; open, reveal, copy path, Quick Look, trash) | ✅ | window view, open with |
-| Clipboard history (`quickhop clipboard watch`, X11 and wlroots/KDE Wayland; `clipboard paste` on X11) | ✅ | searchable view, paste on Wayland and macOS, GNOME Wayland watching |
+| Clipboard history (`quickhop clipboard watch` on macOS, X11 and wlroots/KDE Wayland, password-manager copies skipped; `clipboard paste` on macOS and X11) | ✅ | searchable view, paste on Wayland, GNOME Wayland watching |
 | Snippets with dynamic placeholders | ✅ | paste into the frontmost app, auto-expansion |
 | Window management | | 🛠 |
 | Aliases, enable/disable and root order per command | ✅ | per-command hotkeys, favorites, fallbacks |
@@ -81,9 +81,9 @@ Then check your setup:
     quickhop launch files:/home/me/notes.md --action reveal   # any action by kind (copy, trash, …)
     quickhop run hello Ada                    # run a script command with an argument
     quickhop index --watch                    # index files under ~ (or [files] roots), keep it current
-    quickhop clipboard watch                  # record copied text (X11, wlroots/KDE Wayland)
+    quickhop clipboard watch                  # record copied text (macOS, X11, wlroots/KDE Wayland)
     quickhop clipboard list                   # newest first; --json for everything
-    quickhop clipboard paste 2                # paste the second newest into the focused app (X11)
+    quickhop clipboard paste 2                # paste the second newest into the focused app (macOS, X11)
     quickhop daemon &                         # one per user: clipboard history, live file index
     quickhop open emoji:1f604 --query smile   # an action through the daemon (starts one if needed)
     mkdir -p ~/.config/quickhop && quickhop config default > ~/.config/quickhop/config.toml
@@ -112,10 +112,6 @@ emoji = true          # apps, calc, emoji, system, quicklinks, scripts, files
 [scripts]
 dirs = ["~/code/raycast-scripts"]   # more folders, after ~/.config/quickhop/scripts
 
-[clipboard]
-retention_days = 90   # history entries older than this are deleted
-max_entries = 1000
-
 [[quicklinks]]
 name = "GitHub search"
 url = "https://github.com/search?q={query}"
@@ -134,8 +130,8 @@ enabled = false       # never shown; unknown ids are config errors
 roots = ["~/code", "~/Documents"]   # what `quickhop index` covers (default: ~)
 
 [clipboard]
-max_entries = 1000    # history kept by `quickhop clipboard watch`
-max_age_days = 90     # 0 keeps entries forever
+max_entries = 1000    # history kept by `quickhop clipboard watch` and the daemon
+max_age_days = 90     # 0 keeps entries forever; concealed (password manager) copies are never kept
 ```
 
 ```toml

@@ -24,10 +24,16 @@ thiserror.workspace = true
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
 quickhop-platform-linux.workspace = true
 
+[target.'cfg(target_os = "macos")'.dependencies]
+quickhop-platform-macos.workspace = true
+
 [dev-dependencies]
 assert_cmd.workspace = true
 serde_json.workspace = true
 tempfile.workspace = true
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+quickhop-platform-macos.workspace = true
 
 [lints]
 workspace = true

@@ -274,6 +274,13 @@ fn now() -> i64 {
         .map_or(0, |d| i64::try_from(d.as_secs()).unwrap_or(i64::MAX))
 }
 
+/// Unix milliseconds: the clipboard history's clock.
+fn now_ms() -> i64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+}
+
 /// The frecency store in the data directory; problems become warnings and the search
 /// runs without frecency.
 fn open_store(warnings: &mut Vec<String>) -> Option<Store> {
@@ -513,7 +520,7 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
             };
             launch(&load_config()?, &request, out)?;
         }
-        Command::Clipboard { action } => clipboard::run(&action, &load_config()?, now, out)?,
+        Command::Clipboard { action } => clipboard::run(&action, &load_config()?, now_ms, out)?,
         Command::Autostart { action } => autostart::run(action, out)?,
         #[cfg(unix)]
         Command::Daemon { action } => {

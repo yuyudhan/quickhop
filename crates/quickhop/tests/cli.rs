@@ -9,8 +9,13 @@ use serde_json::Value;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
-/// The binary with no user configuration in reach: the XDG and quickhop variables unset and
-/// `HOME` pointing nowhere, so no test reads or migrates the real user's files.
+/// Where the clipboard commands read and write on macOS during the tests: a private
+/// pasteboard, never the user's (`QUICKHOP_PASTEBOARD`; other systems ignore it).
+const PASTEBOARD: &str = "dev.quickhop.test.cli";
+
+/// The binary with no user configuration in reach: the XDG and quickhop variables unset,
+/// `HOME` pointing nowhere and a private pasteboard, so no test reads or migrates the real
+/// user's files or touches their clipboard.
 fn quickhop() -> Result<Command, Box<dyn Error>> {
     let mut cmd = Command::cargo_bin("quickhop")?;
     cmd.env_remove("XDG_CONFIG_HOME")
@@ -18,6 +23,7 @@ fn quickhop() -> Result<Command, Box<dyn Error>> {
         .env_remove("APPDATA")
         .env_remove("QUICKHOP_CONFIG")
         .env_remove("QUICKHOP_DATA")
+        .env("QUICKHOP_PASTEBOARD", PASTEBOARD)
         .env("HOME", "/nonexistent-quickhop-home");
     Ok(cmd)
 }
@@ -493,8 +499,74 @@ fn paste_refuses_missing_entries_non_text_results_and_no_session() -> TestResult
         power.contains("only text results (copy, snippet) can be pasted, not run"),
         "{power}"
     );
-    let headless = failure(&["launch", "emoji:1f604", "--query", "smile", "--paste"])?;
-    assert!(headless.contains("no graphical session"), "{headless}");
+    // Without DISPLAY and WAYLAND_DISPLAY a Linux session has no clipboard; a Mac always has
+    // its pasteboard, and the private one the tests use is never pasted.
+    let pasted = sandbox
+        .cmd()?
+        .env_remove("DISPLAY")
+        .env_remove("WAYLAND_DISPLAY")
+        .args(["launch", "emoji:1f604", "--query", "smile", "--paste"])
+        .output()?;
+    let stderr = String::from_utf8(pasted.stderr)?;
+    if cfg!(target_os = "macos") {
+        assert!(pasted.status.success(), "{stderr}");
+        assert!(
+            stderr.contains("copied, not pasted: a private pasteboard"),
+            "{stderr}"
+        );
+    } else {
+        assert!(!pasted.status.success());
+        assert!(stderr.contains("no graphical session"), "{stderr}");
+    }
+    Ok(())
+}
+
+/// `clipboard watch` on macOS polls the pasteboard: copies are listed newest first, and a
+/// password manager's concealed copy never is (C1, CLP-04). A pasteboard of its own keeps the
+/// other tests and the user's clipboard out of it.
+#[cfg(target_os = "macos")]
+#[test]
+fn clipboard_watch_records_pasteboard_copies_but_not_secrets() -> TestResult {
+    use std::io::{BufRead, BufReader};
+    use std::process::Stdio;
+    use std::time::Duration;
+
+    use quickhop_platform_macos::pasteboard::Pasteboard;
+
+    const BOARD: &str = "dev.quickhop.test.watch";
+    let sandbox = Sandbox::new()?;
+    let board = Pasteboard::named(BOARD);
+    assert!(board.write_text("copied before the watcher started", false));
+    let mut watch = std::process::Command::new(env!("CARGO_BIN_EXE_quickhop"))
+        .env("HOME", "/nonexistent-quickhop-home")
+        .env("QUICKHOP_CONFIG", sandbox.dir.path().join("config.toml"))
+        .env("QUICKHOP_DATA", sandbox.dir.path().join("data"))
+        .env("QUICKHOP_PASTEBOARD", BOARD)
+        .args(["clipboard", "watch"])
+        .stdout(Stdio::piped())
+        .spawn()?;
+    let mut banner = String::new();
+    BufReader::new(watch.stdout.take().ok_or("no stdout")?).read_line(&mut banner)?;
+    assert_eq!(
+        banner,
+        "watching the private macOS clipboard (Ctrl+C stops)\n"
+    );
+    // The watcher polls every 250 ms; a copy between two polls replaces the previous one.
+    let settle = || std::thread::sleep(Duration::from_millis(700));
+    settle();
+    for (text, concealed) in [
+        ("searching rust", false),
+        ("hunter2", true),
+        ("on python", false),
+        ("with quickhop", false),
+    ] {
+        assert!(board.write_text(text, concealed));
+        settle();
+    }
+    watch.kill()?;
+    watch.wait()?;
+    let listed = stdout(sandbox.cmd()?.args(["clipboard", "list"]))?;
+    assert_eq!(listed, "with quickhop\non python\nsearching rust\n");
     Ok(())
 }
 
@@ -547,6 +619,7 @@ mod daemon {
             .env("QUICKHOP_CONFIG", sandbox.dir.path().join("config.toml"))
             .env("QUICKHOP_DATA", sandbox.dir.path().join("data"))
             .env("QUICKHOP_RUNTIME", runtime)
+            .env("QUICKHOP_PASTEBOARD", super::PASTEBOARD)
             .arg("daemon")
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

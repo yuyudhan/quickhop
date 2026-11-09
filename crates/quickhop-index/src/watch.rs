@@ -42,6 +42,7 @@ impl Watcher {
         for root in &options.roots {
             inner.watch(root, RecursiveMode::Recursive)?;
         }
+        let aliases = Aliases::of(&options.roots);
         let applied = Arc::new(AtomicUsize::new(0));
         let errors = Arc::new(Mutex::new(Vec::new()));
         let (count, problems) = (Arc::clone(&applied), Arc::clone(&errors));
@@ -51,7 +52,10 @@ impl Watcher {
                 for message in receiver {
                     let outcome = match message {
                         Message::Stop => break,
-                        Message::Event(Ok(event)) => apply(&index, &options, &event, &mut inner),
+                        Message::Event(Ok(mut event)) => {
+                            aliases.apply(&mut event.paths);
+                            apply(&index, &options, &event, &mut inner)
+                        }
                         Message::Event(Err(error)) => Err(IndexError::Watch(error)),
                     };
                     if let Err(error) = outcome {
@@ -92,6 +96,37 @@ impl Drop for Watcher {
     }
 }
 
+/// Roots reached through a symbolic link (macOS's `/var` and `/tmp` are links into
+/// `/private`): `FSEvents` reports the resolved paths, the index keeps the ones it was given.
+struct Aliases(Vec<(PathBuf, PathBuf)>);
+
+impl Aliases {
+    /// The resolved form of every root that differs from the root itself.
+    fn of(roots: &[PathBuf]) -> Self {
+        Self(
+            roots
+                .iter()
+                .filter_map(|root| {
+                    let resolved = root.canonicalize().ok()?;
+                    (resolved != *root).then(|| (resolved, root.clone()))
+                })
+                .collect(),
+        )
+    }
+
+    /// Rewrites `paths` under a resolved root to the same path under the root as given.
+    fn apply(&self, paths: &mut [PathBuf]) {
+        for path in paths {
+            let given = self.0.iter().find_map(|(resolved, root)| {
+                path.strip_prefix(resolved).ok().map(|rest| root.join(rest))
+            });
+            if let Some(given) = given {
+                *path = given;
+            }
+        }
+    }
+}
+
 fn apply(
     index: &Mutex<Index>,
     options: &Options,
@@ -113,8 +148,11 @@ fn apply(
     );
     let mut paths: Vec<PathBuf> = event.paths.clone();
     paths.dedup();
+    // inotify watches single folders, so new ones need their own watch; FSEvents already
+    // covers everything below a root, and adding a path restarts its stream.
+    let per_folder = notify::RecommendedWatcher::kind() == notify::WatcherKind::Inotify;
     for path in paths {
-        if appeared && path.is_dir() && !options.is_ignored(&path) {
+        if per_folder && appeared && path.is_dir() && !options.is_ignored(&path) {
             watcher.watch(&path, RecursiveMode::Recursive)?;
         }
         index.refresh(options, &path)?;

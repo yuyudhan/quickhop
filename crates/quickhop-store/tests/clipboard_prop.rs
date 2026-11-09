@@ -10,17 +10,18 @@ const DAY_MS: i64 = 24 * 60 * 60 * 1000;
 enum Op {
     /// Copy one of a few texts after `hours` hours.
     Copy { text: usize, hours: i64 },
-    /// Apply retention.
-    Prune { days: u32, max: u32 },
+    /// Apply retention; `days` 0 keeps entries whatever their age.
+    Prune { days: u32, max: usize },
 }
 
 fn op() -> impl Strategy<Value = Op> {
     prop_oneof![
         3 => (0usize..6, 0i64..72).prop_map(|(text, hours)| Op::Copy { text, hours }),
-        1 => (1u32..4, 1u32..6).prop_map(|(days, max)| Op::Prune { days, max }),
+        1 => (0u32..4, 1usize..6).prop_map(|(days, max)| Op::Prune { days, max }),
     ]
 }
 
+/// `" "` is blank, so it is never kept.
 const TEXTS: [&str; 6] = ["alpha", "beta", "gamma", "alpha ", " ", "ünïcode ✓"];
 
 proptest! {
@@ -35,15 +36,20 @@ proptest! {
                 Op::Copy { text, hours } => {
                     now += hours * 60 * 60 * 1000;
                     let text = TEXTS[text];
-                    state.record_clip(text, None, now).unwrap();
-                    model.retain(|(t, _)| *t != text);
-                    model.insert(0, (text, now));
+                    let kept = state.record_clip(text, None, now).unwrap();
+                    prop_assert_eq!(kept.is_some(), !text.trim().is_empty());
+                    if kept.is_some() {
+                        model.retain(|(t, _)| *t != text);
+                        model.insert(0, (text, now));
+                    }
                 }
                 Op::Prune { days, max } => {
-                    let cutoff = now - i64::from(days) * DAY_MS;
                     let before = model.len();
-                    model.retain(|(_, last)| *last >= cutoff);
-                    model.truncate(usize::try_from(max).unwrap());
+                    if days > 0 {
+                        let cutoff = now - i64::from(days) * DAY_MS;
+                        model.retain(|(_, last)| *last >= cutoff);
+                    }
+                    model.truncate(max);
                     let deleted = state.prune_clips(days, max, now).unwrap();
                     prop_assert_eq!(deleted, before - model.len());
                 }

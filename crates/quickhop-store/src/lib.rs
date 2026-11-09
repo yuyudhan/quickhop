@@ -6,11 +6,9 @@
 //! at the moment of the pick and halves every [`HALF_LIFE_SECS`] (7 days). Scores are
 //! stored already decayed to their last update, so a pick is one upsert per prefix.
 //!
-//! [`state`] is the second database, `state.sqlite`: the clipboard history. [`clipboard`] is
-//! the command line's clipboard history in the same file until it moves onto [`state`].
+//! [`state`] is the second database, `state.sqlite`: the clipboard history.
 #![forbid(unsafe_code)]
 
-pub mod clipboard;
 pub mod state;
 
 use std::path::Path;

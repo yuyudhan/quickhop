@@ -12,7 +12,7 @@ use objc2_core_foundation::{CFBoolean, CFDictionary, CFString};
 use objc2_core_graphics::{
     CGEvent, CGEventFlags, CGEventSource, CGEventSourceStateID, CGEventTapLocation,
 };
-use quickhop_core::paste::{ClipboardWriter, PasteKeys};
+use quickhop_core::paste::{ClipboardWriter, NotPasted, PasteKeys};
 
 use crate::pasteboard::Pasteboard;
 
@@ -46,8 +46,12 @@ pub fn request_trust() -> bool {
 pub struct SystemKeys;
 
 impl PasteKeys for SystemKeys {
-    fn can_send_keys(&self) -> bool {
-        is_trusted()
+    fn can_send_keys(&self) -> Result<(), NotPasted> {
+        if is_trusted() {
+            Ok(())
+        } else {
+            Err(NotPasted::NoPermission)
+        }
     }
 
     fn send_paste(&self) -> Result<(), String> {
@@ -64,7 +68,11 @@ impl PasteKeys for SystemKeys {
 }
 
 impl ClipboardWriter for Pasteboard {
-    fn write_text(&self, text: &str) -> bool {
-        Pasteboard::write_text(self, text, false)
+    fn write_text(&self, text: &str) -> Result<(), String> {
+        if Pasteboard::write_text(self, text, false) {
+            Ok(())
+        } else {
+            Err("the pasteboard refused the text".into())
+        }
     }
 }

@@ -1,18 +1,24 @@
 //! `quickhop clipboard`: records copied text into the history in `state.sqlite`, lists and
 //! clears it.
+//!
+//! Every watcher hands what it saw to [`keep`] as [`Contents`], so the rules are the same on
+//! every system: secrets (copies a password manager marks as concealed or transient) and
+//! non-text contents are never recorded, blank texts neither.
 
 use std::io::{self, Read, Write};
 use std::path::PathBuf;
+use std::sync::{Arc, Mutex};
 
-use quickhop_core::Config;
 use quickhop_core::config::data_dir;
-use quickhop_store::clipboard::{History, HistoryError, Retention};
+use quickhop_core::{Clipboard, Config, Contents};
+use quickhop_store::state::{State, StateError};
 
 /// What `quickhop clipboard` does.
 #[derive(Debug, clap::Subcommand)]
 pub(crate) enum ClipboardAction {
-    /// Record every text copied from now on until stopped: X11, or Wayland compositors with
-    /// the data-control protocol (sway, Hyprland, `KWin`, COSMIC) through `wl-paste --watch`.
+    /// Record every text copied from now on until stopped: macOS, X11, or Wayland
+    /// compositors with the data-control protocol (sway, Hyprland, `KWin`, COSMIC) through
+    /// `wl-paste --watch`.
     Watch,
     /// Record the text on standard input as copied now.
     Add,
@@ -39,7 +45,7 @@ pub(crate) enum ClipboardAction {
 #[derive(Debug, thiserror::Error)]
 pub(crate) enum ClipboardError {
     #[error(transparent)]
-    History(#[from] HistoryError),
+    State(#[from] StateError),
     #[error(transparent)]
     Config(#[from] quickhop_core::ConfigError),
     #[error("cannot create {path}: {source}")]
@@ -71,19 +77,39 @@ pub(crate) enum ClipboardError {
     Paste(#[from] crate::paste::PasteError),
 }
 
-/// Runs `action` with the retention limits of `config`.
+/// The history settings a running watcher reads at every copy, so a reload takes effect.
+pub(crate) type Settings = Arc<Mutex<Clipboard>>;
+
+/// Records `contents`, seen at `now` (Unix milliseconds), when it is worth remembering, then
+/// applies the retention of `settings`. Returns whether it was recorded.
+///
+/// # Errors
+/// When SQLite fails.
+pub(crate) fn keep(
+    state: &mut State,
+    contents: Contents,
+    settings: &Clipboard,
+    now: i64,
+) -> Result<bool, StateError> {
+    let Some(copied) = contents.into_copied() else {
+        return Ok(false);
+    };
+    let kept = state
+        .record_clip(&copied.text, copied.source_app.as_deref(), now)?
+        .is_some();
+    state.prune_clips(settings.max_age_days, settings.max_entries, now)?;
+    Ok(kept)
+}
+
+/// Runs `action` with the `[clipboard]` settings of `config`; `now` gives Unix milliseconds.
 pub(crate) fn run(
     action: &ClipboardAction,
     config: &Config,
     now: fn() -> i64,
     out: &mut impl Write,
 ) -> Result<(), ClipboardError> {
-    let retention = Retention {
-        max_entries: config.clipboard.max_entries,
-        max_age_days: config.clipboard.max_age_days,
-    };
     if let ClipboardAction::Watch = action {
-        let watching = start(std::sync::Arc::new(std::sync::Mutex::new(retention)), now)?;
+        let watching = start(Arc::new(Mutex::new(config.clipboard.clone())), now)?;
         writeln!(
             out,
             "watching the {} clipboard (Ctrl+C stops)",
@@ -92,7 +118,7 @@ pub(crate) fn run(
         out.flush()?;
         return watching.wait();
     }
-    let mut history = open()?;
+    let mut state = open()?;
     match action {
         ClipboardAction::Watch => {}
         ClipboardAction::Add => {
@@ -100,40 +126,47 @@ pub(crate) fn run(
             io::stdin()
                 .read_to_end(&mut bytes)
                 .map_err(ClipboardError::Stdin)?;
-            history.add(&String::from_utf8_lossy(&bytes), now(), retention)?;
+            let contents = Contents::Text {
+                text: String::from_utf8_lossy(&bytes).into_owned(),
+                source_app: None,
+            };
+            keep(&mut state, contents, &config.clipboard, now())?;
         }
         ClipboardAction::List { json, limit } => {
-            let entries = history.recent(*limit)?;
+            let clips = state.clips(*limit)?;
             if *json {
-                let values: Vec<serde_json::Value> = entries
+                let values: Vec<serde_json::Value> = clips
                     .iter()
-                    .map(|e| {
+                    .map(|clip| {
                         serde_json::json!({
-                            "id": e.id,
-                            "text": e.text,
-                            "first_copied": e.first_copied,
-                            "last_copied": e.last_copied,
-                            "copies": e.copies,
+                            "id": clip.id,
+                            "text": clip.text,
+                            "source_app": clip.source_app,
+                            "first_copied": clip.first_copied,
+                            "last_copied": clip.last_copied,
+                            "copies": clip.copies,
                         })
                     })
                     .collect();
                 serde_json::to_writer_pretty(&mut *out, &values).map_err(io::Error::other)?;
                 writeln!(out)?;
             } else {
-                for entry in &entries {
-                    writeln!(out, "{}", one_line(&entry.text))?;
+                for clip in &clips {
+                    writeln!(out, "{}", one_line(&clip.text))?;
                 }
             }
         }
         ClipboardAction::Paste { number } => {
-            let entries = history.recent(*number)?;
-            let entry = number
+            let clips = state.clips(*number)?;
+            let clip = number
                 .checked_sub(1)
-                .and_then(|i| entries.get(i))
-                .ok_or(ClipboardError::NoEntry(*number, entries.len()))?;
-            crate::paste::paste_and_report(&entry.text)?;
+                .and_then(|i| clips.get(i))
+                .ok_or(ClipboardError::NoEntry(*number, clips.len()))?;
+            crate::paste::paste_and_report(&clip.text)?;
         }
-        ClipboardAction::Clear => history.clear()?,
+        ClipboardAction::Clear => {
+            state.clear_clips()?;
+        }
     }
     Ok(())
 }
@@ -149,18 +182,29 @@ fn one_line(text: &str) -> String {
 }
 
 /// The history in the data directory, created if needed.
-fn open() -> Result<History, ClipboardError> {
+pub(crate) fn open() -> Result<State, ClipboardError> {
     let dir = data_dir(std::env::consts::OS, |name| std::env::var(name).ok())?;
     std::fs::create_dir_all(&dir).map_err(|source| ClipboardError::DataDir {
         path: dir.clone(),
         source,
     })?;
-    Ok(History::open(&dir.join("state.sqlite"))?)
+    Ok(State::open(&dir.join("state.sqlite"))?)
 }
 
-#[cfg(all(unix, not(target_os = "macos")))]
-fn var(name: &str) -> Option<String> {
-    std::env::var(name).ok().filter(|v| !v.is_empty())
+/// Records one copy seen by a watcher thread; problems go to standard error, so one bad
+/// copy does not stop the watcher. Watchers exist on Unix only so far.
+#[cfg(unix)]
+fn keep_reporting(state: &mut State, contents: Contents, settings: &Settings, now: i64) {
+    let settings = settings
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner)
+        .clone();
+    if !settings.enabled {
+        return;
+    }
+    if let Err(error) = keep(state, contents, &settings, now) {
+        let _ = writeln!(io::stderr(), "quickhop: {error}");
+    }
 }
 
 /// A running clipboard watcher.
@@ -209,15 +253,12 @@ impl Watching {
 }
 
 /// Starts recording every copied text into the history: through `wl-paste --watch` on
-/// Wayland, else the X11 watcher. `retention` is read at every copy.
+/// Wayland, else the X11 watcher. `settings` is read at every copy.
 #[cfg(all(unix, not(target_os = "macos")))]
-pub(crate) fn start(
-    retention: std::sync::Arc<std::sync::Mutex<Retention>>,
-    now: fn() -> i64,
-) -> Result<Watching, ClipboardError> {
+pub(crate) fn start(settings: Settings, now: fn() -> i64) -> Result<Watching, ClipboardError> {
     use std::ops::ControlFlow;
-    use std::sync::PoisonError;
 
+    let var = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
     if var("WAYLAND_DISPLAY").is_some() {
         // wl-paste runs `quickhop clipboard add` with the new text on stdin for every copy.
         let exe = std::env::current_exe()?;
@@ -235,15 +276,12 @@ pub(crate) fn start(
             "no graphical session: DISPLAY and WAYLAND_DISPLAY are unset",
         ));
     }
-    let mut history = open()?;
+    let mut state = open()?;
     let thread = std::thread::Builder::new()
         .name("quickhop-clipboard".into())
         .spawn(move || {
-            quickhop_platform_linux::clipboard::watch_x11(None, |text| {
-                let limits = *retention.lock().unwrap_or_else(PoisonError::into_inner);
-                if let Err(error) = history.add(&text, now(), limits) {
-                    let _ = writeln!(io::stderr(), "quickhop: {error}");
-                }
+            quickhop_platform_linux::clipboard::watch_x11(None, |contents| {
+                keep_reporting(&mut state, contents, &settings, now());
                 ControlFlow::Continue(())
             })?;
             Ok(())
@@ -251,11 +289,86 @@ pub(crate) fn start(
     Ok(Watching::X11(thread))
 }
 
+/// How often the macOS pasteboard's change count is read: macOS sends no notification.
+#[cfg(target_os = "macos")]
+const POLL_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+
+/// A running clipboard watcher: a thread polling the pasteboard.
+#[cfg(target_os = "macos")]
+pub(crate) struct Watching {
+    /// Which pasteboard is watched, for messages.
+    label: &'static str,
+    stop: Arc<std::sync::atomic::AtomicBool>,
+    thread: Option<std::thread::JoinHandle<()>>,
+}
+
+#[cfg(target_os = "macos")]
+impl Watching {
+    /// The kind of session watched.
+    pub(crate) fn session(&self) -> &'static str {
+        self.label
+    }
+
+    /// Blocks until the watcher ends, which means never unless [`Self::stop`] runs.
+    pub(crate) fn wait(mut self) -> Result<(), ClipboardError> {
+        if let Some(thread) = self.thread.take() {
+            thread
+                .join()
+                .map_err(|_| ClipboardError::Unsupported("the clipboard watcher panicked"))?;
+        }
+        Ok(())
+    }
+
+    /// Stops polling.
+    pub(crate) fn stop(&mut self) {
+        self.stop.store(true, std::sync::atomic::Ordering::SeqCst);
+        if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+    }
+}
+
+/// Starts recording every copied text into the history by polling the pasteboard through
+/// [`quickhop_core::Watcher`]. `settings` is read at every copy.
+#[cfg(target_os = "macos")]
+pub(crate) fn start(settings: Settings, now: fn() -> i64) -> Result<Watching, ClipboardError> {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    let mut state = open()?;
+    let stop = Arc::new(AtomicBool::new(false));
+    let stopped = Arc::clone(&stop);
+    let thread = std::thread::Builder::new()
+        .name("quickhop-clipboard".into())
+        .spawn(move || {
+            let pasteboard = crate::paste::pasteboard();
+            let mut watcher = quickhop_core::Watcher::new();
+            while !stopped.load(Ordering::SeqCst) {
+                if let Some(copied) = watcher.poll(&pasteboard) {
+                    let contents = Contents::Text {
+                        text: copied.text,
+                        source_app: copied.source_app,
+                    };
+                    keep_reporting(&mut state, contents, &settings, now());
+                }
+                std::thread::sleep(POLL_INTERVAL);
+            }
+        })?;
+    Ok(Watching {
+        label: if std::env::var_os("QUICKHOP_PASTEBOARD").is_some() {
+            "private macOS"
+        } else {
+            "macOS"
+        },
+        stop,
+        thread: Some(thread),
+    })
+}
+
 /// No clipboard watcher exists on this system yet.
-#[cfg(not(all(unix, not(target_os = "macos"))))]
+#[cfg(not(unix))]
 pub(crate) enum Watching {}
 
-#[cfg(not(all(unix, not(target_os = "macos"))))]
+#[cfg(not(unix))]
 impl Watching {
     /// The kind of session watched.
     pub(crate) fn session(&self) -> &'static str {
@@ -266,22 +379,13 @@ impl Watching {
     pub(crate) fn wait(self) -> Result<(), ClipboardError> {
         match self {}
     }
-
-    /// Stops the watcher (the daemon's job, Unix only).
-    #[cfg(unix)]
-    pub(crate) fn stop(&mut self) {
-        match *self {}
-    }
 }
 
 /// Starts recording every copied text into the history.
-#[cfg(not(all(unix, not(target_os = "macos"))))]
-pub(crate) fn start(
-    _retention: std::sync::Arc<std::sync::Mutex<Retention>>,
-    _now: fn() -> i64,
-) -> Result<Watching, ClipboardError> {
+#[cfg(not(unix))]
+pub(crate) fn start(_settings: Settings, _now: fn() -> i64) -> Result<Watching, ClipboardError> {
     Err(ClipboardError::Unsupported(
-        "watching the clipboard on this system comes with the macOS and Windows slices",
+        "watching the clipboard on this system comes with the Windows slice",
     ))
 }
 
@@ -294,5 +398,45 @@ mod tests {
         assert_eq!(one_line("  hello\n"), "hello");
         assert_eq!(one_line("first\nsecond"), "first…");
         assert_eq!(one_line(&"é".repeat(150)), format!("{}…", "é".repeat(100)));
+    }
+
+    #[test]
+    fn secrets_and_non_text_are_never_kept() {
+        let mut state = State::in_memory().unwrap();
+        let settings = Clipboard::default();
+        for contents in [Contents::Secret, Contents::Other] {
+            assert!(!keep(&mut state, contents, &settings, 1).unwrap());
+        }
+        let text = Contents::Text {
+            text: "kept".into(),
+            source_app: Some("com.apple.TextEdit".into()),
+        };
+        assert!(keep(&mut state, text, &settings, 2).unwrap());
+        let clips = state.clips(10).unwrap();
+        assert_eq!(clips.len(), 1);
+        assert_eq!(clips[0].source_app.as_deref(), Some("com.apple.TextEdit"));
+    }
+
+    #[test]
+    fn retention_applies_after_every_copy() {
+        let mut state = State::in_memory().unwrap();
+        let settings = Clipboard {
+            max_entries: 2,
+            ..Clipboard::default()
+        };
+        for (now, text) in [(1, "a"), (2, "b"), (3, "c")] {
+            let contents = Contents::Text {
+                text: text.into(),
+                source_app: None,
+            };
+            keep(&mut state, contents, &settings, now).unwrap();
+        }
+        let texts: Vec<String> = state
+            .clips(10)
+            .unwrap()
+            .into_iter()
+            .map(|c| c.text)
+            .collect();
+        assert_eq!(texts, ["c", "b"]);
     }
 }

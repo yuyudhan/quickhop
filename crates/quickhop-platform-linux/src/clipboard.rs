@@ -1,9 +1,10 @@
 //! Watching the X11 `CLIPBOARD` selection with `XFixes`: every time an application takes
 //! ownership, its content is requested as `UTF8_STRING` (large ones arrive in `INCR`
-//! chunks) and handed to the caller.
+//! chunks) and handed to the caller as [`Contents`].
 
 use std::ops::ControlFlow;
 
+use quickhop_core::Contents;
 use x11rb::connection::Connection;
 use x11rb::errors::{ConnectError, ConnectionError, ReplyError, ReplyOrIdError};
 use x11rb::protocol::Event;
@@ -35,15 +36,15 @@ pub enum ClipboardError {
     NoKey(&'static str),
 }
 
-/// Watches the clipboard of the X server `display` (`None`: `$DISPLAY`) and calls `on_text`
-/// with the text of every new clipboard owner, until `on_text` breaks. Owners that offer no
-/// UTF-8 text (images, files) are skipped; invalid UTF-8 is replaced.
+/// Watches the clipboard of the X server `display` (`None`: `$DISPLAY`) and calls
+/// `on_contents` with what every new clipboard owner offers, until it breaks. Owners that
+/// offer no UTF-8 text (images, files) are skipped; invalid UTF-8 is replaced.
 ///
 /// # Errors
 /// When the X server cannot be reached, lacks `XFixes`, or the connection breaks.
 pub fn watch_x11(
     display: Option<&str>,
-    mut on_text: impl FnMut(String) -> ControlFlow<()>,
+    mut on_contents: impl FnMut(Contents) -> ControlFlow<()>,
 ) -> Result<(), ClipboardError> {
     let (conn, screen) = x11rb::connect(display)?;
     let root = conn
@@ -131,7 +132,11 @@ pub fn watch_x11(
             _ => None,
         };
         if let Some(bytes) = text
-            && on_text(String::from_utf8_lossy(&bytes).into_owned()).is_break()
+            && on_contents(Contents::Text {
+                text: String::from_utf8_lossy(&bytes).into_owned(),
+                source_app: None,
+            })
+            .is_break()
         {
             return Ok(());
         }

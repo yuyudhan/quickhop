@@ -227,32 +227,42 @@ fn var(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.is_empty())
 }
 
-/// The clipboard text from the platform's helper tool, if any is installed and the
-/// clipboard holds text.
+/// The clipboard text, if the clipboard holds text: the pasteboard on macOS, else the
+/// platform's helper tool, if one is installed.
 pub(crate) fn clipboard_text() -> Option<String> {
-    let (program, args): (&str, &[&str]) = match std::env::consts::OS {
-        "macos" => ("pbpaste", &[]),
-        "windows" => (
-            "powershell.exe",
-            &["-NoProfile", "-Command", "Get-Clipboard"],
-        ),
-        _ if var("WAYLAND_DISPLAY").is_some() => ("wl-paste", &["--no-newline"]),
-        _ if var("DISPLAY").is_some() => ("xclip", &["-selection", "clipboard", "-o"]),
-        _ => return None,
-    };
-    let output = Command::new(program)
-        .args(args)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output()
-        .ok()?;
-    let text = String::from_utf8(output.stdout).ok()?;
-    let text = if std::env::consts::OS == "windows" {
-        text.trim_end_matches(['\r', '\n']).to_owned()
-    } else {
-        text
-    };
-    (output.status.success() && !text.is_empty()).then_some(text)
+    #[cfg(target_os = "macos")]
+    {
+        use quickhop_core::{ClipboardSource as _, Contents};
+        match crate::paste::pasteboard().contents() {
+            Contents::Text { text, .. } if !text.is_empty() => Some(text),
+            Contents::Text { .. } | Contents::Secret | Contents::Other => None,
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let (program, args): (&str, &[&str]) = match std::env::consts::OS {
+            "windows" => (
+                "powershell.exe",
+                &["-NoProfile", "-Command", "Get-Clipboard"],
+            ),
+            _ if var("WAYLAND_DISPLAY").is_some() => ("wl-paste", &["--no-newline"]),
+            _ if var("DISPLAY").is_some() => ("xclip", &["-selection", "clipboard", "-o"]),
+            _ => return None,
+        };
+        let output = Command::new(program)
+            .args(args)
+            .stdin(Stdio::null())
+            .stderr(Stdio::null())
+            .output()
+            .ok()?;
+        let text = String::from_utf8(output.stdout).ok()?;
+        let text = if std::env::consts::OS == "windows" {
+            text.trim_end_matches(['\r', '\n']).to_owned()
+        } else {
+            text
+        };
+        (output.status.success() && !text.is_empty()).then_some(text)
+    }
 }
 
 /// Expands a snippet's placeholders with the current time, the clipboard, the snippet

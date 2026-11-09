@@ -9,6 +9,7 @@ repository.workspace = true
 publish.workspace = true
 
 [dependencies]
+quickhop-core.workspace = true
 thiserror.workspace = true
 x11rb.workspace = true
 

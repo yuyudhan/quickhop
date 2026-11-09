@@ -4,12 +4,16 @@
 //! Clipboard entries are deduplicated by the SHA-256 of their text: copying something already
 //! in the history moves that entry to the top instead of adding another. Order is the order of
 //! copies (a sequence number), not of wall-clock times, so a clock that jumps cannot reorder
-//! the history; times only decide retention.
+//! the history; times only decide retention. Blank texts and texts over [`MAX_TEXT_BYTES`]
+//! are not kept.
 
 use std::path::Path;
 
-use rusqlite::{Connection, OptionalExtension, params};
+use rusqlite::{Connection, OptionalExtension, Transaction, params};
 use sha2::{Digest, Sha256};
+
+/// Texts longer than this many bytes are not kept.
+pub const MAX_TEXT_BYTES: usize = 1 << 20;
 
 /// Schema migrations, oldest first; `PRAGMA user_version` counts the ones applied.
 const MIGRATIONS: &[&str] = &["CREATE TABLE clipboard (
@@ -92,6 +96,11 @@ impl State {
         if found > known {
             return Err(StateError::TooNew { found, known });
         }
+        if found == 1 {
+            let tx = conn.transaction()?;
+            adopt_text_history(&tx)?;
+            tx.commit()?;
+        }
         for (version, sql) in (1..)
             .zip(MIGRATIONS)
             .skip(usize::try_from(found).unwrap_or(0))
@@ -106,7 +115,8 @@ impl State {
     }
 
     /// Records that `text` was copied from `source_app` at `now` (Unix milliseconds) and
-    /// returns its entry's id. Text already in the history moves that entry to the top.
+    /// returns its entry's id, or `None` when the text is not kept (blank, or longer than
+    /// [`MAX_TEXT_BYTES`]). Text already in the history moves that entry to the top.
     ///
     /// # Errors
     /// When SQLite fails; nothing is written then.
@@ -115,7 +125,10 @@ impl State {
         text: &str,
         source_app: Option<&str>,
         now: i64,
-    ) -> Result<i64, StateError> {
+    ) -> Result<Option<i64>, StateError> {
+        if text.trim().is_empty() || text.len() > MAX_TEXT_BYTES {
+            return Ok(None);
+        }
         let hash = text_hash(text);
         let tx = self.conn.transaction()?;
         let seq: i64 = tx.query_row(
@@ -136,7 +149,7 @@ impl State {
             |row| row.get(0),
         )?;
         tx.commit()?;
-        Ok(id)
+        Ok(Some(id))
     }
 
     /// The newest `limit` entries, most recently copied first.
@@ -163,31 +176,43 @@ impl State {
     }
 
     /// Applies the retention settings at `now` (Unix milliseconds): deletes unpinned entries
-    /// last copied more than `retention_days` ago, then all but the newest `max_entries`
-    /// unpinned ones. Returns how many were deleted.
+    /// last copied more than `max_age_days` ago (0 keeps them whatever their age), then all
+    /// but the newest `max_entries` unpinned ones. Returns how many were deleted.
     ///
     /// # Errors
     /// When SQLite fails; nothing is deleted then.
     pub fn prune_clips(
         &mut self,
-        retention_days: u32,
-        max_entries: u32,
+        max_age_days: u32,
+        max_entries: usize,
         now: i64,
     ) -> Result<usize, StateError> {
-        let cutoff = now.saturating_sub(i64::from(retention_days).saturating_mul(DAY_MS));
         let tx = self.conn.transaction()?;
-        let expired = tx.execute(
-            "DELETE FROM clipboard WHERE pinned = 0 AND last_copied < ?1",
-            [cutoff],
-        )?;
+        let expired = if max_age_days == 0 {
+            0
+        } else {
+            let cutoff = now.saturating_sub(i64::from(max_age_days).saturating_mul(DAY_MS));
+            tx.execute(
+                "DELETE FROM clipboard WHERE pinned = 0 AND last_copied < ?1",
+                [cutoff],
+            )?
+        };
         let over = tx.execute(
             "DELETE FROM clipboard WHERE pinned = 0 AND id NOT IN (
                  SELECT id FROM clipboard WHERE pinned = 0 ORDER BY seq DESC LIMIT ?1
              )",
-            [i64::from(max_entries)],
+            [i64::try_from(max_entries).unwrap_or(i64::MAX)],
         )?;
         tx.commit()?;
         Ok(expired + over)
+    }
+
+    /// Deletes every clipboard entry, pinned ones too; returns how many there were.
+    ///
+    /// # Errors
+    /// When SQLite fails.
+    pub fn clear_clips(&mut self) -> Result<usize, StateError> {
+        Ok(self.conn.execute("DELETE FROM clipboard", [])?)
     }
 
     /// Deletes one entry; returns whether it existed.
@@ -225,6 +250,49 @@ impl State {
             )
             .optional()?)
     }
+}
+
+/// Moves a text history written by the first command-line `quickhop clipboard` (also schema
+/// version 1, but a 64-bit hash and times in seconds) into the [`MIGRATIONS`] layout. Does
+/// nothing when the table already has that layout.
+fn adopt_text_history(tx: &Transaction<'_>) -> Result<(), StateError> {
+    let has_kind: bool = tx.query_row(
+        "SELECT COUNT(*) > 0 FROM pragma_table_info('clipboard') WHERE name = 'kind'",
+        [],
+        |row| row.get(0),
+    )?;
+    if has_kind {
+        return Ok(());
+    }
+    let rows: Vec<(String, i64, i64, i64, i64)> = tx
+        .prepare("SELECT text, first_copied, last_copied, copies, seq FROM clipboard")?
+        .query_map([], |row| {
+            Ok((
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+            ))
+        })?
+        .collect::<Result<_, _>>()?;
+    tx.execute_batch("DROP TABLE clipboard;")?;
+    tx.execute_batch(MIGRATIONS[0])?;
+    let mut insert = tx.prepare(
+        "INSERT INTO clipboard (hash, kind, text, first_copied, last_copied, copies, seq)
+         VALUES (?1, 'text', ?2, ?3, ?4, ?5, ?6)",
+    )?;
+    for (text, first, last, copies, seq) in rows {
+        insert.execute(params![
+            text_hash(&text),
+            text,
+            first.saturating_mul(1000),
+            last.saturating_mul(1000),
+            copies,
+            seq
+        ])?;
+    }
+    Ok(())
 }
 
 /// The dedupe key of a text entry.
@@ -330,15 +398,39 @@ mod tests {
     }
 
     #[test]
+    fn retention_of_zero_days_keeps_any_age() {
+        let mut state = State::in_memory().unwrap();
+        state.record_clip("ancient", None, 0).unwrap();
+        state.record_clip("new", None, 1_000 * DAY_MS).unwrap();
+        assert_eq!(state.prune_clips(0, 10, 1_000 * DAY_MS).unwrap(), 0);
+        assert_eq!(state.clips(10).unwrap().len(), 2);
+        assert_eq!(
+            state.prune_clips(0, 1, 1_000 * DAY_MS).unwrap(),
+            1,
+            "max_entries still applies"
+        );
+    }
+
+    #[test]
+    fn blank_and_huge_texts_are_not_kept() {
+        let mut state = State::in_memory().unwrap();
+        assert_eq!(state.record_clip(" \n\t", None, 1).unwrap(), None);
+        let huge = "x".repeat(MAX_TEXT_BYTES + 1);
+        assert_eq!(state.record_clip(&huge, None, 1).unwrap(), None);
+        assert!(state.record_clip(&huge[1..], None, 1).unwrap().is_some());
+        assert_eq!(state.clips(10).unwrap().len(), 1);
+    }
+
+    #[test]
     fn hashes_separate_texts_that_differ_only_in_whitespace() {
         assert_ne!(text_hash("a"), text_hash("a "));
         assert_eq!(text_hash("a").len(), 64);
     }
 
     #[test]
-    fn delete_and_lookup() {
+    fn delete_lookup_and_clear() {
         let mut state = State::in_memory().unwrap();
-        let id = state.record_clip("gone soon", None, 1).unwrap();
+        let id = state.record_clip("gone soon", None, 1).unwrap().unwrap();
         assert_eq!(
             state.clip(id).unwrap().map(|c| c.text),
             Some("gone soon".into())
@@ -346,6 +438,43 @@ mod tests {
         assert!(state.delete_clip(id).unwrap());
         assert!(!state.delete_clip(id).unwrap());
         assert_eq!(state.clip(id).unwrap(), None);
+        state.record_clip("a", None, 2).unwrap();
+        state.record_clip("b", None, 3).unwrap();
+        assert_eq!(state.clear_clips().unwrap(), 2);
+        assert_eq!(state.clips(10).unwrap(), Vec::new());
+    }
+
+    #[test]
+    fn the_first_command_line_history_is_adopted() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.sqlite");
+        Connection::open(&path)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE clipboard (id INTEGER PRIMARY KEY, hash INTEGER NOT NULL,
+                     text TEXT NOT NULL, first_copied INTEGER NOT NULL,
+                     last_copied INTEGER NOT NULL, copies INTEGER NOT NULL, seq INTEGER NOT NULL);
+                 CREATE INDEX clipboard_hash ON clipboard (hash);
+                 INSERT INTO clipboard VALUES (1, 7, 'older', 10, 20, 2, 1), (2, 8, 'newer', 30, 30, 1, 2);
+                 PRAGMA user_version = 1;",
+            )
+            .unwrap();
+        let mut state = State::open(&path).unwrap();
+        let clips = state.clips(10).unwrap();
+        let seen: Vec<(&str, i64, i64, i64)> = clips
+            .iter()
+            .map(|c| (c.text.as_str(), c.first_copied, c.last_copied, c.copies))
+            .collect();
+        assert_eq!(
+            seen,
+            [("newer", 30_000, 30_000, 1), ("older", 10_000, 20_000, 2)]
+        );
+        state.record_clip("older", None, 40_000).unwrap();
+        assert_eq!(
+            state.clips(1).unwrap()[0].copies,
+            3,
+            "adopted entries dedupe"
+        );
     }
 
     #[test]

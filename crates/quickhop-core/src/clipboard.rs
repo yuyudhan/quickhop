@@ -23,6 +23,20 @@ pub enum Contents {
     Other,
 }
 
+impl Contents {
+    /// The copy worth remembering in these contents: text that is not only whitespace.
+    /// Secrets and non-text contents give `None`. Every watcher, polled or pushed, goes
+    /// through this, so a password manager's copy is never recorded on any platform.
+    pub fn into_copied(self) -> Option<Copied> {
+        match self {
+            Self::Text { text, source_app } if !text.trim().is_empty() => {
+                Some(Copied { text, source_app })
+            }
+            Self::Text { .. } | Self::Secret | Self::Other => None,
+        }
+    }
+}
+
 /// The system clipboard, as the watcher sees it.
 pub trait ClipboardSource {
     /// A number the system changes whenever anything is copied.
@@ -63,12 +77,7 @@ impl Watcher {
         if previous.is_none_or(|previous| previous == count) {
             return None;
         }
-        match source.contents() {
-            Contents::Text { text, source_app } if !text.trim().is_empty() => {
-                Some(Copied { text, source_app })
-            }
-            Contents::Text { .. } | Contents::Secret | Contents::Other => None,
-        }
+        source.contents().into_copied()
     }
 }
 
