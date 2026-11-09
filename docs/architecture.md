@@ -179,6 +179,13 @@ runs any of an item's actions by kind.
   chunks); Wayland compositors with a data-control protocol through `wl-paste --watch quickhop
   clipboard add`. GNOME's Wayland session has no such protocol, so there copies are only seen
   while quickhop has focus (with the window, later). macOS polling of `NSPasteboard` comes on m4.
+- Pasting (`quickhop clipboard paste [n]`, `launch`/`open --paste` for copy and snippet
+  results, checked before anything runs): the text goes on the clipboard (`xclip`, `wl-copy`,
+  `pbcopy`, PowerShell), quickhop waits until the clipboard holds it, then presses Ctrl+V
+  through `XTest` on X11 (`quickhop-platform-linux::keyboard`). On Wayland, macOS and Windows
+  the text stays on the clipboard and quickhop says so: the virtual-keyboard protocol (wtype
+  did not paste into GTK in headless sway 1.7) and the `RemoteDesktop` portal on Linux,
+  `CGEventPost` on m4, come later.
 - Snippets and quicklinks are authored in TOML under the config directory so they sync and
   diff as text; the database only keeps usage data.
 

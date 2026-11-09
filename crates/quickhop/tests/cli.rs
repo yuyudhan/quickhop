@@ -456,6 +456,48 @@ fn clipboard_add_list_retention_and_clear() -> TestResult {
     Ok(())
 }
 
+#[test]
+fn paste_refuses_missing_entries_non_text_results_and_no_session() -> TestResult {
+    let sandbox = Sandbox::new()?;
+    let failure = |args: &[&str]| -> Result<String, Box<dyn Error>> {
+        let output = sandbox
+            .cmd()?
+            .env_remove("DISPLAY")
+            .env_remove("WAYLAND_DISPLAY")
+            .args(args)
+            .output()?;
+        assert!(!output.status.success(), "{args:?} succeeded");
+        Ok(String::from_utf8(output.stderr)?)
+    };
+    sandbox
+        .cmd()?
+        .args(["clipboard", "add"])
+        .write_stdin("only one")
+        .assert()
+        .success();
+    let missing = failure(&["clipboard", "paste", "3"])?;
+    assert!(
+        missing.contains("no entry 3: the history holds 1"),
+        "{missing}"
+    );
+    // Checked before anything runs: pasting a power command must not run it.
+    let power = failure(&[
+        "launch",
+        "system:lock",
+        "--query",
+        "lock",
+        "--paste",
+        "--yes",
+    ])?;
+    assert!(
+        power.contains("only text results (copy, snippet) can be pasted, not run"),
+        "{power}"
+    );
+    let headless = failure(&["launch", "emoji:1f604", "--query", "smile", "--paste"])?;
+    assert!(headless.contains("no graphical session"), "{headless}");
+    Ok(())
+}
+
 /// The daemon over a private runtime directory, with no display to watch.
 #[cfg(unix)]
 mod daemon {

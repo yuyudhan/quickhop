@@ -65,7 +65,7 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 |----|---------|--------|---|-------|------------------------|
 | CLP-01 | Text clipboard history, searchable, kept in SQLite | partial | P0 | daemon polls `NSPasteboard.changeCount` (250 ms) (next, on m4) | built: `quickhop clipboard watch\|add\|list\|clear`, history in `state.sqlite` with `[clipboard]` retention. X11: XFixes `SelectionNotify` on `CLIPBOARD`. Wayland: `wl-paste --watch` on compositors with `wlr-data-control` / `ext-data-control-v1` (sway, Hyprland, KWin, COSMIC); native `wayland-client` later; GNOME has no data-control protocol: watch only while quickhop has focus, or the optional GNOME Shell extension. The searchable view comes with the launcher window |
 | CLP-02 | Images, files and rich text in history | planned | P1 | pasteboard types `public.png`, `public.file-url`, `public.rtf` | MIME targets `image/png`, `text/uri-list`, `text/html` |
-| CLP-03 | Paste the chosen entry into the frontmost app | planned | P0 | set pasteboard, hide, synthesize `⌘V` with `CGEventPost` (Accessibility) | set clipboard (`wl-copy` / X11 owner), then X11: XTest `Ctrl+V`; Wayland: `virtual-keyboard-unstable-v1` (wlroots), `RemoteDesktop` portal keyboard (GNOME, KDE), or `ydotool`; else copy only and say so |
+| CLP-03 | Paste the chosen entry into the frontmost app | partial | P0 | set pasteboard, hide, synthesize `⌘V` with `CGEventPost` (Accessibility) (next, on m4; copy only until then) | built: `quickhop clipboard paste [n]`, `launch`/`open --paste`; sets the clipboard (`xclip` / `wl-copy`), then X11: XTest `Ctrl+V` (done). Wayland: copy only and say so, until `virtual-keyboard-unstable-v1` (wlroots; `wtype` did not paste into GTK in headless sway 1.7) and the `RemoteDesktop` portal keyboard (GNOME, KDE) |
 | CLP-04 | Ignore secrets and chosen apps; pin entries; delete | planned | P1 | skip `org.nspasteboard.ConcealedType`/`TransientType`; frontmost app via `NSWorkspace` | skip `x-kde-passwordManagerHint=secret`; X11 `_NET_ACTIVE_WINDOW` class; Wayland: per-target MIME hints only |
 | CLP-05 | Paste as plain text | planned | P1 | write `public.utf8-plain-text` only | offer `text/plain;charset=utf-8` only |
 | CLP-06 | Retention limits and encryption at rest | planned | P2 | key in Keychain (Security framework) | key in Secret Service (`org.freedesktop.secrets`) via `oo7`/`secret-service` |
@@ -184,10 +184,10 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | Priority | Features | done | partial | planned |
 |----------|---------:|-----:|--------:|--------:|
-| P0 | 30 | 19 | 6 | 5 |
+| P0 | 30 | 19 | 7 | 4 |
 | P1 | 36 | 1 | 5 | 30 |
 | P2 | 29 | 0 | 0 | 29 |
-| All | 95 | 20 | 11 | 64 |
+| All | 95 | 20 | 12 | 63 |
 
 Counted from the tables above; recount when editing them.
 
@@ -200,6 +200,6 @@ metadata, modes and arguments), and snippets with Raycast's dynamic placeholders
 
 Missing for a first usable release (the P0 gaps): the launcher window and its global hotkey
 (LCH-01, LCH-07, LCH-10, LCH-11), `toggle` and the window in the daemon (PLT-01),
-Spotlight file search on macOS (FIL-01), the clipboard view, macOS clipboard watching and paste (CLP-01, CLP-03), pasting snippets
+Spotlight file search on macOS (FIL-01), the clipboard view, macOS clipboard watching and paste on Wayland and macOS (CLP-01, CLP-03), pasting snippets
 (SNP-01), application icon rendering (APP-02) and launch at login on macOS (CFG-07).
 [plan.md](plan.md) orders these into slices.

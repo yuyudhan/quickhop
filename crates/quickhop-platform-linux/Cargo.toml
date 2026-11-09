@@ -1,6 +1,6 @@
 [package]
 name = "quickhop-platform-linux"
-description = "Linux desktop integration for quickhop: X11 clipboard watching."
+description = "Linux desktop integration for quickhop: X11 clipboard watching and synthetic paste."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

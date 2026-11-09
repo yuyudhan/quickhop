@@ -36,7 +36,7 @@ A free alternative to Raycast that runs your Raycast script commands unchanged.
 | **Script commands** (all metadata, modes, arguments) | ✅ | inline refresh, ANSI output view |
 | Global hotkey and launcher window | | 🛠 next |
 | File and folder search (own index, `quickhop index`; open, reveal, copy path, trash) | ✅ | Spotlight on macOS, Quick Look, open with |
-| Clipboard history (`quickhop clipboard watch`, X11 and wlroots/KDE Wayland) | ✅ | searchable view, paste, macOS, GNOME Wayland |
+| Clipboard history (`quickhop clipboard watch`, X11 and wlroots/KDE Wayland; `clipboard paste` on X11) | ✅ | searchable view, paste on Wayland and macOS, GNOME Wayland watching |
 | Snippets with dynamic placeholders | ✅ | paste into the frontmost app, auto-expansion |
 | Window management | | 🛠 |
 | Aliases, enable/disable and root order per command | ✅ | per-command hotkeys, favorites, fallbacks |
@@ -83,6 +83,7 @@ Then check your setup:
     quickhop index --watch                    # index files under ~ (or [files] roots), keep it current
     quickhop clipboard watch                  # record copied text (X11, wlroots/KDE Wayland)
     quickhop clipboard list                   # newest first; --json for everything
+    quickhop clipboard paste 2                # paste the second newest into the focused app (X11)
     quickhop daemon &                         # one per user: clipboard history, live file index
     quickhop open emoji:1f604 --query smile   # an action through the daemon (starts one if needed)
     mkdir -p ~/.config/quickhop && quickhop config default > ~/.config/quickhop/config.toml

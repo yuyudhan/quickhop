@@ -30,6 +30,9 @@ pub enum ClipboardError {
     /// The display named a screen the server does not have.
     #[error("X11: no screen {0}")]
     NoScreen(usize),
+    /// No key in the keyboard mapping produces a needed key symbol.
+    #[error("X11: no key for {0} in the keyboard mapping")]
+    NoKey(&'static str),
 }
 
 /// Watches the clipboard of the X server `display` (`None`: `$DISPLAY`) and calls `on_text`

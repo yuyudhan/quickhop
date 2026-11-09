@@ -41,6 +41,8 @@ pub(crate) enum Request {
         args: Vec<String>,
         yes: bool,
         action: Option<String>,
+        #[serde(default)]
+        paste: bool,
     },
     /// Read the configuration again and restart the watchers with it.
     Reload,
@@ -310,6 +312,7 @@ impl State {
                 args,
                 yes,
                 action,
+                paste,
             } => {
                 let request = LaunchRequest {
                     id: &id,
@@ -318,6 +321,7 @@ impl State {
                     yes,
                     dry_run: false,
                     action: action.as_deref(),
+                    paste,
                 };
                 let mut out = Vec::new();
                 match launch(&self.config, &request, &mut out) {

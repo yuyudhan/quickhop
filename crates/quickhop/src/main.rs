@@ -7,6 +7,7 @@ mod clipboard;
 #[cfg(unix)]
 mod daemon;
 mod launch;
+mod paste;
 mod trash;
 
 use std::io::{self, Write};
@@ -65,6 +66,10 @@ enum Command {
         /// instead of its default one.
         #[arg(long)]
         action: Option<String>,
+        /// Paste a text result (copy, snippet) into the focused application instead of
+        /// printing it.
+        #[arg(long)]
+        paste: bool,
     },
     /// Inspect or validate the configuration file.
     Config {
@@ -123,6 +128,9 @@ enum Command {
         /// Run the result's first action of this kind instead of its default one.
         #[arg(long)]
         action: Option<String>,
+        /// Paste a text result into the focused application instead of printing it.
+        #[arg(long)]
+        paste: bool,
     },
     /// Make the running daemon read the configuration again.
     #[cfg(unix)]
@@ -170,6 +178,10 @@ enum CliError {
     NotFound(String, String),
     #[error("{0} needs confirmation: run again with --yes")]
     NeedsConfirmation(String),
+    #[error("only text results (copy, snippet) can be pasted, not {0}")]
+    NotPasteable(&'static str),
+    #[error(transparent)]
+    Paste(#[from] paste::PasteError),
     #[error("{id} has no {kind} action (it has: {available})")]
     NoAction {
         id: String,
@@ -407,6 +419,7 @@ struct LaunchRequest<'a> {
     yes: bool,
     dry_run: bool,
     action: Option<&'a str>,
+    paste: bool,
 }
 
 fn launch(
@@ -443,6 +456,10 @@ fn launch(
             request.query.to_owned(),
         ));
     };
+    let pasteable = matches!(action, Action::Copy { .. } | Action::Snippet { .. });
+    if request.paste && !pasteable {
+        return Err(CliError::NotPasteable(action.kind()));
+    }
     if request.dry_run {
         serde_json::to_writer_pretty(&mut *out, action)?;
         writeln!(out)?;
@@ -452,7 +469,9 @@ fn launch(
         return Err(CliError::NeedsConfirmation(item.title.clone()));
     }
     let message = launch::perform(action, request.args)?;
-    if !message.is_empty() {
+    if request.paste {
+        paste::paste_and_report(&message)?;
+    } else if !message.is_empty() {
         writeln!(out, "{message}")?;
     }
     let mut warnings = Vec::new();
@@ -481,6 +500,7 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
             yes,
             dry_run,
             action,
+            paste,
         } => {
             let request = LaunchRequest {
                 id: &id,
@@ -489,6 +509,7 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
                 yes,
                 dry_run,
                 action: action.as_deref(),
+                paste,
             };
             launch(&load_config()?, &request, out)?;
         }
@@ -510,6 +531,7 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
             args,
             yes,
             action,
+            paste,
         } => {
             let request = daemon::Request::Open {
                 id,
@@ -517,6 +539,7 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
                 args,
                 yes,
                 action,
+                paste,
             };
             let message = daemon::message(daemon::send_starting(&request)?)?;
             if !message.is_empty() {

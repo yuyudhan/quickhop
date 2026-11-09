@@ -229,7 +229,7 @@ fn var(name: &str) -> Option<String> {
 
 /// The clipboard text from the platform's helper tool, if any is installed and the
 /// clipboard holds text.
-fn clipboard_text() -> Option<String> {
+pub(crate) fn clipboard_text() -> Option<String> {
     let (program, args): (&str, &[&str]) = match std::env::consts::OS {
         "macos" => ("pbpaste", &[]),
         "windows" => (

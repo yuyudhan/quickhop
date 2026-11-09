@@ -35,7 +35,7 @@ serde_json = "1.0"
 tempfile = "3.27"
 thiserror = "2.0"
 toml = "1.2"
-x11rb = { version = "0.14", features = ["xfixes"] }
+x11rb = { version = "0.14", features = ["xfixes", "xtest"] }
 
 [workspace.lints.rust]
 missing_docs = "deny"

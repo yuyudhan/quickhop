@@ -25,6 +25,12 @@ pub(crate) enum ClipboardAction {
         #[arg(long, default_value_t = 20)]
         limit: usize,
     },
+    /// Paste an entry into the focused application (1 is the newest).
+    Paste {
+        /// Which entry, newest first.
+        #[arg(default_value_t = 1)]
+        number: usize,
+    },
     /// Delete every entry.
     Clear,
 }
@@ -59,6 +65,10 @@ pub(crate) enum ClipboardError {
     WlPasteFailed(String),
     #[error("{0}")]
     Unsupported(&'static str),
+    #[error("no entry {0}: the history holds {1}")]
+    NoEntry(usize, usize),
+    #[error(transparent)]
+    Paste(#[from] crate::paste::PasteError),
 }
 
 /// Runs `action` with the retention limits of `config`.
@@ -114,6 +124,14 @@ pub(crate) fn run(
                     writeln!(out, "{}", one_line(&entry.text))?;
                 }
             }
+        }
+        ClipboardAction::Paste { number } => {
+            let entries = history.recent(*number)?;
+            let entry = number
+                .checked_sub(1)
+                .and_then(|i| entries.get(i))
+                .ok_or(ClipboardError::NoEntry(*number, entries.len()))?;
+            crate::paste::paste_and_report(&entry.text)?;
         }
         ClipboardAction::Clear => history.clear()?,
     }
