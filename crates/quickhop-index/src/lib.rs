@@ -522,10 +522,18 @@ fn walk(options: &Options, roots: &[PathBuf], cancel: &Cancel) -> Result<Vec<Ent
 mod tests {
     use super::*;
 
+    /// `rel`'s `/`-separated components joined onto `base` with the OS separator, as the
+    /// walker reports paths (on Windows, `join("a/b")` would keep the `/`).
+    fn at(base: &Path, rel: &str) -> PathBuf {
+        rel.split('/')
+            .filter(|c| !c.is_empty())
+            .fold(base.to_path_buf(), |path, c| path.join(c))
+    }
+
     fn tree(paths: &[&str]) -> tempfile::TempDir {
         let dir = tempfile::tempdir().unwrap();
         for path in paths {
-            let full = dir.path().join(path);
+            let full = at(dir.path(), path);
             if path.ends_with('/') {
                 std::fs::create_dir_all(&full).unwrap();
             } else {
@@ -556,7 +564,7 @@ mod tests {
         let mut index = Index::in_memory().unwrap();
         let options = Options::new(vec![dir.path().to_path_buf()]);
         let stats = index.rebuild(&options, &Cancel::new()).unwrap();
-        let has = |p: &str| index.contains(&dir.path().join(p)).unwrap();
+        let has = |p: &str| index.contains(&at(dir.path(), p)).unwrap();
         assert!(has("notes/report.md") && has("code/app/src/main.rs") && has("code/app/src"));
         for missing in [
             "notes/.secret.md",
@@ -612,18 +620,19 @@ mod tests {
         let options = Options::new(vec![dir.path().to_path_buf()]);
         let mut index = Index::in_memory().unwrap();
         index.rebuild(&options, &Cancel::new()).unwrap();
-        let moved = dir.path().join("box/inner");
+        let moved = at(dir.path(), "box/inner");
+        let file = at(&moved, "deep/file.txt");
         std::fs::create_dir_all(moved.join("deep")).unwrap();
-        std::fs::write(moved.join("deep/file.txt"), "x").unwrap();
+        std::fs::write(&file, "x").unwrap();
         index.refresh(&options, &moved).unwrap();
-        assert!(index.contains(&moved.join("deep/file.txt")).unwrap());
+        assert!(index.contains(&file).unwrap());
         assert_eq!(
             names(&index.search("file.txt", 5).unwrap()),
             vec!["file.txt"]
         );
         std::fs::remove_dir_all(&moved).unwrap();
         index.refresh(&options, &moved).unwrap();
-        assert!(!index.contains(&moved.join("deep/file.txt")).unwrap());
+        assert!(!index.contains(&file).unwrap());
         assert_eq!(index.search("file.txt", 5).unwrap(), Vec::<Hit>::new());
         // A sibling whose name extends the removed one survives.
         assert!(index.contains(&dir.path().join("keep.txt")).unwrap());

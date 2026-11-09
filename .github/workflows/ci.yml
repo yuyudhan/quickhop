@@ -53,7 +53,8 @@ jobs:
             - name: Clippy
               run: cargo clippy --workspace --all-targets --all-features -- -D warnings
             - name: Test
-              run: cargo test --workspace --all-features
+              # Every failing test on every OS in one run, not just the first failing crate's.
+              run: cargo test --workspace --all-features --no-fail-fast
 
     deny:
         name: cargo-deny
