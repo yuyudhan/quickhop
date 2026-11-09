@@ -103,7 +103,7 @@ fn collect(dir: &Path, depth: usize, out: &mut Vec<PathBuf>, warnings: &mut Vec<
     }
 }
 
-/// Turns a bundle into an item that opens it.
+/// Turns a bundle into an item that opens it, shows it in Finder or copies its path.
 pub fn to_item(bundle: &Bundle) -> Item {
     let key = bundle
         .identifier
@@ -118,15 +118,20 @@ pub fn to_item(bundle: &Bundle) -> Item {
         .flatten()
         .filter(|k| !k.eq_ignore_ascii_case(&bundle.name))
         .collect();
+    let path = bundle.path.to_string_lossy().into_owned();
     let mut item = Item::new(
         ItemId::new(NAME, key),
         bundle.name.clone(),
         Action::Open {
-            target: bundle.path.to_string_lossy().into_owned(),
+            target: path.clone(),
         },
     )
-    .with_subtitle(bundle.path.to_string_lossy().into_owned())
+    .with_subtitle(path.clone())
     .with_keywords(keywords);
+    item.actions.extend([
+        Action::Reveal { path: path.clone() },
+        Action::Copy { text: path },
+    ]);
     if let Some(icon) = &bundle.icon {
         item = item.with_icon(icon.to_string_lossy().into_owned());
     }

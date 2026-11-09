@@ -193,11 +193,16 @@ fn bundles_use_info_plist() -> TestResult {
     let safari = find(apps.all(), "Safari")?;
     assert_eq!(safari.id.key, "com.apple.Safari");
     let root = common::fixtures().join("Applications");
+    let path = root.join("Safari.app").to_string_lossy().into_owned();
     assert_eq!(
-        safari.default_action(),
-        Some(&Action::Open {
-            target: root.join("Safari.app").to_string_lossy().into_owned()
-        })
+        safari.actions,
+        [
+            Action::Open {
+                target: path.clone()
+            },
+            Action::Reveal { path: path.clone() },
+            Action::Copy { text: path },
+        ]
     );
     assert_eq!(
         icon_of(safari),
