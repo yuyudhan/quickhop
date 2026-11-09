@@ -249,7 +249,8 @@ impl Watching {
         match self {}
     }
 
-    /// Stops the watcher.
+    /// Stops the watcher (the daemon's job, Unix only).
+    #[cfg(unix)]
     pub(crate) fn stop(&mut self) {
         match *self {}
     }
