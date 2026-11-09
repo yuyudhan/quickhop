@@ -115,6 +115,28 @@ pub struct Files {
     pub exclude: Vec<String>,
 }
 
+/// Most clipboard entries `max_entries` may keep.
+pub const MAX_CLIPBOARD_ENTRIES: usize = 100_000;
+
+/// How much clipboard history is kept.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Clipboard {
+    /// Most entries kept, 1 to [`MAX_CLIPBOARD_ENTRIES`]; the oldest go first.
+    pub max_entries: usize,
+    /// Entries not copied for this many days are dropped; 0 keeps them forever.
+    pub max_age_days: u32,
+}
+
+impl Default for Clipboard {
+    fn default() -> Self {
+        Self {
+            max_entries: 1000,
+            max_age_days: 90,
+        }
+    }
+}
+
 /// A URL template opened with the query, e.g. a web search.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -173,6 +195,8 @@ pub struct Config {
     pub scripts: Scripts,
     /// File-index sources.
     pub files: Files,
+    /// Clipboard history retention.
+    pub clipboard: Clipboard,
     /// Quicklinks, in display order.
     pub quicklinks: Vec<Quicklink>,
     /// Per-command aliases, switches, hotkeys and root order.
@@ -188,6 +212,7 @@ impl Default for Config {
             apps: Apps::default(),
             scripts: Scripts::default(),
             files: Files::default(),
+            clipboard: Clipboard::default(),
             quicklinks: Vec::new(),
             commands: Vec::new(),
         }
@@ -235,6 +260,12 @@ impl Config {
             return Err(ConfigError::Invalid(format!(
                 "max_results must be between 1 and {MAX_RESULTS_LIMIT}, got {}",
                 self.max_results
+            )));
+        }
+        if !(1..=MAX_CLIPBOARD_ENTRIES).contains(&self.clipboard.max_entries) {
+            return Err(ConfigError::Invalid(format!(
+                "clipboard.max_entries must be between 1 and {MAX_CLIPBOARD_ENTRIES}, got {}",
+                self.clipboard.max_entries
             )));
         }
         for link in &self.quicklinks {

@@ -426,6 +426,37 @@ fn file_actions_copy_the_path_and_move_to_the_trash() -> TestResult {
 }
 
 #[test]
+fn clipboard_add_list_retention_and_clear() -> TestResult {
+    let sandbox = Sandbox::new()?;
+    sandbox.add_config("[clipboard]\nmax_entries = 3\n")?;
+    for text in ["one", "two\nlines", "  ", "three", "one", "four"] {
+        sandbox
+            .cmd()?
+            .args(["clipboard", "add"])
+            .write_stdin(text)
+            .assert()
+            .success();
+    }
+    // Blank text is skipped, `one` moved to the front, `two` cut by max_entries.
+    let listed = stdout(sandbox.cmd()?.args(["clipboard", "list"]))?;
+    assert_eq!(listed, "four\none\nthree\n");
+    let json: Value = serde_json::from_str(&stdout(sandbox.cmd()?.args([
+        "clipboard",
+        "list",
+        "--json",
+        "--limit",
+        "2",
+    ]))?)?;
+    assert_eq!(json[1]["text"], "one");
+    assert_eq!(json[1]["copies"], 2);
+    assert_eq!(json.as_array().map(Vec::len), Some(2));
+
+    stdout(sandbox.cmd()?.args(["clipboard", "clear"]))?;
+    assert_eq!(stdout(sandbox.cmd()?.args(["clipboard", "list"]))?, "");
+    Ok(())
+}
+
+#[test]
 fn launching_records_frecency() -> TestResult {
     let sandbox = Sandbox::new()?;
     let id = "emoji:1f62c";

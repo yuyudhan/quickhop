@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod clipboard;
 mod launch;
 mod trash;
 
@@ -90,6 +91,11 @@ enum Command {
         #[arg(long)]
         watch: bool,
     },
+    /// Clipboard history: watch, add, list, clear.
+    Clipboard {
+        #[command(subcommand)]
+        action: clipboard::ClipboardAction,
+    },
 }
 
 #[derive(Debug, Subcommand)]
@@ -149,6 +155,8 @@ enum CliError {
     ScriptFailed(String),
     #[error(transparent)]
     Index(#[from] quickhop_index::IndexError),
+    #[error(transparent)]
+    Clipboard(#[from] clipboard::ClipboardError),
     #[error("nothing to index: set [files] roots or HOME")]
     NoIndexRoots,
 }
@@ -434,6 +442,7 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
             };
             launch(&load_config()?, &request, out)?;
         }
+        Command::Clipboard { action } => clipboard::run(&action, &load_config()?, now, out)?,
         Command::Config {
             action: ConfigAction::Default,
         } => write!(out, "{}", Config::default_toml())?,

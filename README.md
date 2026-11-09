@@ -36,7 +36,7 @@ A free alternative to Raycast that runs your Raycast script commands unchanged.
 | **Script commands** (all metadata, modes, arguments) | ✅ | inline refresh, ANSI output view |
 | Global hotkey and launcher window | | 🛠 next |
 | File and folder search (own index, `quickhop index`; open, reveal, copy path, trash) | ✅ | Spotlight on macOS, Quick Look, open with |
-| Clipboard history with paste | | 🛠 |
+| Clipboard history (`quickhop clipboard watch`, X11 and wlroots/KDE Wayland) | ✅ | searchable view, paste, macOS, GNOME Wayland |
 | Snippets with dynamic placeholders | ✅ | paste into the frontmost app, auto-expansion |
 | Window management | | 🛠 |
 | Aliases, enable/disable and root order per command | ✅ | per-command hotkeys, favorites, fallbacks |
@@ -79,6 +79,8 @@ Then check your setup:
     quickhop launch files:/home/me/notes.md --action reveal   # any action by kind (copy, trash, …)
     quickhop run hello Ada                    # run a script command with an argument
     quickhop index --watch                    # index files under ~ (or [files] roots), keep it current
+    quickhop clipboard watch                  # record copied text (X11, wlroots/KDE Wayland)
+    quickhop clipboard list                   # newest first; --json for everything
     mkdir -p ~/.config/quickhop && quickhop config default > ~/.config/quickhop/config.toml
 
 ## Configuration
@@ -118,6 +120,13 @@ order = 1             # first in the empty root search
 [[commands]]
 id = "system:shutdown"
 enabled = false       # never shown; unknown ids are config errors
+
+[files]
+roots = ["~/code", "~/Documents"]   # what `quickhop index` covers (default: ~)
+
+[clipboard]
+max_entries = 1000    # history kept by `quickhop clipboard watch`
+max_age_days = 90     # 0 keeps entries forever
 ```
 
 ```toml

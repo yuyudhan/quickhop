@@ -5,7 +5,11 @@
 //! after typing `fir` credits the empty prefix and `f`, `fi` and `fir`. Each credit is worth 1
 //! at the moment of the pick and halves every [`HALF_LIFE_SECS`] (7 days). Scores are
 //! stored already decayed to their last update, so a pick is one upsert per prefix.
+//!
+//! [`clipboard`] keeps the clipboard history in a second database, `state.sqlite`.
 #![forbid(unsafe_code)]
+
+pub mod clipboard;
 
 use std::path::Path;
 

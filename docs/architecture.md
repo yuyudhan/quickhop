@@ -12,13 +12,13 @@ order [plan.md](plan.md).
 |-------|-------|------|
 | `quickhop-core` | built | Platform-independent model: `Item`, `ItemId`, `Action` (plain data: `Open`, `Copy`, `Run`, `Script`, `Snippet`), `Query`, `Cancel`, the `Provider` trait, the nucleo fuzzy matcher (`fuzzy`), `Search`/`rank` (tiers, frecency, dedupe, limit, `[[commands]]` overrides), `Config` (TOML, XDG paths, the one-time macOS migration), the snippet library (`snippets`) and Raycast's dynamic placeholders (`placeholders`, with LDML date patterns in `datefmt`), expanded from a caller-supplied context. |
 | `quickhop-providers` | built | Built-in providers over an explicit `Env` (OS + variables): `apps`, `calc`, `emoji`, `system`, `quicklinks`, `scripts`, `snippets`. `builtin(config, env)` loads the enabled ones; `script_dirs` resolves script directories. |
-| `quickhop-store` | built | SQLite (rusqlite, bundled): frecency per (query prefix, item), half-life 7 days. Grows the clipboard, snippet, favorites and chat tables. |
-| `quickhop` | built | The binary: `query`, `launch`, `run`, `index [--watch]`, `config default\|path\|check`, `doctor`; later `daemon`, `toggle`, `open`. |
+| `quickhop-store` | built | SQLite (rusqlite, bundled): frecency per (query prefix, item), half-life 7 days (`frecency.sqlite`); `clipboard::History`, the text clipboard history (`state.sqlite`). Grows the snippet, favorites and chat tables. |
+| `quickhop` | built | The binary: `query`, `launch`, `run`, `index [--watch]`, `clipboard watch\|add\|list\|clear`, `config default\|path\|check`, `doctor`; later `daemon`, `toggle`, `open`. |
 | `quickhop-ui` | empty | The launcher window in gpui ([ADR 0001](adr/0001-ui-toolkit.md)); `model` holds the toolkit-free view model. |
 | `quickhop-index` | built | File index for Linux (and as a Spotlight fallback): parallel walk (`ignore`), `notify` watcher, SQLite FTS5 trigram index searched through `fuzzy`. |
 | `quickhop-ext` | planned | Extension host: spawns extensions, speaks JSON-RPC over stdio, maps their views to the UI model. |
 | `quickhop-platform-macos` | planned | The only place for FFI on macOS: AX (window management, selected text, paste), `NSPasteboard`, `NSRunningApplication`, `NSStatusItem`, EventKit. |
-| `quickhop-platform-linux` | planned | Wayland protocols (data-control, virtual-keyboard, foreign-toplevel) via `wayland-client`, X11 via `x11rb`, D-Bus/portals via `zbus`/`ashpd`. |
+| `quickhop-platform-linux` | started | Built: the X11 clipboard watcher (`x11rb`, `XFixes`, `INCR` transfers). Planned: Wayland protocols (data-control, virtual-keyboard, foreign-toplevel) via `wayland-client`, D-Bus/portals via `zbus`/`ashpd`. |
 
 Unsafe code is forbidden everywhere except the two platform crates, which must document every
 unsafe block (`scripts/check-unsafe.sh`, CONTRIBUTING.md). Platform crates compile on every OS
@@ -38,7 +38,7 @@ Configuration is XDG on macOS and Linux alike (Windows keeps `%APPDATA%`):
 
     ~/.local/share/quickhop/            $XDG_DATA_HOME/quickhop, or $QUICKHOP_DATA
     ├── frecency.sqlite                 picks per query prefix
-    ├── state.sqlite                    (planned) clipboard history, snippets usage, favorites, AI chats
+    ├── state.sqlite                    clipboard history; later snippets usage, favorites, AI chats
     ├── index.sqlite                    file index (`quickhop index`)
     └── extensions/                     (planned) installed extensions
 
@@ -158,11 +158,19 @@ runs any of an item's actions by kind.
 
 - `frecency.sqlite` (built): one row per (normalised query prefix, item id) holding a score
   already decayed to its last update.
-- `state.sqlite` (planned), migrated with `rusqlite_migration`: `clipboard` (content hash,
-  kind, text or blob path, source app, pinned, timestamps; images and files stored as files
-  beside it), `snippets_usage`, `favorites`, `aliases`, `hotkeys`, `chats`/`messages`.
-  Clipboard retention is configurable; encryption at rest uses a key from the OS keyring
-  (Keychain, Secret Service).
+- `state.sqlite`, migrated one `PRAGMA user_version` step at a time. Built: `clipboard` (FNV-1a
+  hash of the text for deduplication, text, first and last copy time, copy count, and a
+  sequence number so the newest copy sorts first even within one second); `[clipboard]
+  max_entries` (default 1000) and `max_age_days` (default 90, 0 keeps forever) are applied
+  after every copy, and texts over 1 MiB are not kept. Planned: images and files (stored as
+  files beside it), source app, pinned entries, `snippets_usage`, `favorites`, `aliases`,
+  `hotkeys`, `chats`/`messages`; encryption at rest with a key from the OS keyring (Keychain,
+  Secret Service).
+- Clipboard watching (`quickhop clipboard watch`, later inside the daemon): X11 through
+  `XFixes` selection-owner events on `CLIPBOARD`, reading `UTF8_STRING` (large texts in `INCR`
+  chunks); Wayland compositors with a data-control protocol through `wl-paste --watch quickhop
+  clipboard add`. GNOME's Wayland session has no such protocol, so there copies are only seen
+  while quickhop has focus (with the window, later). macOS polling of `NSPasteboard` comes on m4.
 - Snippets and quicklinks are authored in TOML under the config directory so they sync and
   diff as text; the database only keeps usage data.
 

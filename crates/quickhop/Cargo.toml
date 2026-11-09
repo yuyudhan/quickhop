@@ -20,6 +20,9 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+quickhop-platform-linux.workspace = true
+
 [dev-dependencies]
 assert_cmd.workspace = true
 serde_json.workspace = true
