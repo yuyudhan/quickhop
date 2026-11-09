@@ -1,6 +1,7 @@
 # Testing
 
-`just test` runs everything below on the host; CI runs it on Ubuntu, macOS and Windows.
+`just test` runs everything below on the host; `just check` runs it after the format, guard,
+spelling and clippy gates. CI runs `just check`'s steps on Ubuntu, macOS and Windows.
 
 ## Layout
 
@@ -9,8 +10,8 @@
 | `crates/*/src/**` `#[cfg(test)]` | Unit tests next to the code: desktop-entry parsing, `Exec` field codes, icon-theme sizes, plist reading, script headers, frecency maths, config validation. |
 | `crates/quickhop-core/tests/ranking_prop.rs` | proptest: fuzzy matches are exactly the subsequences, positions are increasing and correct; ranking is sorted, unique, limited and deterministic; matched results really match; an exact alias is always first; frecency never lowers an item. |
 | `crates/quickhop-store/tests/frecency_prop.rs` | proptest: decay is monotonic and composes, prefixes nest, more picks never score less. |
-| `crates/quickhop-providers/tests/providers/` | One test binary over `tests/fixtures/`: `contract.rs`, `apps.rs`, `scripts.rs`, `snapshots.rs`, shared builders in `common.rs`. |
-| `crates/quickhop/tests/cli.rs` | End-to-end: the real binary with a sandboxed config and data dir (`QUICKHOP_CONFIG`, `QUICKHOP_DATA`): `query --json` for apps, calculator, units, emoji, quicklinks; text output; `launch` confirmation, frecency recording, script commands. |
+| `crates/quickhop-providers/tests/providers/` | One test binary over `tests/fixtures/`: `contract.rs`, `apps.rs`, `scripts.rs`, `raycast_goldens.rs`, `snapshots.rs`, shared builders in `common.rs`. |
+| `crates/quickhop/tests/cli.rs` | End-to-end: the real binary with a sandboxed config and data dir (`QUICKHOP_CONFIG`, `QUICKHOP_DATA`, `HOME` pointing nowhere): `query --json` for apps, calculator, units, emoji, quicklinks; text output; `launch` confirmation, frecency recording, script commands; `run` by path, stem and title, `--yes`, the default `scripts/` directory; on macOS the move from `~/Library/Application Support/quickhop`. |
 
 ## Provider contract
 
@@ -46,6 +47,12 @@ agree.
   argument and timeout cases, CRLF): the same Raycast scripts for every mode, arguments (text,
   dropdown, percent-encoded), `needsConfirmation`, `currentDirectoryPath`, failure, timeout,
   an invalid one, a hidden one and a non-script file.
+- `raycast-goldens/`: Raycast's own script commands, unmodified (MIT,
+  `LICENSE-raycast-script-commands`, from raycast/script-commands at `cf612c2`): the eight
+  language templates and ten community commands covering every mode, `refreshTime`,
+  `needsConfirmation`, `iconDark`, text and dropdown arguments, optional arguments, and an
+  absent `packageName`. `raycast_goldens.rs` asserts Raycast's documented semantics and
+  snapshots every parsed field; the loader test checks `*.template.*` files are skipped.
 
 Providers take an explicit `Env` (OS + variables), so tests pin `linux` with an empty `PATH`
 and never read the machine's apps, themes or locale. Both script sets are parsed on every OS; the
@@ -68,7 +75,8 @@ mismatch fails the run.
 
 ## Gates
 
-- pre-commit: `just check` (format, guards, typos, clippy on three targets) on the staged tree.
-- pre-push: `just verify` (check, test, deny) on every commit being pushed.
+- pre-commit: `just check` (format, guards, typos, host clippy, tests) on the staged tree.
+- pre-push: `just verify` (check, clippy on three targets via zig, deny) on every commit
+  being pushed.
 - Both export the tree into `target/hook-tree/` (`scripts/hook-tree.sh`) and run there, so
   other people's uncommitted files in a shared clone never affect them.

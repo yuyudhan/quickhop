@@ -9,7 +9,7 @@ and pull request to it.
     cargo install just taplo-cli typos-cli cargo-deny --locked
     just install-hooks                # pre-commit: `just check`, pre-push: `just verify`
 
-`just check` cross-checks clippy for the other two targets; the bundled SQLite is C, so that
+`just verify` cross-checks clippy for the other two targets; the bundled SQLite is C, so that
 needs [zig](https://ziglang.org/download/) on `PATH` (`scripts/zig-tool.sh` wraps `zig cc`).
 
 ## Commands
@@ -17,10 +17,11 @@ needs [zig](https://ziglang.org/download/) on `PATH` (`scripts/zig-tool.sh` wrap
 | Command | Does |
 |---------|------|
 | `just fmt` | `cargo fmt` and `taplo fmt` in place |
-| `just check` | format check, guards, typos, clippy `-D warnings` for `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-gnu`, `aarch64-apple-darwin` |
-| `just test` | all unit, integration, property, snapshot and CLI e2e tests ([docs/testing.md](docs/testing.md)) |
+| `just check` | format check, guards, typos, clippy `-D warnings` for the host, all tests: the everyday gate (pre-commit) |
+| `just clippy-all` | clippy `-D warnings` for `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-gnu`, `aarch64-apple-darwin` |
+| `just test` | all unit, integration, property, golden, snapshot and CLI e2e tests ([docs/testing.md](docs/testing.md)) |
 | `just deny` | cargo-deny: advisories, licences, duplicate versions, sources |
-| `just verify` | check, test, deny |
+| `just verify` | check, clippy-all, deny (pre-push) |
 
 ## Hooks
 
@@ -33,10 +34,12 @@ Never bypass them with `--no-verify`; fix the failure.
 
 ## Rules
 
-- **No unsafe code.** Every crate root has `#![forbid(unsafe_code)]` and the workspace sets
-  `unsafe_code = "forbid"`; `scripts/check-unsafe.sh` enforces both. Should a platform API ever
-  need FFI, it goes in a dedicated `quickhop-sys-*` crate listed as the only exception in that
-  script, with a `// SAFETY:` comment on every block.
+- **Unsafe code only in platform crates.** Every crate root has `#![forbid(unsafe_code)]` and
+  the workspace sets `unsafe_code = "forbid"`. FFI to AppKit/Accessibility, Wayland or X11
+  lives in `crates/quickhop-platform-<os>` crates, which declare their own `[lints]` without
+  the forbid and whose roots carry `#![deny(unsafe_op_in_unsafe_fn)]` and
+  `#![deny(clippy::undocumented_unsafe_blocks)]`: one `unsafe` block per operation, each with
+  a `// SAFETY:` comment. `scripts/check-unsafe.sh` enforces all of it.
 - **Files stay under 3000 lines** (`scripts/check-line-count.sh`). Split modules before then.
 - **4-space indentation everywhere**, no tabs: Rust (rustfmt.toml), TOML (taplo), YAML, Markdown
   and scripts (.editorconfig).
