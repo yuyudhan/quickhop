@@ -4,6 +4,8 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::Hotkey;
+
 /// Largest accepted `max_results`.
 pub const MAX_RESULTS_LIMIT: usize = 100;
 
@@ -256,9 +258,8 @@ impl Config {
     /// # Errors
     /// When a value is out of range.
     pub fn validate(&self) -> Result<(), ConfigError> {
-        if self.hotkey.trim().is_empty() {
-            return Err(ConfigError::Invalid("hotkey must not be empty".into()));
-        }
+        let launcher = Hotkey::parse(&self.hotkey)
+            .map_err(|error| ConfigError::Invalid(format!("hotkey: {error}")))?;
         if !(1..=MAX_RESULTS_LIMIT).contains(&self.max_results) {
             return Err(ConfigError::Invalid(format!(
                 "max_results must be between 1 and {MAX_RESULTS_LIMIT}, got {}",
@@ -286,6 +287,7 @@ impl Config {
             }
         }
         let mut seen = std::collections::HashSet::new();
+        let mut hotkeys = std::collections::HashMap::from([(launcher, "the launcher".to_owned())]);
         for command in &self.commands {
             let id = &command.id;
             if crate::ItemId::parse(id).is_none() {
@@ -303,10 +305,14 @@ impl Config {
                     "command {id}: alias must be one word"
                 )));
             }
-            if command.hotkey.as_ref().is_some_and(|h| h.trim().is_empty()) {
-                return Err(ConfigError::Invalid(format!(
-                    "command {id}: hotkey must not be empty"
-                )));
+            if let Some(text) = &command.hotkey {
+                let hotkey = Hotkey::parse(text)
+                    .map_err(|error| ConfigError::Invalid(format!("command {id}: {error}")))?;
+                if let Some(other) = hotkeys.insert(hotkey, format!("command {id}")) {
+                    return Err(ConfigError::Invalid(format!(
+                        "command {id}: hotkey {hotkey} is already the hotkey of {other}"
+                    )));
+                }
             }
         }
         Ok(())
@@ -611,6 +617,13 @@ mod tests {
             "[[commands]]\nid = \"no-provider\"\n",
             "[[commands]]\nid = \"apps:x\"\nalias = \"two words\"\n",
             "[[commands]]\nid = \"apps:x\"\nhotkey = \" \"\n",
+            "[[commands]]\nid = \"apps:x\"\nhotkey = \"Ctrl+Hyper+X\"\n",
+            "[[commands]]\nid = \"apps:x\"\nhotkey = \"x\"\n",
+            "[[commands]]\nid = \"apps:x\"\nhotkey = \"option+space\"\n",
+            "[[commands]]\nid = \"apps:x\"\nhotkey = \"Ctrl+X\"\n\
+             [[commands]]\nid = \"apps:y\"\nhotkey = \"ctrl+x\"\n",
+            "hotkey = \"Alt+Spacebar\"\n",
+            "hotkey = \"Space\"\n",
             "[[commands]]\nid = \"apps:x\"\n[[commands]]\nid = \"apps:x\"\n",
         ] {
             assert!(

@@ -9,6 +9,7 @@ pub mod clipboard;
 pub mod config;
 pub mod datefmt;
 pub mod fuzzy;
+pub mod hotkey;
 pub mod item;
 pub mod paste;
 pub mod placeholders;
@@ -21,6 +22,7 @@ pub use config::{
     Apps, Clipboard, CommandSettings, Config, ConfigError, Files, Providers, Quicklink, Scripts,
 };
 pub use fuzzy::{Match, Matcher, score};
+pub use hotkey::{Hotkey, HotkeyError};
 pub use item::{Action, Item, ItemId, ScriptArgument, ScriptArgumentKind, ScriptMode};
 pub use provider::{Cancel, Provider, ProviderError, Query};
 pub use search::{Boosts, Ranked, Search, SearchResults, Tier, rank};

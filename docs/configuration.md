@@ -44,7 +44,7 @@ such as `[[quicklinks]]` repeat once per entry; their keys are written `quicklin
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `hotkey` | `"Alt+Space"` | Global shortcut for the launcher window, e.g. `"Ctrl+Space"`. It must not be empty. The window is under construction, so today the value is validated and shown by `quickhop doctor`. |
+| `hotkey` | `"Alt+Space"` | Global shortcut that shows and hides the launcher window: modifiers and one key joined by `+`, in any order and case, e.g. `"Ctrl+Space"`, `"cmd+shift+k"`, `"F13"`. `Cmd`, `Command`, `Super` and `Meta` are one modifier, `Alt`, `Option` and `Opt` another; a key that types a character needs a modifier, function keys may stand alone. The macOS daemon registers it (`quickhop daemon status` says whether it holds it, or why not, such as another app holding it); on Linux the window, and so the hotkey, is still being built. |
 | `max_results` | `8` | Results shown per search, 1 to 100. `quickhop query --limit N` overrides it once. |
 
 ### `[providers]`
@@ -128,7 +128,7 @@ An id that matches nothing is a config error, so stale entries are caught.
 | `commands[].id` | `required` | The result, `provider:key`. Each id may appear once. |
 | `commands[].alias` | `unset` | One word that pins the result when typed alone or as the first word. |
 | `commands[].enabled` | `true` | `false` removes the result from every search. |
-| `commands[].hotkey` | `unset` | Global shortcut that runs the result directly, e.g. `"Ctrl+Alt+T"`. Validated today; registered by the launcher once its global hotkeys exist. Until then, bind the key in your desktop to `quickhop open ID`. |
+| `commands[].hotkey` | `unset` | Global shortcut that runs the result directly, e.g. `"Ctrl+Alt+T"`, written as `hotkey` above. Checked today, including that no two commands, nor a command and the launcher, share one; registered once per-command hotkeys exist. Until then, bind the key in your desktop to `quickhop open ID`. |
 | `commands[].order` | `unset` | Position in the empty search: lower first, ahead of results without one. |
 
 ```toml
