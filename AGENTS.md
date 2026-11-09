@@ -19,11 +19,12 @@ the slice you are working on.
     just check     # the gate: fmt check, guards, typos, clippy -D warnings, all tests
     just fmt       # cargo fmt + taplo fmt
     just test      # tests only
-    just verify    # check + clippy for linux/windows/macos targets (needs zig) + cargo-deny
+    just verify    # check + clippy for this OS's targets and Windows + cargo-deny
 
-Run `just check` before every commit; it must be green on macOS and on Linux. Snapshot
-changes: `INSTA_UPDATE=always cargo test -p quickhop-providers --test providers`, then review
-the `.snap` diff and commit it with the change that caused it.
+Run `just check` before every commit; it must be green on macOS and on Linux. `just verify`
+checks Linux clippy only on Linux and macOS clippy only on macOS, so run it on both before a
+push. Snapshot changes: `INSTA_UPDATE=always cargo test -p quickhop-providers --test
+providers`, then review the `.snap` diff and commit it with the change that caused it.
 
 ## Rules
 

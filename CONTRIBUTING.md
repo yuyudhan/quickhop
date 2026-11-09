@@ -9,8 +9,17 @@ and pull request to it.
     cargo install just taplo-cli typos-cli cargo-deny --locked
     just install-hooks                # pre-commit: `just check`, pre-push: `just verify`
 
-`just verify` cross-checks clippy for the other two targets; the bundled SQLite is C, so that
-needs [zig](https://ziglang.org/download/) on `PATH` (`scripts/zig-tool.sh` wraps `zig cc`).
+`just verify` runs clippy for every target this machine can check and names the rest:
+
+- macOS checks `aarch64-apple-darwin` and cross-checks `x86_64-pc-windows-gnu`;
+  `x86_64-unknown-linux-gnu` is deferred, since gpui's font libraries need a Linux sysroot.
+- Linux checks `x86_64-unknown-linux-gnu` and cross-checks `x86_64-pc-windows-gnu`;
+  `aarch64-apple-darwin` is deferred, since gpui's Metal shaders need the macOS SDK.
+
+Run `just verify` on both before a push; CI lints every OS natively on every push. The Windows
+cross-check needs [zig](https://ziglang.org/download/) on `PATH` (the bundled SQLite is C;
+`scripts/zig-tool.sh` wraps `zig cc`) and mingw-w64's `windres` (`brew install mingw-w64`,
+`apt install mingw-w64`). A missing tool fails the gate instead of skipping the target.
 
 ## Commands
 

@@ -1,7 +1,7 @@
 set shell := ["bash", "-euo", "pipefail", "-c"]
 set windows-shell := ["bash", "-euo", "pipefail", "-c"]
 
-# Targets clippy runs for; cross targets need `rustup target add` and zig (no linker).
+# Targets clippy runs for; each machine checks those it can and names the rest (scripts/clippy-all.sh).
 targets := "x86_64-unknown-linux-gnu x86_64-pc-windows-gnu aarch64-apple-darwin"
 
 default:
@@ -30,7 +30,7 @@ typos:
 clippy:
     cargo clippy --workspace --all-targets --all-features -- -D warnings
 
-# Clippy with -D warnings for every target triple.
+# Clippy with -D warnings for every target triple this OS can check; prints what it deferred.
 clippy-all:
     scripts/clippy-all.sh {{targets}}
 
@@ -45,7 +45,7 @@ test:
 deny:
     cargo deny check
 
-# The full local gate (pre-push): check, clippy for every target (needs zig), deny.
+# The full local gate (pre-push): check, clippy-all (needs zig and mingw-w64), deny.
 verify: check clippy-all deny
 
 # Linux .deb and tarball in target/bundle/ (needs dpkg-dev).

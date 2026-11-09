@@ -84,7 +84,7 @@ mismatch fails the run.
 ## Gates
 
 - pre-commit: `just check` (format, guards, typos, host clippy, tests) on the staged tree.
-- pre-push: `just verify` (check, clippy on three targets via zig, deny) on every commit
-  being pushed.
+- pre-push: `just verify` (check, clippy for this OS's targets and Windows, deny) on every
+  commit being pushed; it prints which targets it deferred to the other OS.
 - Both export the tree into `target/hook-tree/` (`scripts/hook-tree.sh`) and run there, so
   other people's uncommitted files in a shared clone never affect them.
