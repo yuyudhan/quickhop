@@ -64,6 +64,14 @@ impl Sandbox {
         Ok(cmd)
     }
 
+    /// Appends `toml` to the sandbox config.
+    fn add_config(&self, toml: &str) -> Result<(), Box<dyn Error>> {
+        let path = self.dir.path().join("config.toml");
+        let config = std::fs::read_to_string(&path)?;
+        std::fs::write(&path, format!("{config}\n{toml}"))?;
+        Ok(())
+    }
+
     fn query(&self, text: &str) -> Result<Value, Box<dyn Error>> {
         let out = stdout(self.cmd()?.args(["query", "--json", text]))?;
         Ok(serde_json::from_str(&out)?)
@@ -216,6 +224,53 @@ fn launch_rejects_unknown_ids() -> TestResult {
         let output = sandbox.cmd()?.args(["launch", id]).output()?;
         assert!(!output.status.success(), "{id}");
     }
+    Ok(())
+}
+
+fn ids(results: &Value) -> Vec<&str> {
+    results["results"]
+        .as_array()
+        .map(|r| r.iter().filter_map(|v| v["id"].as_str()).collect())
+        .unwrap_or_default()
+}
+
+#[test]
+fn commands_alias_disable_and_order_items() -> TestResult {
+    let sandbox = Sandbox::new()?;
+    sandbox.add_config(
+        "[[commands]]\nid = \"system:reboot\"\nalias = \"rb\"\n\n\
+         [[commands]]\nid = \"emoji:1f62c\"\nalias = \"grim\"\n\n\
+         [[commands]]\nid = \"system:lock\"\nenabled = false\n\n\
+         [[commands]]\nid = \"system:shutdown\"\norder = 1\n",
+    )?;
+    for (text, id) in [("rb", "system:reboot"), ("grim", "emoji:1f62c")] {
+        let alias = sandbox.query(text)?;
+        assert_eq!(first(&alias)["id"], id, "{alias:#}");
+        assert_eq!(first(&alias)["tier"], "pinned");
+    }
+    let lock = sandbox.query("lock")?;
+    assert!(!ids(&lock).contains(&"system:lock"), "{lock:#}");
+    let launch = sandbox.cmd()?.args(["launch", "system:lock"]).output()?;
+    assert!(!launch.status.success());
+    let root = sandbox.query("")?;
+    assert_eq!(first(&root)["id"], "system:shutdown", "{root:#}");
+    Ok(())
+}
+
+#[test]
+fn unknown_command_ids_are_config_errors() -> TestResult {
+    let sandbox = Sandbox::new()?;
+    sandbox.add_config("[[commands]]\nid = \"system:no-such-command\"\nalias = \"x\"\n")?;
+    let query = sandbox.cmd()?.args(["query", "lock"]).output()?;
+    assert!(!query.status.success());
+    let stderr = String::from_utf8_lossy(&query.stderr);
+    assert!(
+        stderr.contains("unknown command id system:no-such-command"),
+        "{stderr}"
+    );
+    let check = sandbox.cmd()?.args(["config", "check"]).output()?;
+    assert!(!check.status.success());
+    assert!(String::from_utf8_lossy(&check.stderr).contains("system:no-such-command"));
     Ok(())
 }
 

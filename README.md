@@ -39,7 +39,7 @@ A free alternative to Raycast that runs your Raycast script commands unchanged.
 | Clipboard history with paste | | 🛠 |
 | Snippets with dynamic placeholders | | 🛠 |
 | Window management | | 🛠 |
-| Aliases and hotkeys per command, favorites, fallbacks | | 🛠 |
+| Aliases, enable/disable and root order per command | ✅ | per-command hotkeys, favorites, fallbacks |
 | AI chat, Quick AI, AI commands | | 🛠 |
 | Extensions and store | | 🛠 |
 | Themes, settings window, live reload | | 🛠 |
@@ -106,6 +106,15 @@ dirs = ["~/code/raycast-scripts"]   # more folders, after ~/.config/quickhop/scr
 name = "GitHub search"
 url = "https://github.com/search?q={query}"
 alias = "gh"          # type `gh tokio`
+
+[[commands]]          # any result, by the id `quickhop query --json` prints
+id = "system:lock"
+alias = "lk"          # type `lk` to pin it
+order = 1             # first in the empty root search
+
+[[commands]]
+id = "system:shutdown"
+enabled = false       # never shown; unknown ids are config errors
 ```
 
 Upgrading from quickhop 0.1 on macOS moves `~/Library/Application Support/quickhop` to these

@@ -25,6 +25,9 @@ pub enum ConfigError {
     /// A value is out of range.
     #[error("invalid config: {0}")]
     Invalid(String),
+    /// `[[commands]]` ids that name no item of a loaded, non-computed provider.
+    #[error("invalid config: unknown command id {}", .0.join(", "))]
+    UnknownCommands(Vec<String>),
     /// No location for the config file could be derived from the environment.
     #[error("cannot locate the config directory: set QUICKHOP_CONFIG or {0}")]
     NoConfigDir(&'static str),
@@ -106,6 +109,35 @@ pub struct Quicklink {
     pub alias: Option<String>,
 }
 
+/// Per-command settings from a `[[commands]]` table: any item of a non-computed provider,
+/// named by its id as printed by `quickhop query` (`provider:key`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct CommandSettings {
+    /// The item, `provider:key`, e.g. `apps:org.mozilla.firefox.desktop`.
+    pub id: String,
+    /// Single-word shortcut: typing it (alone or as the first word) pins the item.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alias: Option<String>,
+    /// `false` removes the item from every search.
+    #[serde(default = "enabled")]
+    pub enabled: bool,
+    /// Global hotkey that runs the item directly, e.g. `Ctrl+Alt+T`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hotkey: Option<String>,
+    /// Position in the empty root search: lower first, before items without one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub order: Option<u32>,
+}
+
+fn enabled() -> bool {
+    true
+}
+
+fn is_one_word(text: &str) -> bool {
+    !text.is_empty() && !text.contains(char::is_whitespace)
+}
+
 /// The whole configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -122,6 +154,8 @@ pub struct Config {
     pub scripts: Scripts,
     /// Quicklinks, in display order.
     pub quicklinks: Vec<Quicklink>,
+    /// Per-command aliases, switches, hotkeys and root order.
+    pub commands: Vec<CommandSettings>,
 }
 
 impl Default for Config {
@@ -133,6 +167,7 @@ impl Default for Config {
             apps: Apps::default(),
             scripts: Scripts::default(),
             quicklinks: Vec::new(),
+            commands: Vec::new(),
         }
     }
 }
@@ -186,14 +221,34 @@ impl Config {
                     "quicklinks need a name and a url".into(),
                 ));
             }
-            if link
-                .alias
-                .as_ref()
-                .is_some_and(|a| a.is_empty() || a.contains(char::is_whitespace))
-            {
+            if link.alias.as_ref().is_some_and(|a| !is_one_word(a)) {
                 return Err(ConfigError::Invalid(format!(
                     "quicklink {}: alias must be one word",
                     link.name
+                )));
+            }
+        }
+        let mut seen = std::collections::HashSet::new();
+        for command in &self.commands {
+            let id = &command.id;
+            if crate::ItemId::parse(id).is_none() {
+                return Err(ConfigError::Invalid(format!(
+                    "command id {id:?} must be provider:key"
+                )));
+            }
+            if !seen.insert(id) {
+                return Err(ConfigError::Invalid(format!(
+                    "command {id} is listed twice"
+                )));
+            }
+            if command.alias.as_ref().is_some_and(|a| !is_one_word(a)) {
+                return Err(ConfigError::Invalid(format!(
+                    "command {id}: alias must be one word"
+                )));
+            }
+            if command.hotkey.as_ref().is_some_and(|h| h.trim().is_empty()) {
+                return Err(ConfigError::Invalid(format!(
+                    "command {id}: hotkey must not be empty"
                 )));
             }
         }
@@ -438,6 +493,36 @@ mod tests {
         assert!(matches!(
             Config::from_toml(unnamed),
             Err(ConfigError::Invalid(_))
+        ));
+    }
+
+    #[test]
+    fn commands_parse_and_validate() {
+        let text = "[[commands]]\nid = \"apps:firefox.desktop\"\nalias = \"ff\"\nhotkey = \"Ctrl+Alt+F\"\norder = 2\n\n\
+                    [[commands]]\nid = \"system:lock\"\nenabled = false\n";
+        let config = Config::from_toml(text).unwrap();
+        assert_eq!(config.commands[0].alias.as_deref(), Some("ff"));
+        assert!(config.commands[0].enabled);
+        assert_eq!(config.commands[0].order, Some(2));
+        assert!(!config.commands[1].enabled);
+        assert_eq!(
+            Config::from_toml(&toml::to_string(&config).unwrap()).unwrap(),
+            config
+        );
+        for bad in [
+            "[[commands]]\nid = \"no-provider\"\n",
+            "[[commands]]\nid = \"apps:x\"\nalias = \"two words\"\n",
+            "[[commands]]\nid = \"apps:x\"\nhotkey = \" \"\n",
+            "[[commands]]\nid = \"apps:x\"\n[[commands]]\nid = \"apps:x\"\n",
+        ] {
+            assert!(
+                matches!(Config::from_toml(bad), Err(ConfigError::Invalid(_))),
+                "{bad}"
+            );
+        }
+        assert!(matches!(
+            Config::from_toml("[[commands]]\nid = \"apps:x\"\ncolour = 1\n"),
+            Err(ConfigError::Parse(_))
         ));
     }
 

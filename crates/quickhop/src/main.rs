@@ -211,10 +211,32 @@ struct Outcome {
     warnings: Vec<String>,
 }
 
-fn search(config: &Config, text: &str, limit: usize) -> Outcome {
+/// The enabled providers with the `[[commands]]` settings applied, plus loading warnings.
+///
+/// # Errors
+/// When a `[[commands]]` id names no item.
+fn load_search(config: &Config, limit: usize) -> Result<(Search, Vec<String>), CliError> {
     let env = Env::current();
     let (providers, loaded) = quickhop_providers::builtin(config, &env);
-    let mut warnings: Vec<String> = loaded.iter().map(warning_text).collect();
+    let search = Search::new(limit)
+        .with_providers(providers)
+        .with_commands(&config.commands);
+    if !config.commands.is_empty() {
+        let unknown = search.unknown_commands();
+        if !unknown.is_empty() {
+            let ids = unknown.iter().map(ToString::to_string).collect();
+            return Err(quickhop_core::ConfigError::UnknownCommands(ids).into());
+        }
+    }
+    Ok((search, loaded.iter().map(warning_text).collect()))
+}
+
+/// Searches every enabled provider with the `[[commands]]` settings applied.
+///
+/// # Errors
+/// When a `[[commands]]` id names no item.
+fn search(config: &Config, text: &str, limit: usize) -> Result<Outcome, CliError> {
+    let (search, mut warnings) = load_search(config, limit)?;
     let boosts = match open_store(&mut warnings).map(|s| s.boosts(text, now())) {
         Some(Ok(boosts)) => boosts,
         Some(Err(error)) => {
@@ -223,16 +245,12 @@ fn search(config: &Config, text: &str, limit: usize) -> Outcome {
         }
         None => Boosts::new(),
     };
-    let results = Search::new(limit).with_providers(providers).run(
-        &Query::new(text),
-        &Cancel::new(),
-        &boosts,
-    );
-    Outcome {
+    let results = search.run(&Query::new(text), &Cancel::new(), &boosts);
+    Ok(Outcome {
         ranked: results.ranked,
         errors: results.errors.iter().map(ToString::to_string).collect(),
         warnings,
-    }
+    })
 }
 
 #[derive(Serialize)]
@@ -263,7 +281,7 @@ fn query(
     limit: usize,
     out: &mut impl Write,
 ) -> Result<(), CliError> {
-    let outcome = search(config, text, limit);
+    let outcome = search(config, text, limit)?;
     if json {
         let results = outcome
             .ranked
@@ -317,7 +335,7 @@ fn launch(
     out: &mut impl Write,
 ) -> Result<(), CliError> {
     let id = ItemId::parse(request.id).ok_or_else(|| CliError::BadId(request.id.to_owned()))?;
-    let outcome = search(config, request.query, usize::MAX);
+    let outcome = search(config, request.query, usize::MAX)?;
     let item = outcome
         .ranked
         .into_iter()
@@ -390,7 +408,11 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
                 Some(path) => path,
                 None => default_path()?,
             };
-            Config::load(&path)?;
+            let config = Config::load(&path)?;
+            // Command ids are checked against the items the providers load.
+            if !config.commands.is_empty() {
+                load_search(&config, 1)?;
+            }
             writeln!(out, "{}: ok", path.display())?;
         }
         Command::Run {

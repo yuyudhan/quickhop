@@ -22,12 +22,12 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 | LCH-01 | Global hotkey opens/closes the launcher (default `Alt+Space`) | planned | P0 | `RegisterEventHotKey` (Carbon) via the `global-hotkey` crate; no permission needed | X11: `XGrabKey` (`global-hotkey`). Wayland: `GlobalShortcuts` portal (KDE 5.27+, GNOME 48+, Hyprland); else a compositor binding to `quickhop toggle` (sway `bindsym`, Hyprland `bind`, GNOME custom shortcut via `gsettings`), set up by `quickhop doctor --fix` |
 | LCH-02 | Root search: fuzzy match over every provider | done | P0 | nucleo matcher in `quickhop-core`, shared | same |
 | LCH-03 | Frecency ranking per query prefix (7-day half-life) | done | P0 | SQLite store | same |
-| LCH-04 | Aliases for any command (`g rust`, `:smile`) | partial | P0 | quicklinks and emoji today; per-command `alias` in config for every item | same |
+| LCH-04 | Aliases for any command (`g rust`, `:smile`) | done | P0 | quicklinks and emoji built in; `[[commands]] alias` for every item | same |
 | LCH-05 | Hotkey per command (open an app or run a script without the launcher) | planned | P1 | `global-hotkey` registrations from `[[commands]] hotkey` | X11 grabs; Wayland portal shortcuts (one per command) or compositor bindings to `quickhop run`/`quickhop open <id>` |
 | LCH-06 | Favorites pinned at the top of the empty root | planned | P1 | store table `favorites` | same |
 | LCH-07 | Action panel (`⌘K` / `Ctrl+K`) with every action of the selected item | planned | P0 | `Item::actions` already carries them; UI list | same |
 | LCH-08 | Fallback commands when nothing matches (web search, file search, AI) | planned | P1 | config `fallbacks = [...]` of command ids, ranked after results | same |
-| LCH-09 | Enable, disable and reorder root commands | partial | P1 | `[providers]` switches today; per-command `enabled` and order next | same |
+| LCH-09 | Enable, disable and reorder root commands | done | P1 | `[providers]` switches; `[[commands]] enabled` and `order` (empty root) | same |
 | LCH-10 | Navigation stack: commands push views, `Esc` pops, `Esc` at root hides | planned | P0 | UI | same |
 | LCH-11 | Launcher window: borderless, rounded, translucent/blurred, on the active screen, hides on focus loss | planned | P0 | gpui `WindowBackgroundAppearance::Blurred` (NSVisualEffectView), `NSPanel`-style non-activating window, screen of the mouse/key window | X11: override-redirect-free centered dialog, `_NET_WM_STATE_ABOVE`, ARGB visual; Wayland: `wlr-layer-shell` overlay (sway, Hyprland, KWin, COSMIC) with KDE blur protocol when offered; GNOME (no layer-shell): normal centered undecorated window |
 | LCH-12 | Command arguments inline in the search bar (`alias` + space focuses them) | planned | P1 | UI over `ScriptArgument` | same |
@@ -184,21 +184,22 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | Priority | Features | done | partial | planned |
 |----------|---------:|-----:|--------:|--------:|
-| P0 | 30 | 17 | 2 | 11 |
-| P1 | 36 | 0 | 5 | 31 |
+| P0 | 30 | 18 | 1 | 11 |
+| P1 | 36 | 1 | 4 | 31 |
 | P2 | 29 | 0 | 0 | 29 |
-| All | 95 | 17 | 7 | 71 |
+| All | 95 | 19 | 5 | 71 |
 
 Counted from the tables above; recount when editing them.
 
 ## Gap summary
 
-Built (from the CLI): the fuzzy and frecency ranking core, the config, applications on
-macOS and Linux, calculator and units, emoji, system power commands, quicklinks, and Raycast
-script commands end to end (`quickhop run`, all metadata, modes and arguments).
+Built (from the CLI): the fuzzy and frecency ranking core, the config with per-command
+aliases, switches and root order, applications on macOS and Linux, calculator and units, emoji,
+system power commands, quicklinks, and Raycast script commands end to end (`quickhop run`, all
+metadata, modes and arguments).
 
 Missing for a first usable release (the P0 gaps): the launcher window and its global hotkey
-(LCH-01, LCH-07, LCH-10, LCH-11), the daemon and IPC (PLT-01), per-command aliases (LCH-04),
+(LCH-01, LCH-07, LCH-10, LCH-11), the daemon and IPC (PLT-01),
 file search (FIL-01), clipboard history with paste (CLP-01, CLP-03), snippets with placeholders
 (SNP-01, SNP-02), application icon rendering (APP-02) and launch at login (CFG-07).
 [plan.md](plan.md) orders these into slices.

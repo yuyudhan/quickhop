@@ -11,7 +11,7 @@ pub mod item;
 pub mod provider;
 pub mod search;
 
-pub use config::{Apps, Config, ConfigError, Providers, Quicklink, Scripts};
+pub use config::{Apps, CommandSettings, Config, ConfigError, Providers, Quicklink, Scripts};
 pub use fuzzy::{Match, Matcher, score};
 pub use item::{Action, Item, ItemId, ScriptArgument, ScriptArgumentKind, ScriptMode};
 pub use provider::{Cancel, Provider, ProviderError, Query};
