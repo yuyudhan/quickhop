@@ -9,12 +9,16 @@ use serde_json::Value;
 
 type TestResult = Result<(), Box<dyn Error>>;
 
+/// The binary with no user configuration in reach: the XDG and quickhop variables unset and
+/// `HOME` pointing nowhere, so no test reads or migrates the real user's files.
 fn quickhop() -> Result<Command, Box<dyn Error>> {
     let mut cmd = Command::cargo_bin("quickhop")?;
     cmd.env_remove("XDG_CONFIG_HOME")
+        .env_remove("XDG_DATA_HOME")
         .env_remove("APPDATA")
         .env_remove("QUICKHOP_CONFIG")
-        .env_remove("QUICKHOP_DATA");
+        .env_remove("QUICKHOP_DATA")
+        .env("HOME", "/nonexistent-quickhop-home");
     Ok(cmd)
 }
 
@@ -253,5 +257,92 @@ fn launch_runs_script_commands() -> TestResult {
         )?,
         "boom\n"
     );
+    Ok(())
+}
+
+#[test]
+fn run_finds_scripts_by_path_stem_and_title() -> TestResult {
+    let sandbox = Sandbox::new()?;
+    let file = fixtures()
+        .join(SCRIPTS_DIR)
+        .join(format!("hello.{SCRIPT_EXT}"));
+    let by_path = stdout(sandbox.cmd()?.arg("run").arg(&file).arg("path"))?;
+    assert_eq!(by_path, "hello path\n");
+    assert_eq!(
+        stdout(sandbox.cmd()?.args(["run", "hello"]))?,
+        "hello world\n"
+    );
+    assert_eq!(
+        stdout(sandbox.cmd()?.args(["run", "hello cli", "--", "-x"]))?,
+        "hello -x\n"
+    );
+    let missing = sandbox.cmd()?.args(["run", "no-such-script"]).output()?;
+    assert!(!missing.status.success());
+    assert!(String::from_utf8_lossy(&missing.stderr).contains("no script command"));
+    Ok(())
+}
+
+#[test]
+fn run_needs_confirmation_when_the_script_asks() -> TestResult {
+    let sandbox = Sandbox::new()?;
+    let refused = sandbox.cmd()?.args(["run", "danger"]).output()?;
+    assert!(!refused.status.success());
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("--yes"));
+    assert_eq!(
+        stdout(sandbox.cmd()?.args(["run", "danger", "--yes"]))?,
+        "boom\n"
+    );
+    Ok(())
+}
+
+#[test]
+fn run_loads_the_default_scripts_dir_next_to_the_config() -> TestResult {
+    let sandbox = Sandbox::new()?;
+    let scripts = sandbox.dir.path().join("scripts");
+    std::fs::create_dir_all(&scripts)?;
+    let name = format!("hello.{SCRIPT_EXT}");
+    let mine = format!("mine.{SCRIPT_EXT}");
+    std::fs::copy(fixtures().join(SCRIPTS_DIR).join(&name), scripts.join(mine))?;
+    // Only the default directory: drop `[scripts] dirs` from the sandbox config.
+    std::fs::write(sandbox.dir.path().join("config.toml"), "")?;
+    assert_eq!(
+        stdout(sandbox.cmd()?.args(["run", "mine"]))?,
+        "hello world\n"
+    );
+    let doctor = stdout(sandbox.cmd()?.arg("doctor"))?;
+    assert!(
+        doctor.contains(&format!("scripts: {}", scripts.display())),
+        "{doctor}"
+    );
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+#[test]
+fn macos_moves_the_legacy_config_to_xdg() -> TestResult {
+    let home = tempfile::tempdir()?;
+    let legacy = home.path().join("Library/Application Support/quickhop");
+    std::fs::create_dir_all(&legacy)?;
+    std::fs::write(legacy.join("config.toml"), "max_results = 4\n")?;
+    std::fs::write(legacy.join("frecency.sqlite"), "")?;
+    let output = quickhop()?
+        .env("HOME", home.path())
+        .env_remove("XDG_DATA_HOME")
+        .args(["config", "path"])
+        .output()?;
+    assert!(output.status.success(), "{output:?}");
+    let new_config = home.path().join(".config/quickhop/config.toml");
+    assert_eq!(
+        String::from_utf8(output.stdout)?.trim(),
+        new_config.display().to_string()
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("moved"));
+    assert_eq!(std::fs::read_to_string(&new_config)?, "max_results = 4\n");
+    assert!(
+        home.path()
+            .join(".local/share/quickhop/frecency.sqlite")
+            .is_file()
+    );
+    assert!(!legacy.join("config.toml").exists());
     Ok(())
 }
