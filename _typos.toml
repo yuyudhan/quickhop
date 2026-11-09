@@ -1,2 +1,8 @@
 [files]
-extend-exclude = ["target", "Cargo.lock", "crates/quickhop-providers/data/emoji-keywords.tsv"]
+extend-exclude = [
+    "target",
+    "Cargo.lock",
+    "crates/quickhop-providers/data/emoji-keywords.tsv",
+    "crates/quickhop-providers/tests/fixtures/raycast-goldens",
+    "crates/quickhop-providers/tests/providers/snapshots/providers__raycast_goldens__raycast_goldens.snap",
+]

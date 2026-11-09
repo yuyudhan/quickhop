@@ -1,0 +1,265 @@
+---
+source: crates/quickhop-providers/tests/providers/raycast_goldens.rs
+expression: out
+---
+## caffeinate-status.sh
+title: Caffeinate
+mode: Inline
+package: System
+description: Shows caffeinate status
+icon: ☕️
+iconDark: -
+author: Yan Smaliak
+authorURL: https://github.com/ysmaliak
+platform: -
+cwd: -
+needsConfirmation: false
+refresh: Some(30s)
+
+## dock-set-position.sh
+title: Dock Position
+mode: Silent
+package: System
+description: Set the position of the Dock in the screen
+icon: 🤖
+iconDark: -
+author: Jelte Lagendijk
+authorURL: https://raycast.com/j3lte
+platform: -
+cwd: -
+needsConfirmation: false
+refresh: None
+argument1: Dropdown "Position on Screen" optional=false percentEncoded=false choices=["left", "right", "bottom"]
+
+## empty-trash.applescript
+title: Empty Trash
+mode: Silent
+package: System
+description: Empty the trash.
+icon: 🗑
+iconDark: -
+author: -
+authorURL: -
+platform: -
+cwd: -
+needsConfirmation: false
+refresh: None
+
+## inline-cpu-usage-percent.sh
+title: CPU Usage
+mode: Inline
+package: System
+description: Display CPU usage percent
+icon: 🖥️
+iconDark: -
+author: Juan Luis Romero
+authorURL: https://github.com/JuanluR8
+platform: -
+cwd: -
+needsConfirmation: false
+refresh: Some(10s)
+
+## kill-a-process-on-port.sh
+title: Kill a process on PORT
+mode: Compact
+package: raycast-goldens
+description: Kill running processes on the given ports
+icon: 🚫
+iconDark: -
+author: aaqifshafi
+authorURL: https://github.com/aaqifshafi
+platform: -
+cwd: -
+needsConfirmation: false
+refresh: None
+argument1: Text "Ports (e.g. 3000 5000)" optional=false percentEncoded=false choices=[]
+
+## quit-all-apps.swift
+title: Quit All Applications
+mode: Silent
+package: System
+description: Quits all running applications except Finder and Raycast.
+icon: 💥
+iconDark: -
+author: -
+authorURL: -
+platform: -
+cwd: -
+needsConfirmation: true
+refresh: None
+
+## script-command.template.applescript
+title: My First Script
+mode: FullOutput
+package: Raycast Scripts
+description: Write a nice and descriptive summary about your script command here
+icon: 🤖
+iconDark: -
+author: Your name
+authorURL: An URL for one of your social medias
+platform: -
+cwd: ~
+needsConfirmation: false
+refresh: None
+argument1: Text "Arg1" optional=false percentEncoded=false choices=[]
+
+## script-command.template.cs
+title: My First Script
+mode: FullOutput
+package: Raycast Scripts
+description: Write a nice and descriptive summary about your script command here
+icon: 🤖
+iconDark: -
+author: Your name
+authorURL: An URL for one of your social medias
+platform: -
+cwd: ~
+needsConfirmation: false
+refresh: None
+
+## script-command.template.js
+title: My First Script
+mode: FullOutput
+package: Raycast Scripts
+description: Write a nice and descriptive summary about your script command here
+icon: 🤖
+iconDark: -
+author: Your name
+authorURL: An URL for one of your social medias
+platform: -
+cwd: -
+needsConfirmation: false
+refresh: None
+argument1: Text "js, css, html" optional=true percentEncoded=false choices=[]
+argument2: Text "query" optional=false percentEncoded=false choices=[]
+
+## script-command.template.php
+title: My First Script
+mode: FullOutput
+package: Raycast Scripts
+description: Write a nice and descriptive summary about your script command here
+icon: 🤖
+iconDark: -
+author: Your name
+authorURL: An URL for one of your social medias
+platform: -
+cwd: ~
+needsConfirmation: false
+refresh: None
+
+## script-command.template.py
+title: My First Script
+mode: FullOutput
+package: Raycast Scripts
+description: Write a nice and descriptive summary about your script command here
+icon: 🤖
+iconDark: -
+author: Your name
+authorURL: An URL for one of your social medias
+platform: -
+cwd: ~
+needsConfirmation: false
+refresh: None
+
+## script-command.template.rb
+title: My First Script
+mode: FullOutput
+package: Raycast Scripts
+description: Write a nice and descriptive summary about your script command here
+icon: 🤖
+iconDark: -
+author: Your name
+authorURL: An URL for one of your social medias
+platform: -
+cwd: ~
+needsConfirmation: false
+refresh: None
+argument1: Text "Placeholder text" optional=false percentEncoded=false choices=[]
+
+## script-command.template.sh
+title: My First Script
+mode: FullOutput
+package: Raycast Scripts
+description: Write a nice and descriptive summary about your script command here
+icon: 🤖
+iconDark: -
+author: Your name
+authorURL: An URL for one of your social medias
+platform: -
+cwd: ~
+needsConfirmation: false
+refresh: None
+
+## script-command.template.swift
+title: My First Script
+mode: FullOutput
+package: Raycast Scripts
+description: Write a nice and descriptive summary about your script command here
+icon: 🤖
+iconDark: -
+author: Your name
+authorURL: An URL for one of your social medias
+platform: -
+cwd: ~
+needsConfirmation: false
+refresh: None
+
+## time-calculator.js
+title: Time Calculator
+mode: Compact
+package: Developer Utilities
+description: Add or Subtract specified amount of time from given date.
+icon: 🕒
+iconDark: -
+author: Federico Miraglia
+authorURL: https://github.com/Mitra98t
+platform: -
+cwd: -
+needsConfirmation: false
+refresh: None
+argument1: Text "Starting Date (Default: now)" optional=true percentEncoded=false choices=[]
+argument2: Text "Time to Add/Subtract (eg: -44, 44, +44)" optional=false percentEncoded=false choices=[]
+argument3: Text "s, m, h, d, w, y (Default: h)" optional=true percentEncoded=false choices=[]
+
+## transform-case.sh
+title: Transform Case
+mode: Compact
+package: Developer Utils
+description: Transform the case of clipboard content. Defaults to lower case if no conversion type is specified.
+icon: 🔠
+iconDark: -
+author: Nitin Gupta
+authorURL: https://twitter.com/gniting
+platform: -
+cwd: -
+needsConfirmation: false
+refresh: None
+argument1: Text "L)ower, U)pper or T)itle?" optional=false percentEncoded=false choices=[]
+
+## unix-timestamp.sh
+title: Copy Current Epoch Unix Timestamp
+mode: Silent
+package: Developer Utils
+description: Copy the current epoch Unix timestamp.
+icon: ⏱️
+iconDark: -
+author: Caleb Stauffer
+authorURL: https://github.com/crstauf
+platform: -
+cwd: -
+needsConfirmation: false
+refresh: None
+
+## wifi.template.applescript
+title: Toggle Wi-Fi
+mode: Silent
+package: System
+description: Toggle your Wi-Fi connection.
+icon: <dir>/images/wifi-dark.png
+iconDark: <dir>/images/wifi.png
+author: Vincent Dörig
+authorURL: https://github.com/vincentdoerig
+platform: -
+cwd: -
+needsConfirmation: false
+refresh: None

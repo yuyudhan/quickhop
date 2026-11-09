@@ -62,13 +62,22 @@ pub struct ScriptCommand {
     pub title: String,
     /// `mode`.
     pub mode: ScriptMode,
-    /// `packageName`.
+    /// `packageName`, or the name of the script's folder when absent (as Raycast does).
     pub package_name: Option<String>,
     /// `description`.
     pub description: Option<String>,
     /// `icon`: an emoji, a URL, or a path (made absolute against the script's folder).
     pub icon: Option<String>,
-    /// `currentDirectoryPath`, made absolute against the script's folder.
+    /// `iconDark`: the icon for dark themes, resolved like `icon`.
+    pub icon_dark: Option<String>,
+    /// `author`.
+    pub author: Option<String>,
+    /// `authorURL`.
+    pub author_url: Option<String>,
+    /// `platform` as written (Raycast knows `macos` and `windows`); informational only.
+    pub platform: Option<String>,
+    /// `currentDirectoryPath`, made absolute against the script's folder; `~` and `~/...`
+    /// stay as written and expand to the home directory when the script runs.
     pub cwd: Option<PathBuf>,
     /// `needsConfirmation`.
     pub needs_confirmation: bool,
@@ -117,6 +126,9 @@ pub fn headers(text: &str) -> Vec<(&str, &str)> {
         .collect()
 }
 
+/// Raycast's shortest `refreshTime`; shorter values are raised to it.
+pub const MIN_REFRESH: Duration = Duration::from_secs(10);
+
 fn parse_refresh(value: &str) -> Option<Duration> {
     let unit = value.chars().last()?;
     let number: u64 = value[..value.len() - unit.len_utf8()].parse().ok()?;
@@ -127,7 +139,7 @@ fn parse_refresh(value: &str) -> Option<Duration> {
         'd' => number.checked_mul(86_400)?,
         _ => return None,
     };
-    (secs > 0).then(|| Duration::from_secs(secs))
+    (secs > 0).then(|| Duration::from_secs(secs).max(MIN_REFRESH))
 }
 
 fn parse_argument(index: usize, json: &str) -> Result<ScriptArgument, ParseError> {
@@ -155,10 +167,30 @@ fn parse_argument(index: usize, json: &str) -> Result<ScriptArgument, ParseError
 
 fn resolve(dir: &Path, value: &str) -> PathBuf {
     let path = Path::new(value);
-    if path.is_absolute() {
+    if path.is_absolute() || value == "~" || value.starts_with("~/") {
         path.to_path_buf()
     } else {
         dir.join(path)
+    }
+}
+
+/// `path` with a leading `~` or `~/` replaced by `home`; unchanged without a home.
+pub fn expand_home(path: &Path, home: Option<&Path>) -> PathBuf {
+    let Some(home) = home else {
+        return path.to_path_buf();
+    };
+    match path.strip_prefix("~") {
+        Ok(rest) => home.join(rest),
+        Err(_) => path.to_path_buf(),
+    }
+}
+
+fn resolve_icon(dir: &Path, icon: &str) -> String {
+    let looks_like_file = icon.contains('.') && !icon.contains("://");
+    if looks_like_file {
+        resolve(dir, icon).to_string_lossy().into_owned()
+    } else {
+        icon.to_owned()
     }
 }
 
@@ -180,7 +212,7 @@ pub fn parse(path: &Path, text: &str) -> Result<ScriptCommand, ParseError> {
         return Err(ParseError::Schema(schema.into()));
     }
     let title = get("title").ok_or(ParseError::Missing("title"))?;
-    let mode = match get("mode").ok_or(ParseError::Missing("mode"))? {
+    let declared_mode = match get("mode").ok_or(ParseError::Missing("mode"))? {
         "fullOutput" => ScriptMode::FullOutput,
         "compact" => ScriptMode::Compact,
         "silent" => ScriptMode::Silent,
@@ -190,6 +222,12 @@ pub fn parse(path: &Path, text: &str) -> Result<ScriptCommand, ParseError> {
     let refresh = get("refreshTime")
         .map(|v| parse_refresh(v).ok_or_else(|| ParseError::RefreshTime(v.into())))
         .transpose()?;
+    // Raycast runs an inline script without `refreshTime` in compact mode.
+    let mode = if declared_mode == ScriptMode::Inline && refresh.is_none() {
+        ScriptMode::Compact
+    } else {
+        declared_mode
+    };
     let mut arguments = Vec::new();
     for index in 1..=MAX_ARGUMENTS {
         if let Some(json) = get(&format!("argument{index}")) {
@@ -200,21 +238,20 @@ pub fn parse(path: &Path, text: &str) -> Result<ScriptCommand, ParseError> {
         return Err(ParseError::InlineArguments);
     }
     let dir = path.parent().unwrap_or_else(|| Path::new("."));
-    let icon = get("icon").map(|icon| {
-        let looks_like_file = icon.contains('.') && !icon.contains("://");
-        if looks_like_file {
-            resolve(dir, icon).to_string_lossy().into_owned()
-        } else {
-            icon.to_owned()
-        }
-    });
+    let folder = dir
+        .file_name()
+        .map(|name| name.to_string_lossy().into_owned());
     Ok(ScriptCommand {
         path: path.to_path_buf(),
         title: title.into(),
         mode,
-        package_name: get("packageName").map(str::to_owned),
+        package_name: get("packageName").map(str::to_owned).or(folder),
         description: get("description").map(str::to_owned),
-        icon,
+        icon: get("icon").map(|icon| resolve_icon(dir, icon)),
+        icon_dark: get("iconDark").map(|icon| resolve_icon(dir, icon)),
+        author: get("author").map(str::to_owned),
+        author_url: get("authorURL").map(str::to_owned),
+        platform: get("platform").map(str::to_owned),
         cwd: get("currentDirectoryPath").map(|v| resolve(dir, v)),
         needs_confirmation: get("needsConfirmation") == Some("true"),
         refresh,
@@ -356,10 +393,33 @@ fn check_arguments(specs: &[ScriptArgument], values: &[String]) -> Result<Vec<St
     Ok(out)
 }
 
+/// `text` without ANSI CSI escape sequences (`ESC [ ... final`), for one-line toasts that
+/// cannot render colour.
+pub fn strip_ansi(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        if c != '\u{1b}' {
+            out.push(c);
+            continue;
+        }
+        if chars.next() == Some('[') {
+            // Parameters and intermediates, up to and including the final byte @..~.
+            for c in chars.by_ref() {
+                if ('@'..='~').contains(&c) {
+                    break;
+                }
+            }
+        }
+    }
+    out
+}
+
 fn shape(mode: ScriptMode, success: bool, stdout: &str, stderr: &str) -> String {
     let lines: Vec<&str> = stdout.lines().filter(|l| !l.trim().is_empty()).collect();
     let message = match mode {
-        // Line endings normalised: Windows scripts print CRLF.
+        // Line endings normalised: Windows scripts print CRLF. Colour stays: Raycast renders
+        // ANSI colours in fullOutput and inline mode.
         ScriptMode::FullOutput => stdout
             .lines()
             .collect::<Vec<_>>()
@@ -367,7 +427,7 @@ fn shape(mode: ScriptMode, success: bool, stdout: &str, stderr: &str) -> String 
             .trim_end()
             .to_owned(),
         ScriptMode::Compact | ScriptMode::Silent => {
-            lines.last().copied().unwrap_or_default().trim().to_owned()
+            strip_ansi(lines.last().copied().unwrap_or_default().trim())
         }
         ScriptMode::Inline => lines.first().copied().unwrap_or_default().trim().to_owned(),
     };
@@ -426,6 +486,9 @@ pub fn run(
         .unwrap_or_default();
     let (program, mut argv) = invocation(script, &first_line, cfg!(windows));
     argv.extend(checked);
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from);
     let dir = cwd.as_ref().map_or_else(
         || {
             script
@@ -433,7 +496,7 @@ pub fn run(
                 .unwrap_or_else(|| Path::new("."))
                 .to_path_buf()
         },
-        PathBuf::from,
+        |cwd| expand_home(Path::new(cwd), home.as_deref()),
     );
     let mut child = Command::new(program)
         .args(argv)
@@ -499,68 +562,74 @@ pub fn to_item(script: &ScriptCommand, inline: Option<&str>) -> Item {
     item
 }
 
+/// Every script command in `dirs`, in directory order then file-name order. Directories are
+/// scanned non-recursively; hidden files and Raycast's `*.template.*` files are skipped, as
+/// are files without `@raycast.` headers. Invalid scripts and unreadable directories or
+/// files become warnings.
+pub fn discover(dirs: &[PathBuf]) -> (Vec<ScriptCommand>, Vec<String>) {
+    let mut warnings = Vec::new();
+    let mut scripts = Vec::new();
+    for dir in dirs {
+        let entries = match std::fs::read_dir(dir) {
+            Ok(entries) => entries,
+            Err(error) => {
+                warnings.push(format!("{}: {error}", dir.display()));
+                continue;
+            }
+        };
+        let mut paths: Vec<PathBuf> = entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
+        paths.sort();
+        for path in paths {
+            let skipped = path.file_name().is_some_and(|n| {
+                let name = n.to_string_lossy();
+                name.starts_with('.') || name.contains(".template.")
+            });
+            let small_file = path
+                .metadata()
+                .is_ok_and(|m| m.is_file() && m.len() <= MAX_SCRIPT_BYTES);
+            if skipped || !small_file {
+                continue;
+            }
+            let Ok(bytes) = std::fs::read(&path) else {
+                warnings.push(format!("{}: unreadable", path.display()));
+                continue;
+            };
+            let text = String::from_utf8_lossy(&bytes);
+            if !text.contains("@raycast.") {
+                continue;
+            }
+            match parse(&path, &text) {
+                Ok(script) => scripts.push(script),
+                Err(error) => warnings.push(format!("{}: {error}", path.display())),
+            }
+        }
+    }
+    (scripts, warnings)
+}
+
 /// The script commands found when the provider was loaded.
 pub struct ScriptsProvider {
     items: Vec<Item>,
 }
 
 impl ScriptsProvider {
-    /// Scans each directory (not recursively; hidden files skipped). Inline scripts are
-    /// run once with `inline_timeout`, or not at all when it is `None`. Invalid scripts,
-    /// unreadable directories and failing inline scripts become warnings.
+    /// The commands [`discover`] finds in `dirs`. Inline scripts are run once with
+    /// `inline_timeout`, or not at all when it is `None`; failures become warnings.
     pub fn load(dirs: &[PathBuf], inline_timeout: Option<Duration>) -> (Self, Vec<String>) {
-        let mut warnings = Vec::new();
-        let mut items = Vec::new();
-        for dir in dirs {
-            let entries = match std::fs::read_dir(dir) {
-                Ok(entries) => entries,
-                Err(error) => {
-                    warnings.push(format!("{}: {error}", dir.display()));
-                    continue;
-                }
-            };
-            let mut paths: Vec<PathBuf> =
-                entries.filter_map(|e| e.ok().map(|e| e.path())).collect();
-            paths.sort();
-            for path in paths {
-                let hidden = path
-                    .file_name()
-                    .is_some_and(|n| n.to_string_lossy().starts_with('.'));
-                let small_file = path
-                    .metadata()
-                    .is_ok_and(|m| m.is_file() && m.len() <= MAX_SCRIPT_BYTES);
-                if hidden || !small_file {
-                    continue;
-                }
-                let Ok(bytes) = std::fs::read(&path) else {
-                    warnings.push(format!("{}: unreadable", path.display()));
-                    continue;
-                };
-                let text = String::from_utf8_lossy(&bytes);
-                if !text.contains("@raycast.") {
-                    continue;
-                }
-                let script = match parse(&path, &text) {
-                    Ok(script) => script,
+        let (scripts, mut warnings) = discover(dirs);
+        let mut items = Vec::with_capacity(scripts.len());
+        for script in &scripts {
+            let inline = match (script.mode, inline_timeout) {
+                (ScriptMode::Inline, Some(timeout)) => match run(&action(script), &[], timeout) {
+                    Ok(output) => Some(output.message),
                     Err(error) => {
-                        warnings.push(format!("{}: {error}", path.display()));
-                        continue;
+                        warnings.push(error.to_string());
+                        None
                     }
-                };
-                let inline = match (script.mode, inline_timeout) {
-                    (ScriptMode::Inline, Some(timeout)) => {
-                        match run(&action(&script), &[], timeout) {
-                            Ok(output) => Some(output.message),
-                            Err(error) => {
-                                warnings.push(error.to_string());
-                                None
-                            }
-                        }
-                    }
-                    _ => None,
-                };
-                items.push(to_item(&script, inline.as_deref()));
-            }
+                },
+                _ => None,
+            };
+            items.push(to_item(script, inline.as_deref()));
         }
         (Self { items }, warnings)
     }
@@ -621,13 +690,89 @@ mod tests {
             ("inline", ScriptMode::Inline),
         ] {
             assert_eq!(
-                script(&format!("# @raycast.mode {name}\n")).unwrap().mode,
+                script(&format!(
+                    "# @raycast.mode {name}\n# @raycast.refreshTime 1h\n"
+                ))
+                .unwrap()
+                .mode,
                 mode
             );
         }
         assert_eq!(
             script("# @raycast.mode loud\n"),
             Err(ParseError::Mode("loud".into()))
+        );
+    }
+
+    #[test]
+    fn inline_without_refresh_runs_compact() {
+        assert_eq!(
+            script("# @raycast.mode inline\n").unwrap().mode,
+            ScriptMode::Compact
+        );
+        // As compact it may take arguments.
+        assert!(script("# @raycast.mode inline\n# @raycast.argument1 {\"type\":\"text\",\"placeholder\":\"q\"}\n").is_ok());
+    }
+
+    #[test]
+    fn refresh_is_at_least_ten_seconds() {
+        let fast = script("# @raycast.mode inline\n# @raycast.refreshTime 2s\n").unwrap();
+        assert_eq!(fast.refresh, Some(MIN_REFRESH));
+        let day = script("# @raycast.mode inline\n# @raycast.refreshTime 1d\n").unwrap();
+        assert_eq!(day.refresh, Some(Duration::from_secs(86_400)));
+    }
+
+    #[test]
+    fn documentation_headers_and_package_inference() {
+        let s = script(concat!(
+            "# @raycast.mode silent\n",
+            "# @raycast.icon images/wifi-dark.png\n",
+            "# @raycast.iconDark images/wifi.png\n",
+            "# @raycast.author Jane\n",
+            "# @raycast.authorURL https://example.com\n",
+            "# @raycast.platform macos\n",
+        ))
+        .unwrap();
+        assert_eq!(s.author.as_deref(), Some("Jane"));
+        assert_eq!(s.author_url.as_deref(), Some("https://example.com"));
+        assert_eq!(s.platform.as_deref(), Some("macos"));
+        assert!(
+            s.icon_dark
+                .as_deref()
+                .is_some_and(|i| i.ends_with("wifi.png"))
+        );
+        // No packageName: the folder name, as in Raycast.
+        assert_eq!(s.package_name.as_deref(), Some("s"));
+        let named = script("# @raycast.mode silent\n# @raycast.packageName P\n").unwrap();
+        assert_eq!(named.package_name.as_deref(), Some("P"));
+    }
+
+    #[test]
+    fn home_expansion() {
+        let home = Path::new("/home/u");
+        assert_eq!(expand_home(Path::new("~"), Some(home)), home);
+        assert_eq!(
+            expand_home(Path::new("~/code"), Some(home)),
+            home.join("code")
+        );
+        assert_eq!(
+            expand_home(Path::new("~bob/x"), Some(home)),
+            Path::new("~bob/x")
+        );
+        assert_eq!(expand_home(Path::new("~/x"), None), Path::new("~/x"));
+    }
+
+    #[test]
+    fn ansi_codes_are_stripped_from_toasts() {
+        assert_eq!(strip_ansi("\u{1b}[31;42mred\u{1b}[0m ok"), "red ok");
+        assert_eq!(strip_ansi("plain"), "plain");
+        assert_eq!(
+            shape(ScriptMode::Compact, true, "\u{1b}[1mdone\u{1b}[0m\n", ""),
+            "done"
+        );
+        assert_eq!(
+            shape(ScriptMode::FullOutput, true, "\u{1b}[1mdone\u{1b}[0m\n", ""),
+            "\u{1b}[1mdone\u{1b}[0m"
         );
     }
 
@@ -667,7 +812,7 @@ mod tests {
                     .into_owned()
             )
         );
-        assert_eq!(s.cwd, Some(Path::new("/s").join("~")));
+        assert_eq!(s.cwd, Some(PathBuf::from("~")));
         assert!(s.needs_confirmation);
         assert_eq!(s.arguments.len(), 3);
         assert!(s.arguments[0].percent_encoded);
@@ -687,7 +832,10 @@ mod tests {
             Err(ParseError::Argument(1, _))
         ));
         assert_eq!(
-            script("# @raycast.mode inline\n# @raycast.argument1 {\"type\":\"text\"}\n"),
+            script(concat!(
+                "# @raycast.mode inline\n# @raycast.refreshTime 1m\n",
+                "# @raycast.argument1 {\"type\":\"text\"}\n"
+            )),
             Err(ParseError::InlineArguments)
         );
         assert_eq!(

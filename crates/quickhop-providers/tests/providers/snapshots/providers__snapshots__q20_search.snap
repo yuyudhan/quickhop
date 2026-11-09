@@ -3,7 +3,7 @@ source: crates/quickhop-providers/tests/providers/snapshots.rs
 expression: "render(text, &Boosts::new())"
 ---
 query: "search"
-matched    174  scripts:search.sh                        Search Docs | -
+matched    174  scripts:search.sh                        Search Docs | scripts
 matched    174  emoji:1f50d                              🔍 magnifying glass tilted left | :mag: · Objects
 matched    174  emoji:1f50e                              🔎 magnifying glass tilted right | :mag_right: · Objects
 matched     96  emoji:1f1f8-1f1ed                        🇸🇭 flag: St. Helena, Ascension & Tristan da Cunha | :st_helena: · Flags
