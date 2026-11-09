@@ -16,6 +16,7 @@ quickhop-core.workspace = true
 async-channel.workspace = true
 gpui.workspace = true
 gpui_platform.workspace = true
+proptest.workspace = true
 
 [[example]]
 name = "spike"

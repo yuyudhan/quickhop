@@ -4186,6 +4186,7 @@ dependencies = [
  "async-channel",
  "gpui",
  "gpui_platform",
+ "proptest",
  "quickhop-core",
 ]
 

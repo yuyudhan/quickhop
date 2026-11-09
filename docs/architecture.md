@@ -14,7 +14,7 @@ order [plan.md](plan.md).
 | `quickhop-providers` | built | Built-in providers over an explicit `Env` (OS + variables): `apps`, `calc`, `emoji`, `system`, `quicklinks`, `scripts`. `builtin(config, env)` loads the enabled ones; `script_dirs` resolves script directories. |
 | `quickhop-store` | built | SQLite (rusqlite, bundled): frecency per (query prefix, item), half-life 7 days. Grows the clipboard, snippet, favorites and chat tables. |
 | `quickhop` | built | The binary: `query`, `launch`, `run`, `config default\|path\|check`, `doctor`; later `daemon`, `toggle`, `open`. |
-| `quickhop-ui` | empty | The launcher window in gpui ([ADR 0001](adr/0001-ui-toolkit.md)); `model` holds the toolkit-free view model. |
+| `quickhop-ui` | model built | The launcher window in gpui ([ADR 0001](adr/0001-ui-toolkit.md)). `model` is built: the toolkit-free view model (query and numbered searches, results, wrapping selection, navigation stack, action panel with filtering, toasts). The window and its views are next (plan slice U2); `examples/spike.rs` is the U0 toolkit spike. |
 | `quickhop-index` | planned | File index for Linux (and as a Spotlight fallback): walker, inotify/FSEvents watcher, SQLite FTS5. |
 | `quickhop-ext` | planned | Extension host: spawns extensions, speaks JSON-RPC over stdio, maps their views to the UI model. |
 | `quickhop-platform-macos` | planned | The only place for FFI on macOS: AX (window management, selected text, paste), `NSPasteboard`, `NSRunningApplication`, `NSStatusItem`, EventKit. |
