@@ -1,0 +1,12 @@
+[Unit]
+Description=quickhop launcher daemon
+Documentation=https://github.com/yuyudhan/quickhop
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+ExecStart=/usr/bin/quickhop daemon
+Restart=on-failure
+
+[Install]
+WantedBy=graphical-session.target

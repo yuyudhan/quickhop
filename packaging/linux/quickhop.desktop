@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=quickhop
+GenericName=Launcher
+Comment=Keyboard launcher: apps, files, clipboard history, snippets and scripts
+Exec=quickhop daemon
+Icon=quickhop
+Terminal=false
+StartupNotify=false
+Categories=Utility;
+Keywords=launcher;search;clipboard;snippets;files;

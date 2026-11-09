@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod autostart;
 mod clipboard;
 #[cfg(unix)]
 mod daemon;
@@ -126,6 +127,11 @@ enum Command {
     /// Make the running daemon read the configuration again.
     #[cfg(unix)]
     Reload,
+    /// Start the daemon at login: on, off or status.
+    Autostart {
+        #[command(subcommand)]
+        action: autostart::AutostartAction,
+    },
 }
 
 #[cfg(unix)]
@@ -201,6 +207,8 @@ enum CliError {
     Daemon(#[from] daemon::DaemonError),
     #[error("nothing to index: set [files] roots or HOME")]
     NoIndexRoots,
+    #[error(transparent)]
+    Autostart(#[from] autostart::AutostartError),
 }
 
 fn var(name: &str) -> Option<String> {
@@ -485,6 +493,7 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
             launch(&load_config()?, &request, out)?;
         }
         Command::Clipboard { action } => clipboard::run(&action, &load_config()?, now, out)?,
+        Command::Autostart { action } => autostart::run(action, out)?,
         #[cfg(unix)]
         Command::Daemon { action } => {
             let request = match action {
@@ -743,6 +752,15 @@ fn doctor(out: &mut impl Write) -> Result<(), CliError> {
             "absent: run `quickhop index`".to_owned()
         };
         writeln!(out, "index: {} ({state})", path.display())?;
+    }
+    match autostart::entry_path(std::env::consts::OS, var) {
+        Ok(path) if path.is_file() => writeln!(out, "autostart: on ({})", path.display())?,
+        Ok(path) => writeln!(
+            out,
+            "autostart: off (`quickhop autostart on` writes {})",
+            path.display()
+        )?,
+        Err(error) => writeln!(out, "autostart: {error}")?,
     }
     let dirs = quickhop_providers::script_dirs(&config, &env);
     if dirs.is_empty() {

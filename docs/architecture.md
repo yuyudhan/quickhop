@@ -187,7 +187,7 @@ runs any of an item's actions by kind.
 | OS | Artefacts | Notes |
 |----|-----------|-------|
 | macOS | `quickhop.app` (LSUIElement agent app, the CLI inside `Contents/MacOS`), DMG, Homebrew cask; `cargo install` for the CLI | signed with a Developer ID and notarized in CI; universal binary (`aarch64` + `x86_64`) with `lipo`; `quickhop://` URL scheme in Info.plist |
-| Linux | `.deb`, `.rpm` (cargo-deb, cargo-generate-rpm), AUR `PKGBUILD`, tarball; `cargo install` | ships `quickhop.desktop` (with `x-scheme-handler/quickhop`), hicolor icons, a systemd user unit and an autostart entry; Flatpak later, since launching host apps needs `flatpak-spawn --host` |
+| Linux | built: `.deb` (`dpkg-deb`, dependencies from `dpkg-shlibdeps`) and tarball from `just bundle-linux`; later `.rpm`, AUR `PKGBUILD`; `cargo install` | ships `quickhop.desktop` (later with `x-scheme-handler/quickhop`), a hicolor SVG icon and a systemd user unit (`systemctl --user enable --now quickhop`); `quickhop autostart on` writes an XDG autostart entry instead (GNOME and KDE turn it into a unit with `systemd-xdg-autostart-generator`). `just bundle-linux-test` installs the `.deb` in `debian:bookworm-slim` and runs `doctor` and a query. Flatpak later, since launching host apps needs `flatpak-spawn --host` |
 
 Release builds run on GitHub Actions for both OSes from a tag; the UI test jobs in
 [plan.md](plan.md) gate them.

@@ -48,6 +48,13 @@ deny:
 # The full local gate (pre-push): check, clippy for every target (needs zig), deny.
 verify: check clippy-all deny
 
+# Linux .deb and tarball in target/bundle/ (needs dpkg-dev).
+bundle-linux:
+    scripts/bundle-linux.sh
+
+# Install the .deb in a clean Debian container and run it (needs docker).
+bundle-linux-test: bundle-linux
+    scripts/bundle-linux-test.sh
 
 # Use the repo's git hooks.
 install-hooks:

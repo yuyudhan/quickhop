@@ -51,7 +51,8 @@ A free alternative to Raycast that runs your Raycast script commands unchanged.
 ## Install
 
 quickhop is built from source until the first release (signed DMG and Homebrew cask on macOS;
-`.deb`, `.rpm` and AUR on Linux).
+`.rpm` and AUR on Linux). On Debian and Ubuntu, `just bundle-linux` builds a `.deb` and a
+tarball into `target/bundle/`.
 
 **macOS** (Apple silicon or Intel):
 
@@ -70,6 +71,7 @@ quickhop is built from source until the first release (signed DMG and Homebrew c
 Then check your setup:
 
     quickhop doctor
+    quickhop autostart on                  # start the daemon at login
 
 ## Use
 

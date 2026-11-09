@@ -171,12 +171,12 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 | CFG-04 | Live reload when config, scripts or snippets change | planned | P1 | FSEvents (`notify`) | inotify (`notify`) |
 | CFG-05 | Settings window that writes `config.toml` (comments preserved with `toml_edit`) | planned | P1 | UI | same |
 | CFG-06 | Themes: light, dark, follow system; custom theme TOML in `~/.config/quickhop/themes/` | planned | P1 | `NSApp.effectiveAppearance` | `Settings` portal `color-scheme` (GNOME, KDE) |
-| CFG-07 | Launch at login | planned | P0 | `SMAppService.mainApp` (macOS 13+) or a LaunchAgent plist | XDG autostart `~/.config/autostart/quickhop.desktop`, or a systemd user unit |
+| CFG-07 | Launch at login | partial | P0 | built: `quickhop autostart on\|off\|status` writes a LaunchAgent plist (`io.github.yuyudhan.quickhop`, `RunAtLoad`); to check on m4; `SMAppService.mainApp` with the `.app` | done: `quickhop autostart on\|off\|status` writes `~/.config/autostart/quickhop.desktop`; packages also ship a systemd user unit |
 | CFG-08 | Settings sync between machines | planned | P2 | plain files: the config dir is git/Syncthing friendly; `quickhop export/import` bundles config, snippets, quicklinks, encrypted with a passphrase (`age`) | same |
 | CFG-09 | Import a Raycast export (`.rayconfig`) | planned | P2 | decrypt with the user's export password, map snippets/quicklinks/aliases/hotkeys | same |
 | PLT-01 | Background daemon, single instance, IPC (`quickhop toggle`, `quickhop open <id>`) | partial | P0 | built (Unix): `quickhop daemon` with lock file and socket in `$TMPDIR/quickhop-$USER/`, `daemon status\|stop`, `open <id>` (starts a daemon when none runs), `reload`; `toggle` comes with the window | same, in `$XDG_RUNTIME_DIR/quickhop/`; the daemon also watches the clipboard and keeps the file index current |
 | PLT-02 | Permission onboarding (Accessibility, Input Monitoring, Screen Recording, Calendar) | planned | P1 | `AXIsProcessTrustedWithOptions`, deep links to System Settings panes | portal permission prompts; `input` group guidance for SNP-03 |
-| PLT-03 | Packages and install | partial | P1 | `cargo install` today; signed and notarized `.app` in a DMG, Homebrew cask | `cargo install` today; `.deb`, `.rpm`, AUR `PKGBUILD`, tarball with `.desktop` + icons; Flatpak later (host app launching needs `flatpak-spawn --host`) |
+| PLT-03 | Packages and install | partial | P1 | `cargo install` today; signed and notarized `.app` in a DMG, Homebrew cask | built: `.deb` and tarball with `.desktop`, icon and systemd user unit (`just bundle-linux`, checked in a clean Debian container by `just bundle-linux-test`); later `.rpm`, AUR `PKGBUILD`; Flatpak later (host app launching needs `flatpak-spawn --host`) |
 | PLT-04 | Updates | planned | P2 | update check against GitHub releases, cask upgrade | package managers |
 | PLT-05 | No telemetry, works offline (only currency rates, AI and store use the network, each opt-in) | done | P0 | principle | same |
 
@@ -184,10 +184,10 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | Priority | Features | done | partial | planned |
 |----------|---------:|-----:|--------:|--------:|
-| P0 | 30 | 19 | 5 | 6 |
+| P0 | 30 | 19 | 6 | 5 |
 | P1 | 36 | 1 | 5 | 30 |
 | P2 | 29 | 0 | 0 | 29 |
-| All | 95 | 20 | 10 | 65 |
+| All | 95 | 20 | 11 | 64 |
 
 Counted from the tables above; recount when editing them.
 
@@ -201,5 +201,5 @@ metadata, modes and arguments), and snippets with Raycast's dynamic placeholders
 Missing for a first usable release (the P0 gaps): the launcher window and its global hotkey
 (LCH-01, LCH-07, LCH-10, LCH-11), `toggle` and the window in the daemon (PLT-01),
 Spotlight file search on macOS (FIL-01), the clipboard view, macOS clipboard watching and paste (CLP-01, CLP-03), pasting snippets
-(SNP-01), application icon rendering (APP-02) and launch at login (CFG-07).
+(SNP-01), application icon rendering (APP-02) and launch at login on macOS (CFG-07).
 [plan.md](plan.md) orders these into slices.
