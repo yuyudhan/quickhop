@@ -137,7 +137,8 @@ Three tiers, from simplest to richest:
 
 A compatibility layer for Raycast's TypeScript extensions (an `@raycast/api` shim running on
 Node or Bun and translating the React tree to tier-3 views) fits on top of tier 3 without
-changing it; whether to build it is an open question in [plan.md](plan.md).
+changing it. The owner decided to build quickhop's own extension API first and the shim later
+([ADR 0002](adr/0002-licence-extensions-ai.md)).
 
 ## Indexing
 

@@ -17,7 +17,15 @@ install -Dm755 target/release/quickhop "$stage/usr/bin/quickhop"
 install -Dm644 packaging/linux/quickhop.desktop "$stage/usr/share/applications/quickhop.desktop"
 install -Dm644 packaging/linux/quickhop.svg "$stage/usr/share/icons/hicolor/scalable/apps/quickhop.svg"
 install -Dm644 packaging/linux/quickhop.service "$stage/usr/lib/systemd/user/quickhop.service"
-install -Dm644 LICENSE "$stage/usr/share/doc/quickhop/copyright"
+install -Dm644 LICENSE-MIT "$stage/usr/share/doc/quickhop/LICENSE-MIT"
+install -Dm644 LICENSE-APACHE "$stage/usr/share/doc/quickhop/LICENSE-APACHE"
+{
+    printf 'quickhop is licensed under the MIT license or the Apache License 2.0, at your option.\n\n'
+    cat LICENSE-MIT
+    printf '\n'
+    cat LICENSE-APACHE
+} >"$stage/usr/share/doc/quickhop/copyright"
+chmod 644 "$stage/usr/share/doc/quickhop/copyright"
 
 # The shared libraries the binary links, as Debian dependencies.
 shlibs=$out/deb/shlibs

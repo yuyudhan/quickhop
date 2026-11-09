@@ -255,7 +255,7 @@ Every UI acceptance test below names its driver: **[ax]**, **[x11]**, **[sway]**
 | Slice | Machine | Features | Acceptance |
 |-------|---------|----------|------------|
 | X2. Store | lx3 | EXT-03, EXT-05, EXT-07 | install/update/remove from a fixture git index; OAuth PKCE against a mock provider via the deeplink; interval refresh with a fake clock |
-| X3. Raycast extension shim (if approved) | lx3, m4 | EXT-02 | three popular Raycast extensions run unmodified on Node or Bun with list/detail/form views **[ax] [sway]** |
+| X3. Raycast extension shim (later, after X1) | lx3, m4 | EXT-02 | three popular Raycast extensions run unmodified on Node or Bun with list/detail/form views **[ax] [sway]** |
 | X4. Menu bar | m4, lx3 | EXT-06, CLD-02 | a menu-bar command shows its title in `NSStatusItem` **[ax]** and as a StatusNotifierItem on D-Bus **[sway]** with waybar |
 | M1. Notes | m4, lx3 | NTE-01 | a floating note stays above other windows **[ax] [x11] [sway]**, persists across restarts |
 | M2. Calendar | m4, lx3 | CLD-01 | EventKit events listed on m4 (test calendar); EDS and ICS sources on lx3 with fixture data; join link opens |
@@ -276,11 +276,12 @@ Every feature ID in [features.md](features.md) that is not `done` belongs to a s
 `done` features are kept green by the existing tests. Order within a phase may change, but a
 phase starts only when the previous one is complete on both machines.
 
-## Open questions for the owner
+## Owner decisions
 
-1. **Licence.** The repository has no licence yet. MIT OR Apache-2.0 (the Rust norm, compatible
-   with every dependency today, including MPL-2.0 nucleo-matcher) or GPL-3.0 (keeps forks open)?
-2. **Raycast extensions.** Build the TypeScript compatibility shim (X3: large, and Raycast's
-   API changes under it) or only quickhop's own language-neutral extension API (X1)?
-3. **AI provider.** Default to local models (Ollama) with bring-your-own keys for OpenAI-
-   compatible and Anthropic endpoints, or pick one hosted default?
+Recorded in [ADR 0002](adr/0002-licence-extensions-ai.md) (2026-11-09):
+
+1. **Licence.** MIT OR Apache-2.0.
+2. **Raycast extensions.** quickhop's own language-neutral extension API (X1) first; the
+   Raycast TypeScript compatibility shim (X3) later, on top of it.
+3. **AI provider.** Local models through Ollama by default, plus the user's own keys for
+   OpenAI, Anthropic or any OpenAI-compatible endpoint; no hosted default.

@@ -142,7 +142,7 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | ID | Feature | Status | P | macOS | Linux (X11 / Wayland) |
 |----|---------|--------|---|-------|------------------------|
-| AI-01 | Quick AI: ask from the root search (`Tab`), streamed answer | planned | P1 | provider-neutral client (OpenAI-compatible, Anthropic, Ollama); keys in Keychain | same; keys in Secret Service |
+| AI-01 | Quick AI: ask from the root search (`Tab`), streamed answer | planned | P1 | provider-neutral client: local Ollama by default, the user's own OpenAI, Anthropic or OpenAI-compatible keys ([ADR 0002](adr/0002-licence-extensions-ai.md)); keys in Keychain | same; keys in Secret Service |
 | AI-02 | AI Chat window with history | planned | P1 | store table `chats` | same |
 | AI-03 | AI Commands: prompt templates with `{selection}`, `{clipboard}`, `{argument}` | planned | P1 | selected text via AX `kAXSelectedTextAttribute`, or `⌘C` round trip | X11 `PRIMARY` selection; Wayland `primary-selection` via data-control, else clipboard |
 | AI-04 | AI in extensions and tool use | planned | P2 | EXT-01 capability | same |

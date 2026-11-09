@@ -4,6 +4,7 @@ description = "File and folder index for quickhop: parallel walk, filesystem wat
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
+license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
