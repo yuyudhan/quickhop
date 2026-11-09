@@ -78,7 +78,7 @@ user unit on Linux):
 | `quicklinks` | `[[quicklinks]]` with `{query}` templates (percent-encoded); `alias text` pins the link | `Open` |
 | `scripts` | Raycast script commands from `~/.config/quickhop/scripts` and `[scripts] dirs` (see below) | `Script` |
 | `snippets` | `[[snippets]]` in `snippets.toml` next to the config (name, text, keyword) | `Snippet`: expand placeholders, then copy |
-| `files` | the file index (`index.sqlite`), queries of 3 or more characters, 50 best | `Open`, then `Copy` the path |
+| `files` | the file index (`index.sqlite`), queries of 3 or more characters, 50 best | `Open`; then `Reveal` in the file manager, `Copy` the path, `Trash` (confirmed) |
 
 Ranking: `rank` classifies each candidate into a tier, best first: `Pinned` (an alias equals
 the query or its first word), `Computed` (calculator), `Matched` (nucleo score of the title, or
@@ -145,6 +145,14 @@ substring of the path, and ranks the candidates by the fuzzy score of the name, 
 path. `quickhop index` rebuilds it; `--watch` keeps it current until stopped; the daemon
 will run the watcher at low priority. On itlinux3 a 200,000-file tree indexes in about 4.5 s
 and queries answer in under 15 ms (`crates/quickhop-index/tests/scale.rs`).
+
+File actions: `Reveal` calls `org.freedesktop.FileManager1.ShowItems` on the session bus
+(`gdbus`; the parent folder opens when no file manager answers), `open -R` on macOS and
+`explorer /select,` on Windows. `Trash` follows the FreeDesktop.org Trash specification for
+the home trash (`$XDG_DATA_HOME/Trash/files` plus an `info/*.trashinfo` record, `.2`, `.3`, …
+on name clashes) and hands files on other filesystems to `gio trash`; Finder (`osascript`) and
+the Recycle Bin (`Microsoft.VisualBasic`) elsewhere. `quickhop launch <id> --action <kind>`
+runs any of an item's actions by kind.
 
 ## Storage
 

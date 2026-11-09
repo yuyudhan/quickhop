@@ -45,7 +45,7 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 | APP-04 | Switch windows (search open windows, focus one) | planned | P1 | AX window list + `CGWindowListCopyWindowInfo` (Screen Recording permission for titles on macOS 10.15+) | X11: EWMH `_NET_CLIENT_LIST`, `_NET_ACTIVE_WINDOW`. Wayland: `wlr-foreign-toplevel-management` / `ext-foreign-toplevel-list` (sway, Hyprland, COSMIC), KWin scripting over D-Bus, GNOME Shell extension (no protocol) |
 | APP-05 | Watch application folders and refresh without restart | planned | P1 | FSEvents via `notify` | inotify via `notify` on every `applications` dir |
 | FIL-01 | File and folder search by name | partial | P0 | Spotlight: `mdfind` (`NSMetadataQuery` later) scoped to home (next, on m4); the index below works on macOS too | quickhop's own index, built: `quickhop index [--watch]` (`quickhop-index`: parallel walk, `notify` watcher, gitignore-aware, SQLite FTS5 trigram), `files` provider from 3 characters; `plocate` or GNOME `localsearch`/KDE `baloo` results when present (later) |
-| FIL-02 | File actions: open, open with, reveal, copy path, Quick Look, move to trash | planned | P1 | `open -a`, `open -R`, `qlmanage -p`, `NSFileManager trashItem` | `xdg-open`, `gio launch`, `org.freedesktop.FileManager1.ShowItems` (D-Bus), `sushi`/`gnome-sushi` or `xdg-open`, `gio trash` |
+| FIL-02 | File actions: open, open with, reveal, copy path, Quick Look, move to trash | partial | P1 | built: `open`, `open -R`, Finder `delete` via `osascript` (check on m4); later `open -a`, `qlmanage -p` | built: `xdg-open`, `org.freedesktop.FileManager1.ShowItems` (D-Bus, parent folder as fallback), the home trash per the FreeDesktop.org spec (`gio trash` across filesystems); later `gio launch`, `sushi`/`gnome-sushi`. `quickhop launch <id> --action reveal\|copy\|trash` |
 | FIL-03 | File content search | planned | P2 | Spotlight `kMDItemTextContent` | index extension with FTS5 over text files; `localsearch` when present |
 | FIL-04 | Recent files and downloads | planned | P2 | Spotlight `kMDItemLastUsedDate`, `~/Downloads` | `recently-used.xbel` (GTK), `~/Downloads` |
 
@@ -185,9 +185,9 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 | Priority | Features | done | partial | planned |
 |----------|---------:|-----:|--------:|--------:|
 | P0 | 30 | 19 | 3 | 8 |
-| P1 | 36 | 1 | 4 | 31 |
+| P1 | 36 | 1 | 5 | 30 |
 | P2 | 29 | 0 | 0 | 29 |
-| All | 95 | 20 | 7 | 68 |
+| All | 95 | 20 | 8 | 67 |
 
 Counted from the tables above; recount when editing them.
 

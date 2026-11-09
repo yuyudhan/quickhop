@@ -118,6 +118,16 @@ pub enum Action {
         /// The snippet text, placeholders unexpanded (see [`crate::placeholders`]).
         text: String,
     },
+    /// Show a file or folder selected in the file manager.
+    Reveal {
+        /// Absolute path.
+        path: String,
+    },
+    /// Move a file or folder to the trash (always confirmed first).
+    Trash {
+        /// Absolute path.
+        path: String,
+    },
 }
 
 impl Action {
@@ -125,7 +135,23 @@ impl Action {
     pub fn needs_confirmation(&self) -> bool {
         match self {
             Self::Run { confirm, .. } | Self::Script { confirm, .. } => *confirm,
-            Self::Open { .. } | Self::Copy { .. } | Self::Snippet { .. } => false,
+            Self::Trash { .. } => true,
+            Self::Open { .. } | Self::Copy { .. } | Self::Snippet { .. } | Self::Reveal { .. } => {
+                false
+            }
+        }
+    }
+
+    /// The action's kind as serialized (`open`, `copy`, `reveal`, …), to pick it by name.
+    pub fn kind(&self) -> &'static str {
+        match self {
+            Self::Open { .. } => "open",
+            Self::Copy { .. } => "copy",
+            Self::Run { .. } => "run",
+            Self::Script { .. } => "script",
+            Self::Snippet { .. } => "snippet",
+            Self::Reveal { .. } => "reveal",
+            Self::Trash { .. } => "trash",
         }
     }
 }

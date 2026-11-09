@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod launch;
+mod trash;
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -56,6 +57,10 @@ enum Command {
         /// Print the action as JSON instead of running it.
         #[arg(long)]
         dry_run: bool,
+        /// Run the result's first action of this kind (`open`, `copy`, `reveal`, `trash`, …)
+        /// instead of its default one.
+        #[arg(long)]
+        action: Option<String>,
     },
     /// Inspect or validate the configuration file.
     Config {
@@ -114,6 +119,12 @@ enum CliError {
     NotFound(String, String),
     #[error("{0} needs confirmation: run again with --yes")]
     NeedsConfirmation(String),
+    #[error("{id} has no {kind} action (it has: {available})")]
+    NoAction {
+        id: String,
+        kind: String,
+        available: String,
+    },
     #[error(transparent)]
     Launch(#[from] launch::LaunchError),
     #[error("invalid script command {path}: {source}")]
@@ -337,6 +348,7 @@ struct LaunchRequest<'a> {
     args: &'a [String],
     yes: bool,
     dry_run: bool,
+    action: Option<&'a str>,
 }
 
 fn launch(
@@ -352,7 +364,22 @@ fn launch(
         .map(|r| r.item)
         .find(|item| item.id == id)
         .ok_or_else(|| CliError::NotFound(request.id.to_owned(), request.query.to_owned()))?;
-    let Some(action) = item.default_action() else {
+    let action = match request.action {
+        None => item.default_action(),
+        Some(kind) => {
+            let found = item.actions.iter().find(|a| a.kind() == kind);
+            if found.is_none() {
+                let kinds: Vec<&str> = item.actions.iter().map(Action::kind).collect();
+                return Err(CliError::NoAction {
+                    id: request.id.to_owned(),
+                    kind: kind.to_owned(),
+                    available: kinds.join(", "),
+                });
+            }
+            found
+        }
+    };
+    let Some(action) = action else {
         return Err(CliError::NotFound(
             request.id.to_owned(),
             request.query.to_owned(),
@@ -395,6 +422,7 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
             args,
             yes,
             dry_run,
+            action,
         } => {
             let request = LaunchRequest {
                 id: &id,
@@ -402,6 +430,7 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
                 args: &args,
                 yes,
                 dry_run,
+                action: action.as_deref(),
             };
             launch(&load_config()?, &request, out)?;
         }

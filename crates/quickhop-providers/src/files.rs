@@ -57,7 +57,8 @@ impl FilesProvider {
         parent.display().to_string()
     }
 
-    /// An item that opens the file; its second action copies the path.
+    /// An item that opens the file; further actions reveal it, copy its path and move it to
+    /// the trash.
     fn item(&self, hit: Hit) -> Item {
         let path = hit.entry.path.to_string_lossy().into_owned();
         let mut item = Item::new(
@@ -74,7 +75,11 @@ impl FilesProvider {
         } else {
             "text-x-generic"
         });
-        item.actions.push(Action::Copy { text: path });
+        item.actions.extend([
+            Action::Reveal { path: path.clone() },
+            Action::Copy { text: path.clone() },
+            Action::Trash { path },
+        ]);
         item
     }
 }

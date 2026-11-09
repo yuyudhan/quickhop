@@ -364,6 +364,67 @@ fn index_then_query_finds_files_by_name_and_folder() -> TestResult {
     Ok(())
 }
 
+/// Copy path and move to trash on an indexed file; the home trash is followed on Linux and
+/// the BSDs (macOS and Windows trash through Finder and the shell, not testable here).
+#[cfg(all(unix, not(target_os = "macos")))]
+#[test]
+fn file_actions_copy_the_path_and_move_to_the_trash() -> TestResult {
+    let sandbox = Sandbox::new()?;
+    let tree = tempfile::tempdir()?;
+    let report = tree.path().join("work").join("quarterly report.md");
+    std::fs::create_dir_all(report.parent().ok_or("no parent")?)?;
+    std::fs::write(&report, "q3")?;
+    let data_home = tree.path().join("data-home");
+    sandbox.add_config(&format!(
+        "[files]\nroots = [\"{}\"]\n",
+        tree.path().join("work").display()
+    ))?;
+    stdout(sandbox.cmd()?.arg("index"))?;
+    let id = format!("files:{}", report.display());
+    let launch = |action: &str, yes: bool| -> Result<std::process::Output, Box<dyn Error>> {
+        let mut cmd = sandbox.cmd()?;
+        cmd.env("XDG_DATA_HOME", &data_home).args([
+            "launch",
+            &id,
+            "--query",
+            "quarterly",
+            "--action",
+            action,
+        ]);
+        if yes {
+            cmd.arg("--yes");
+        }
+        Ok(cmd.output()?)
+    };
+
+    let copied = launch("copy", false)?;
+    assert_eq!(
+        String::from_utf8(copied.stdout)?,
+        format!("{}\n", report.display())
+    );
+    let unknown = String::from_utf8(launch("nope", false)?.stderr)?;
+    assert!(
+        unknown.contains("has no nope action (it has: open, reveal, copy, trash)"),
+        "{unknown}"
+    );
+    let unconfirmed = launch("trash", false)?;
+    assert!(!unconfirmed.status.success());
+    assert!(report.is_file(), "trashed without --yes");
+
+    let trashed = launch("trash", true)?;
+    assert!(trashed.status.success(), "{trashed:?}");
+    assert!(!report.exists());
+    let trash = data_home.join("Trash");
+    let kept = std::fs::read_to_string(trash.join("files").join("quarterly report.md"))?;
+    assert_eq!(kept, "q3");
+    let record = std::fs::read_to_string(trash.join("info").join("quarterly report.md.trashinfo"))?;
+    assert!(
+        record.contains("/work/quarterly%20report.md\nDeletionDate=20"),
+        "{record}"
+    );
+    Ok(())
+}
+
 #[test]
 fn launching_records_frecency() -> TestResult {
     let sandbox = Sandbox::new()?;
