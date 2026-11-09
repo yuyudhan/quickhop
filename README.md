@@ -63,6 +63,7 @@ tarball into `target/bundle/`.
 **Linux** (Debian/Ubuntu shown; any distro with a C compiler works):
 
     sudo apt install build-essential xdg-utils
+    sudo apt install libfontconfig-dev libfreetype-dev libwayland-dev libxkbcommon-x11-dev  # the window toolkit
     sudo apt install wl-clipboard            # Wayland sessions
     sudo apt install xclip                   # X11 sessions
     curl https://sh.rustup.rs -sSf | sh

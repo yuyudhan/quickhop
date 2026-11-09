@@ -23,6 +23,11 @@ jobs:
                 shell: bash
         steps:
             - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+            - name: Install gpui's Linux libraries
+              if: runner.os == 'Linux'
+              run: |
+                  sudo apt-get update
+                  sudo apt-get install -y libfontconfig-dev libfreetype-dev libwayland-dev libxkbcommon-x11-dev
             - name: Install the pinned toolchain
               run: rustup show active-toolchain || rustup toolchain install
             - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2

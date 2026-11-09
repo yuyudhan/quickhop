@@ -108,21 +108,29 @@ mod tests {
 
     #[test]
     fn home_trash_prefers_xdg_data_home_and_ignores_relative_paths() {
-        let vars = |pairs: &'static [(&'static str, &'static str)]| {
+        let vars = |pairs: &[(&str, &str)]| {
+            let pairs: Vec<(String, String)> = pairs
+                .iter()
+                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+                .collect();
             move |name: &str| {
                 pairs
                     .iter()
-                    .find(|(k, _)| *k == name)
-                    .map(|(_, v)| (*v).to_owned())
+                    .find(|(k, _)| k == name)
+                    .map(|(_, v)| v.clone())
             }
         };
+        // An absolute root of the OS the tests run on: on Windows only a drive makes a path
+        // absolute.
+        let root = if cfg!(windows) { r"C:\" } else { "/" };
+        let (d, h) = (format!("{root}d"), format!("{root}h"));
         assert_eq!(
-            home_trash(vars(&[("XDG_DATA_HOME", "/d"), ("HOME", "/h")])),
-            Some(PathBuf::from("/d/Trash"))
+            home_trash(vars(&[("XDG_DATA_HOME", &d), ("HOME", &h)])),
+            Some(PathBuf::from(&d).join("Trash"))
         );
         assert_eq!(
-            home_trash(vars(&[("XDG_DATA_HOME", "rel"), ("HOME", "/h")])),
-            Some(PathBuf::from("/h/.local/share/Trash"))
+            home_trash(vars(&[("XDG_DATA_HOME", "rel"), ("HOME", &h)])),
+            Some(PathBuf::from(&h).join(".local").join("share").join("Trash"))
         );
         assert_eq!(home_trash(vars(&[("HOME", "rel")])), None);
     }

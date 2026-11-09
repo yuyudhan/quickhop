@@ -179,39 +179,51 @@ pub(crate) fn run(action: AutostartAction, out: &mut impl Write) -> Result<(), A
 mod tests {
     use super::*;
 
-    fn vars(pairs: &'static [(&'static str, &'static str)]) -> impl Fn(&str) -> Option<String> {
+    fn vars(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
+        let pairs: Vec<(String, String)> = pairs
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
         move |name| {
             pairs
                 .iter()
-                .find(|(k, _)| *k == name)
-                .map(|(_, v)| (*v).to_owned())
+                .find(|(k, _)| k == name)
+                .map(|(_, v)| v.clone())
         }
+    }
+
+    /// `name` under an absolute root of the OS the tests run on: on Windows only a drive
+    /// makes a path absolute.
+    fn abs(name: &str) -> String {
+        let root = if cfg!(windows) { r"C:\" } else { "/" };
+        format!("{root}{name}")
     }
 
     #[test]
     fn entry_paths_per_os() {
+        let (c, h) = (abs("c"), abs("h"));
         assert_eq!(
-            entry_path("linux", vars(&[("XDG_CONFIG_HOME", "/c"), ("HOME", "/h")])).unwrap(),
-            PathBuf::from("/c/autostart/quickhop.desktop")
+            entry_path("linux", vars(&[("XDG_CONFIG_HOME", &c), ("HOME", &h)])).unwrap(),
+            PathBuf::from(&c).join("autostart").join("quickhop.desktop")
         );
         assert_eq!(
-            entry_path(
-                "freebsd",
-                vars(&[("XDG_CONFIG_HOME", "rel"), ("HOME", "/h")])
-            )
-            .unwrap(),
-            PathBuf::from("/h/.config/autostart/quickhop.desktop")
+            entry_path("freebsd", vars(&[("XDG_CONFIG_HOME", "rel"), ("HOME", &h)])).unwrap(),
+            PathBuf::from(&h)
+                .join(".config")
+                .join("autostart")
+                .join("quickhop.desktop")
         );
+        let user = abs("Users/a");
         assert_eq!(
-            entry_path("macos", vars(&[("HOME", "/Users/a")])).unwrap(),
-            PathBuf::from("/Users/a/Library/LaunchAgents/io.github.yuyudhan.quickhop.plist")
+            entry_path("macos", vars(&[("HOME", &user)])).unwrap(),
+            PathBuf::from(&user).join("Library/LaunchAgents/io.github.yuyudhan.quickhop.plist")
         );
         assert!(matches!(
             entry_path("linux", vars(&[])),
             Err(AutostartError::NoHome)
         ));
         assert!(matches!(
-            entry_path("windows", vars(&[("HOME", "/h")])),
+            entry_path("windows", vars(&[("HOME", &h)])),
             Err(AutostartError::Unsupported(_))
         ));
     }
