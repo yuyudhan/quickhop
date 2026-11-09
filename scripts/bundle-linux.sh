@@ -50,8 +50,8 @@ Homepage: https://github.com/yuyudhan/quickhop
 Description: keyboard launcher for Linux, macOS and Windows
  Apps, files, calculations, clipboard history, snippets and Raycast-compatible
  script commands, one hotkey away. The daemon keeps the clipboard history and
- the file index; enable it with `quickhop autostart on` or
- `systemctl --user enable --now quickhop`.
+ the file index; enable it with "quickhop autostart on" or
+ "systemctl --user enable --now quickhop".
 EOF
 
 dpkg-deb --root-owner-group --build "$stage" "$out/quickhop_${version}_${arch}.deb" >/dev/null

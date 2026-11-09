@@ -83,7 +83,13 @@ mismatch fails the run.
 
 ## Gates
 
-- pre-commit: `just check` (format, guards, typos, host clippy, tests) on the staged tree.
+- pre-commit: `just check` (format, guards, typos, shell, host clippy, tests) on the staged
+  tree. `just shell` runs shellcheck and `scripts/test-install.sh`, which packages a stub
+  binary with `scripts/dist.sh` and installs, runs, uninstalls and purges it in a throwaway
+  HOME, from a directory and over HTTP on 127.0.0.1.
+- `crates/quickhop-core/tests/config_docs.rs` fails when
+  [configuration.md](configuration.md) misses a config or snippet key, lists one that does not
+  exist, or shows a wrong default.
 - pre-push: `just verify` (check, clippy for this OS's targets and Windows, deny) on every
   commit being pushed; it prints which targets it deferred to the other OS.
 - Both export the tree into `target/hook-tree/` (`scripts/hook-tree.sh`) and run there, so

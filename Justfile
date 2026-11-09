@@ -34,8 +34,16 @@ clippy:
 clippy-all:
     scripts/clippy-all.sh {{targets}}
 
-# The everyday gate (pre-commit, CI): format, guards, spelling, host clippy, tests.
-check: fmt-check guards typos clippy test
+# Shell scripts: shellcheck, then the installer's end-to-end test (skipped on Windows).
+shell:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) echo "shell: skipped on Windows"; exit 0 ;; esac
+    shellcheck scripts/*.sh .githooks/*
+    scripts/test-install.sh
+
+# The everyday gate (pre-commit, CI): format, guards, spelling, shell, host clippy, tests.
+check: fmt-check guards typos shell clippy test
 
 # Unit, integration, property, snapshot and CLI end-to-end tests.
 test:

@@ -7,6 +7,7 @@ and pull request to it.
 
     rustup show                       # installs the pinned toolchain and targets
     cargo install just taplo-cli typos-cli cargo-deny --locked
+    brew install shellcheck           # or: sudo apt install shellcheck
     just install-hooks                # pre-commit: `just check`, pre-push: `just verify`
 
 `just verify` runs clippy for every target this machine can check and names the rest:
@@ -26,7 +27,8 @@ cross-check needs [zig](https://ziglang.org/download/) on `PATH` (the bundled SQ
 | Command | Does |
 |---------|------|
 | `just fmt` | `cargo fmt` and `taplo fmt` in place |
-| `just check` | format check, guards, typos, clippy `-D warnings` for the host, all tests: the everyday gate (pre-commit) |
+| `just check` | format check, guards, typos, shell, clippy `-D warnings` for the host, all tests: the everyday gate (pre-commit) |
+| `just shell` | shellcheck on `scripts/` and the hooks, then the installer's end-to-end test (`scripts/test-install.sh`) |
 | `just clippy-all` | clippy `-D warnings` for `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-gnu`, `aarch64-apple-darwin` |
 | `just test` | all unit, integration, property, golden, snapshot and CLI e2e tests ([docs/testing.md](docs/testing.md)) |
 | `just deny` | cargo-deny: advisories, licences, duplicate versions, sources |

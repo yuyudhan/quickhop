@@ -203,7 +203,12 @@ runs any of an item's actions by kind.
 | Linux | built: `.deb` (`dpkg-deb`, dependencies from `dpkg-shlibdeps`) and tarball from `just bundle-linux`; later `.rpm`, AUR `PKGBUILD`; `cargo install` | ships `quickhop.desktop` (later with `x-scheme-handler/quickhop`), a hicolor SVG icon and a systemd user unit (`systemctl --user enable --now quickhop`); `quickhop autostart on` writes an XDG autostart entry instead (GNOME and KDE turn it into a unit with `systemd-xdg-autostart-generator`). `just bundle-linux-test` installs the `.deb` in `debian:bookworm-slim` and runs `doctor` and a query. Flatpak later, since launching host apps needs `flatpak-spawn --host` |
 
 Release builds run on GitHub Actions for both OSes from a tag; the UI test jobs in
-[plan.md](plan.md) gate them.
+[plan.md](plan.md) gate them. Each release also attaches, per target
+(`x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `universal-apple-darwin`),
+`quickhop-<target>.tar.gz` and its `.sha256` from `scripts/dist.sh`, plus `scripts/install.sh`,
+the no-sudo per-user installer ([install.md](install.md#the-installer-script)) that verifies
+the checksum and installs into `~/.local/bin`, `~/.local/share` and, for an archive carrying
+`quickhop.app`, `/Applications`.
 
 ## Testing
 
