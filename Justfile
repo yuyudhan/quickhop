@@ -34,10 +34,10 @@ clippy:
 clippy-all:
     scripts/clippy-all.sh {{targets}}
 
-# Everything the pre-commit hook runs.
-check: fmt-check guards typos clippy-all
+# The everyday gate (pre-commit, CI): format, guards, spelling, host clippy, tests.
+check: fmt-check guards typos clippy test
 
-# Unit, integration and property tests.
+# Unit, integration, property, snapshot and CLI end-to-end tests.
 test:
     cargo test --workspace --all-features
 
@@ -45,8 +45,8 @@ test:
 deny:
     cargo deny check
 
-# The full local gate: check, test, deny.
-verify: check test deny
+# The full local gate (pre-push): check, clippy for every target (needs zig), deny.
+verify: check clippy-all deny
 
 
 # Use the repo's git hooks.
