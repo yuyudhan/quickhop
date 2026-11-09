@@ -1,9 +1,10 @@
 //! `quickhop daemon`: the long-running process, one per user (an exclusive lock on
 //! `daemon.lock`), reached over the Unix socket `daemon.sock`, both in
 //! [`runtime_dir`](quickhop_core::config::runtime_dir). It watches the clipboard, rebuilds the
-//! file index and keeps it current, and serves `status`, `open`, `reload` and `stop`
-//! requests: one JSON line in, one JSON line out per connection. The launcher window joins it
-//! with the UI slices.
+//! file index and keeps it current, and serves `status`, `open`, `toggle`, `show`, `hide`,
+//! `reload` and `stop` requests: one JSON line in, one JSON line out per connection. On macOS
+//! it owns the launcher window: the main thread runs the window, the requests are served on a
+//! thread of their own.
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -45,9 +46,28 @@ pub(crate) enum Request {
     },
     /// Read the configuration again and restart the watchers with it.
     Reload,
+    /// Show the launcher window, or hide it when shown.
+    Toggle,
+    /// Show the launcher window.
+    Show,
+    /// Hide the launcher window.
+    Hide,
     /// Exit.
     Stop,
 }
+
+/// How `quickhop daemon` runs.
+#[derive(Debug, Default)]
+pub(crate) struct Options {
+    /// Whether to open the launcher window (macOS; other systems have none yet).
+    pub window: bool,
+    /// Where to answer `snapshot` with what the window shows (the UI tests).
+    pub test_socket: Option<PathBuf>,
+}
+
+/// The launcher window, once the app runs: set by the main thread, used by the request thread.
+#[cfg(target_os = "macos")]
+type Ui = Arc<std::sync::OnceLock<quickhop_ui::window::Handle>>;
 
 /// The daemon's answer.
 #[derive(Debug, Serialize, Deserialize)]
@@ -172,6 +192,14 @@ struct State {
     clipboard_settings: Settings,
     clipboard: Result<Watching, String>,
     index: Result<IndexService, String>,
+    /// What the window searches, once it runs; reloaded with the configuration.
+    #[cfg(target_os = "macos")]
+    launcher: Option<Arc<crate::window::Launcher>>,
+    #[cfg(target_os = "macos")]
+    ui: Ui,
+    /// The launcher hotkey as bound, or why it is not, for `status`.
+    #[cfg(target_os = "macos")]
+    hotkey: Arc<Mutex<String>>,
 }
 
 /// The file index being rebuilt, then watched, on its own thread.
@@ -274,6 +302,12 @@ impl State {
             clipboard_settings,
             clipboard,
             index,
+            #[cfg(target_os = "macos")]
+            launcher: None,
+            #[cfg(target_os = "macos")]
+            ui: Ui::default(),
+            #[cfg(target_os = "macos")]
+            hotkey: Arc::new(Mutex::new(NO_WINDOW_HOTKEY.into())),
         }
     }
 
@@ -286,7 +320,30 @@ impl State {
             Ok(service) => service.describe(),
             Err(why) => format!("off ({why})"),
         };
-        format!("clipboard: {clipboard}; file index: {index}")
+        #[cfg(target_os = "macos")]
+        let window = match (&self.launcher, self.ui.get()) {
+            (None, _) => "off",
+            (Some(_), None) => "starting",
+            (Some(_), Some(ui)) => match ui.send(quickhop_ui::window::Command::Snapshot) {
+                Ok(snapshot) if snapshot.visible => "shown",
+                Ok(_) => "hidden",
+                Err(_) => "gone",
+            },
+        };
+        #[cfg(target_os = "macos")]
+        let hotkey = self
+            .hotkey
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        #[cfg(target_os = "macos")]
+        return format!(
+            "clipboard: {clipboard}; file index: {index}; window: {window}; hotkey: {hotkey}"
+        );
+        #[cfg(not(target_os = "macos"))]
+        format!(
+            "clipboard: {clipboard}; file index: {index}; window: not built for this system yet"
+        )
     }
 
     fn reload(&mut self) -> Result<String, String> {
@@ -305,6 +362,17 @@ impl State {
             index.stop();
         }
         self.index = start_index(&config);
+        #[cfg(target_os = "macos")]
+        if let Some(launcher) = &self.launcher {
+            launcher.reload(&config);
+        }
+        #[cfg(target_os = "macos")]
+        if config.hotkey != self.config.hotkey
+            && let Some(ui) = self.ui.get()
+        {
+            *self.hotkey.lock().unwrap_or_else(PoisonError::into_inner) =
+                bind_hotkey(ui, &config.hotkey);
+        }
         self.config = config;
         Ok(format!("reloaded; {}", self.status()))
     }
@@ -349,9 +417,49 @@ impl State {
                 Ok(message) => (true, message),
                 Err(message) => (false, message),
             },
+            #[cfg(target_os = "macos")]
+            Request::Toggle => window(&self.ui, quickhop_ui::window::Command::Toggle),
+            #[cfg(target_os = "macos")]
+            Request::Show => window(&self.ui, quickhop_ui::window::Command::Show),
+            #[cfg(target_os = "macos")]
+            Request::Hide => window(&self.ui, quickhop_ui::window::Command::Hide),
+            #[cfg(not(target_os = "macos"))]
+            Request::Toggle | Request::Show | Request::Hide => (
+                false,
+                "the launcher window is not built for this system yet".into(),
+            ),
             Request::Stop => (true, "stopping".into()),
         };
         Response { ok, pid, message }
+    }
+}
+
+/// Carries out a show, hide or toggle `command`; says whether the window is shown afterwards.
+#[cfg(target_os = "macos")]
+fn window(ui: &Ui, command: quickhop_ui::window::Command) -> (bool, String) {
+    let Some(ui) = ui.get() else {
+        return (
+            false,
+            "this daemon runs without the launcher window (--no-window, or no display to open \
+             it on)"
+                .into(),
+        );
+    };
+    match ui.send(command) {
+        Ok(snapshot) if snapshot.visible => (true, "shown".into()),
+        Ok(_) => (true, "hidden".into()),
+        Err(gone) => (false, gone.to_string()),
+    }
+}
+
+impl State {
+    /// The window's backend, loaded on first use.
+    #[cfg(target_os = "macos")]
+    fn launcher(&mut self) -> Arc<crate::window::Launcher> {
+        Arc::clone(
+            self.launcher
+                .get_or_insert_with(|| Arc::new(crate::window::Launcher::new(&self.config))),
+        )
     }
 }
 
@@ -393,19 +501,33 @@ fn read_request(stream: &UnixStream) -> Result<Request, String> {
     serde_json::from_str(line.trim()).map_err(|e| format!("bad request: {e}"))
 }
 
-/// Runs the daemon until a `stop` request.
+/// Runs the daemon until a `stop` request. On macOS, unless `options.window` is off, this
+/// thread runs the launcher window and the requests are served on another.
 ///
 /// # Errors
 /// When another daemon runs, or the lock or socket cannot be set up.
-pub(crate) fn serve(config: Config, out: &mut impl Write) -> Result<(), DaemonError> {
+pub(crate) fn serve(
+    config: Config,
+    options: &Options,
+    out: &mut impl Write,
+) -> Result<(), DaemonError> {
     let paths = paths();
-    let _lock = lock(&paths)?;
+    let lock = lock(&paths)?;
     // Holding the lock means any socket left is from a daemon that died.
     if paths.socket.exists() {
         std::fs::remove_file(&paths.socket).map_err(file_error(&paths.socket))?;
     }
     let listener = UnixListener::bind(&paths.socket).map_err(file_error(&paths.socket))?;
     let mut state = State::start(config);
+    #[cfg(target_os = "macos")]
+    let launcher = options.window.then(|| {
+        *state.hotkey.lock().unwrap_or_else(PoisonError::into_inner) = "starting".into();
+        state.launcher()
+    });
+    #[cfg(not(target_os = "macos"))]
+    if options.window || options.test_socket.is_some() {
+        crate::warn("the launcher window is not built for this system yet");
+    }
     writeln!(
         out,
         "quickhop daemon {} listening on {}; {}",
@@ -414,6 +536,47 @@ pub(crate) fn serve(config: Config, out: &mut impl Write) -> Result<(), DaemonEr
         state.status()
     )?;
     out.flush()?;
+    #[cfg(target_os = "macos")]
+    let ui = Arc::clone(&state.ui);
+    #[cfg(target_os = "macos")]
+    let (hotkey, hotkey_text) = (Arc::clone(&state.hotkey), state.config.hotkey.clone());
+    let requests = std::thread::Builder::new()
+        .name("quickhop-daemon".into())
+        .spawn(move || {
+            let _lock = lock;
+            let served = accept(&listener, &mut state);
+            let _ = std::fs::remove_file(&paths.socket);
+            #[cfg(target_os = "macos")]
+            let ui = Arc::clone(&state.ui);
+            state.stop();
+            // Ends the app, and with it the process, once everything is stopped.
+            #[cfg(target_os = "macos")]
+            if let Some(ui) = ui.get() {
+                let _ = ui.send(quickhop_ui::window::Command::Quit);
+            }
+            served
+        })?;
+    #[cfg(target_os = "macos")]
+    if let Some(launcher) = launcher {
+        let test_socket = options.test_socket.clone();
+        // Returns early only when the window cannot be opened; the requests go on without it.
+        quickhop_ui::window::run(launcher, move |handle| {
+            let _ = ui.set(handle.clone());
+            *hotkey.lock().unwrap_or_else(PoisonError::into_inner) =
+                bind_hotkey(&handle, &hotkey_text);
+            // Last: a test socket that answers means the window and the hotkey are ready.
+            if let Some(path) = test_socket {
+                serve_snapshots(&path, handle);
+            }
+        });
+    }
+    requests
+        .join()
+        .unwrap_or_else(|_| Err(DaemonError::Failed("the request thread panicked".into())))
+}
+
+/// Answers requests until a `stop`.
+fn accept(listener: &UnixListener, state: &mut State) -> Result<(), DaemonError> {
     for stream in listener.incoming() {
         let mut stream = match stream {
             Ok(stream) => stream,
@@ -445,9 +608,94 @@ pub(crate) fn serve(config: Config, out: &mut impl Write) -> Result<(), DaemonEr
             break;
         }
     }
-    let _ = std::fs::remove_file(&paths.socket);
-    state.stop();
     Ok(())
+}
+
+/// The hotkey status of a daemon without the launcher window.
+#[cfg(target_os = "macos")]
+const NO_WINDOW_HOTKEY: &str = "off (no launcher window)";
+
+#[cfg(target_os = "macos")]
+thread_local! {
+    /// The launcher hotkey's registration, kept by the main thread that owns it.
+    static HOTKEY: std::cell::RefCell<Option<quickhop_platform_macos::hotkey::Registration>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Binds `text` as the hotkey that toggles the window, replacing the one bound before, and
+/// returns the status line: the hotkey, or `off (why)`. Waits for the main thread, so it is
+/// called from another one.
+#[cfg(target_os = "macos")]
+fn bind_hotkey(ui: &quickhop_ui::window::Handle, text: &str) -> String {
+    const GONE: &str = "off (the launcher window is gone)";
+    let hotkey = match quickhop_core::Hotkey::parse(text) {
+        Ok(hotkey) => hotkey,
+        Err(error) => return format!("off ({error})"),
+    };
+    let (reply, answer) = std::sync::mpsc::channel();
+    let toggler = ui.clone();
+    let sent = ui.on_main_thread(move || {
+        // Released first, so binding the same combination again succeeds.
+        HOTKEY.with_borrow_mut(Option::take);
+        // The press arrives on the main thread, which `send` waits for: toggle from another.
+        let on_press = move || {
+            let ui = toggler.clone();
+            std::thread::spawn(move || ui.send(quickhop_ui::window::Command::Toggle));
+        };
+        let status = match quickhop_platform_macos::hotkey::register(hotkey, on_press) {
+            Ok(registration) => {
+                HOTKEY.set(Some(registration));
+                hotkey.to_string()
+            }
+            Err(error) => format!("off ({error})"),
+        };
+        let _ = reply.send(status);
+    });
+    match sent {
+        Ok(()) => answer.recv().unwrap_or_else(|_| GONE.into()),
+        Err(_) => GONE.into(),
+    }
+}
+
+/// Answers each `snapshot` line on the Unix socket `path` with what the window shows, as one
+/// JSON line ([`quickhop_ui::model::Snapshot`]); the UI tests read it.
+#[cfg(target_os = "macos")]
+fn serve_snapshots(path: &Path, ui: quickhop_ui::window::Handle) {
+    let _ = std::fs::remove_file(path);
+    let listener = match UnixListener::bind(path) {
+        Ok(listener) => listener,
+        Err(error) => {
+            crate::warn(&format!("test socket {}: {error}", path.display()));
+            return;
+        }
+    };
+    std::thread::spawn(move || {
+        for stream in listener.incoming().flatten() {
+            let ui = ui.clone();
+            std::thread::spawn(move || answer_snapshots(stream, &ui));
+        }
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn answer_snapshots(stream: UnixStream, ui: &quickhop_ui::window::Handle) {
+    let Ok(mut writer) = stream.try_clone() else {
+        return;
+    };
+    for line in BufReader::new(stream).lines() {
+        let Ok(line) = line else { return };
+        let answer = match line.trim() {
+            "snapshot" => match ui.send(quickhop_ui::window::Command::Snapshot) {
+                Ok(snapshot) => serde_json::to_value(snapshot)
+                    .unwrap_or_else(|error| serde_json::json!({ "error": error.to_string() })),
+                Err(gone) => serde_json::json!({ "error": gone.to_string() }),
+            },
+            other => serde_json::json!({ "error": format!("unknown command {other:?}") }),
+        };
+        if writeln!(writer, "{answer}").is_err() {
+            return;
+        }
+    }
 }
 
 /// The message of a successful `response`, or its error.

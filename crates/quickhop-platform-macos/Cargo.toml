@@ -14,7 +14,12 @@ thiserror.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2.workspace = true
-objc2-application-services = { workspace = true, features = ["AXUIElement", "HIServices"] }
+objc2-application-services = { workspace = true, features = [
+    "AXError",
+    "AXUIElement",
+    "HIServices",
+    "libc",
+] }
 objc2-app-kit = { workspace = true, features = [
     "NSBitmapImageRep",
     "NSGraphicsContext",
@@ -23,19 +28,29 @@ objc2-app-kit = { workspace = true, features = [
     "NSPasteboard",
     "NSRunningApplication",
     "NSWorkspace",
+    "libc",
     "objc2-core-graphics",
 ] }
-objc2-core-foundation = { workspace = true, features = ["CFDictionary", "CFNumber", "CFString"] }
+objc2-core-foundation = { workspace = true, features = [
+    "CFArray",
+    "CFData",
+    "CFDictionary",
+    "CFNumber",
+    "CFString",
+] }
 objc2-core-graphics = { workspace = true, features = [
     "CGEvent",
     "CGEventSource",
     "CGEventTypes",
     "CGImage",
     "CGRemoteOperation",
+    "CGWindow",
 ] }
 objc2-foundation = { workspace = true, features = [
+    "NSArray",
     "NSData",
     "NSDictionary",
+    "NSEnumerator",
     "NSGeometry",
     "NSString",
 ] }

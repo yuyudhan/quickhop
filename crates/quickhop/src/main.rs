@@ -9,6 +9,8 @@ mod daemon;
 mod launch;
 mod paste;
 mod trash;
+#[cfg(target_os = "macos")]
+mod window;
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
@@ -104,13 +106,30 @@ enum Command {
         #[command(subcommand)]
         action: clipboard::ClipboardAction,
     },
-    /// Run the background daemon (one per user): clipboard history, the file index, and the
-    /// `open` and `reload` requests. `status` and `stop` talk to a running one.
+    /// Run the background daemon (one per user): the launcher window (macOS), clipboard
+    /// history, the file index, and the `open`, `toggle` and `reload` requests. `status` and
+    /// `stop` talk to a running one.
     #[cfg(unix)]
     Daemon {
         #[command(subcommand)]
         action: Option<DaemonAction>,
+        /// Run without the launcher window (a session without a display).
+        #[arg(long)]
+        no_window: bool,
+        /// Answer `snapshot` on this Unix socket with what the window shows, as JSON (the UI
+        /// tests).
+        #[arg(long, value_name = "PATH")]
+        test_socket: Option<std::path::PathBuf>,
     },
+    /// Show the launcher window, or hide it when shown, starting the daemon when none runs.
+    #[cfg(unix)]
+    Toggle,
+    /// Show the launcher window, starting the daemon when none runs.
+    #[cfg(unix)]
+    Show,
+    /// Hide the launcher window.
+    #[cfg(unix)]
+    Hide,
     /// Run a result's action in the daemon, starting the daemon when none runs.
     #[cfg(unix)]
     Open {
@@ -303,6 +322,13 @@ fn warning_text(warning: &Warning) -> String {
     format!("{}: {}", warning.provider, warning.message)
 }
 
+/// A problem worth telling but not failing for, on standard error (the daemon's and the
+/// window's: Unix only).
+#[cfg(unix)]
+fn warn(message: &str) {
+    let _ = writeln!(io::stderr(), "quickhop: {message}");
+}
+
 struct Outcome {
     ranked: Vec<Ranked>,
     errors: Vec<String>,
@@ -493,6 +519,62 @@ fn launch(
     Ok(())
 }
 
+/// The commands that run or talk to the daemon: `daemon`, `toggle`, `show`, `hide`, `open`
+/// and `reload`. `toggle`, `show` and `open` start a daemon when none runs.
+#[cfg(unix)]
+fn daemon_command(command: Command, out: &mut impl Write) -> Result<(), CliError> {
+    let (request, start) = match command {
+        Command::Daemon {
+            action,
+            no_window,
+            test_socket,
+        } => match action {
+            None => {
+                let options = daemon::Options {
+                    window: !no_window,
+                    test_socket,
+                };
+                return Ok(daemon::serve(load_config()?, &options, out)?);
+            }
+            Some(DaemonAction::Status) => (daemon::Request::Status, false),
+            Some(DaemonAction::Stop) => (daemon::Request::Stop, false),
+        },
+        Command::Toggle => (daemon::Request::Toggle, true),
+        Command::Show => (daemon::Request::Show, true),
+        Command::Hide => (daemon::Request::Hide, false),
+        Command::Reload => (daemon::Request::Reload, false),
+        Command::Open {
+            id,
+            query,
+            args,
+            yes,
+            action,
+            paste,
+        } => (
+            daemon::Request::Open {
+                id,
+                query,
+                args,
+                yes,
+                action,
+                paste,
+            },
+            true,
+        ),
+        _ => unreachable!("not a daemon command"),
+    };
+    let response = if start {
+        daemon::send_starting(&request)?
+    } else {
+        daemon::send(&request)?
+    };
+    let message = daemon::message(response)?;
+    if !message.is_empty() {
+        writeln!(out, "{message}")?;
+    }
+    Ok(())
+}
+
 fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
     match cli.command {
         Command::Query { text, json, limit } => {
@@ -523,44 +605,12 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
         Command::Clipboard { action } => clipboard::run(&action, &load_config()?, now_ms, out)?,
         Command::Autostart { action } => autostart::run(action, out)?,
         #[cfg(unix)]
-        Command::Daemon { action } => {
-            let request = match action {
-                None => return Ok(daemon::serve(load_config()?, out)?),
-                Some(DaemonAction::Status) => daemon::Request::Status,
-                Some(DaemonAction::Stop) => daemon::Request::Stop,
-            };
-            writeln!(out, "{}", daemon::message(daemon::send(&request)?)?)?;
-        }
-        #[cfg(unix)]
-        Command::Open {
-            id,
-            query,
-            args,
-            yes,
-            action,
-            paste,
-        } => {
-            let request = daemon::Request::Open {
-                id,
-                query,
-                args,
-                yes,
-                action,
-                paste,
-            };
-            let message = daemon::message(daemon::send_starting(&request)?)?;
-            if !message.is_empty() {
-                writeln!(out, "{message}")?;
-            }
-        }
-        #[cfg(unix)]
-        Command::Reload => {
-            writeln!(
-                out,
-                "{}",
-                daemon::message(daemon::send(&daemon::Request::Reload)?)?
-            )?;
-        }
+        command @ (Command::Daemon { .. }
+        | Command::Toggle
+        | Command::Show
+        | Command::Hide
+        | Command::Open { .. }
+        | Command::Reload) => daemon_command(command, out)?,
         Command::Config {
             action: ConfigAction::Default,
         } => write!(out, "{}", Config::default_toml())?,
@@ -832,10 +882,12 @@ fn doctor(out: &mut impl Write) -> Result<(), CliError> {
     for warning in &warnings {
         writeln!(out, "warning: {}", warning_text(warning))?;
     }
-    writeln!(
-        out,
-        "ui: launcher window not built yet (gpui, see docs/adr/0001-ui-toolkit.md)"
-    )?;
+    let ui = if cfg!(target_os = "macos") {
+        "launcher window in `quickhop daemon`: the hotkey or `quickhop toggle` shows it"
+    } else {
+        "launcher window not built yet (gpui, see docs/adr/0001-ui-toolkit.md)"
+    };
+    writeln!(out, "ui: {ui}")?;
     Ok(())
 }
 

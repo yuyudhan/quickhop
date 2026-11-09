@@ -3556,6 +3556,7 @@ checksum = "d49e936b501e5c5bf01fda3a9452ff86dc3ea98ad5f283e1455153142d97518c"
 dependencies = [
  "bitflags 2.13.2",
  "block2 0.6.2",
+ "libc",
  "objc2 0.6.5",
  "objc2-core-foundation",
  "objc2-core-graphics",
@@ -3570,6 +3571,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "69282c2b5bc58fba07cb9de2113619532eb551e98efe3d8d695509ef45fbd53b"
 dependencies = [
  "bitflags 2.13.2",
+ "libc",
  "objc2-core-foundation",
 ]
 
@@ -4418,6 +4420,19 @@ dependencies = [
  "gpui_platform",
  "proptest",
  "quickhop-core",
+ "serde",
+ "thiserror 2.0.21",
+]
+
+[[package]]
+name = "quickhop-uitest"
+version = "0.1.0"
+dependencies = [
+ "png 0.18.1",
+ "quickhop-core",
+ "quickhop-platform-macos",
+ "serde_json",
+ "tempfile",
 ]
 
 [[package]]

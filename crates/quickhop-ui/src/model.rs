@@ -461,6 +461,76 @@ pub fn action_title(action: &Action) -> String {
     .to_owned()
 }
 
+/// What the window shows, as `quickhop daemon --test-socket` reports it to the UI tests.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct Snapshot {
+    /// Whether the window is on screen.
+    pub visible: bool,
+    /// The search bar's text: the action panel's filter while it is open.
+    pub query: String,
+    /// Ids of the results of the page on top, best first.
+    pub results: Vec<String>,
+    /// Index of the selected result.
+    pub selected: Option<usize>,
+    /// Titles of the pages, root first (the root's is empty).
+    pub stack: Vec<String>,
+    /// Labels of the action panel's entries, when it is open.
+    pub panel: Option<Vec<String>>,
+    /// The toast's message, when one shows.
+    pub toast: Option<String>,
+}
+
+impl Model {
+    /// The snapshot of what the window shows; `visible` says whether it is on screen.
+    pub fn snapshot(&self, visible: bool) -> Snapshot {
+        let page = self.page();
+        Snapshot {
+            visible,
+            query: self.bar_text().to_owned(),
+            results: page
+                .results
+                .iter()
+                .map(|ranked| ranked.item.id.to_string())
+                .collect(),
+            selected: page.selected,
+            stack: self.stack.iter().map(|page| page.title.clone()).collect(),
+            panel: self.panel.as_ref().map(|panel| {
+                panel
+                    .entries
+                    .iter()
+                    .map(|entry| entry.title.clone())
+                    .collect()
+            }),
+            toast: self.toast.as_ref().map(|toast| toast.title.clone()),
+        }
+    }
+
+    /// The search bar's text: the action panel's filter while it is open, else the query of
+    /// the page on top.
+    pub fn bar_text(&self) -> &str {
+        self.panel
+            .as_ref()
+            .map_or_else(|| self.page().query(), ActionPanel::filter)
+    }
+}
+
+/// Byte ranges of the characters at `positions` (character indices, as the fuzzy matcher
+/// reports them) in `text`, adjacent ones merged: what a result row highlights.
+pub fn highlight_ranges(text: &str, positions: &[usize]) -> Vec<std::ops::Range<usize>> {
+    let mut ranges: Vec<std::ops::Range<usize>> = Vec::new();
+    for (index, (start, character)) in text.char_indices().enumerate() {
+        if !positions.contains(&index) {
+            continue;
+        }
+        let end = start + character.len_utf8();
+        match ranges.last_mut() {
+            Some(last) if last.end == start => last.end = end,
+            _ => ranges.push(start..end),
+        }
+    }
+    ranges
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -512,6 +582,57 @@ mod tests {
             ),
             item("Fig", vec![open("https://fig.io"), copy("https://fig.io")]),
         ])
+    }
+
+    #[test]
+    fn the_snapshot_reports_results_selection_panel_and_toast() {
+        let mut model = Model::new();
+        let Effect::Search(request) = model.set_query("fi") else {
+            panic!("typing searches");
+        };
+        model.set_results(request.generation, three());
+        model.select_next();
+        let snapshot = model.snapshot(true);
+        assert_eq!(
+            snapshot,
+            Snapshot {
+                visible: true,
+                query: "fi".into(),
+                results: vec![
+                    "test:Firefox".into(),
+                    "test:Finder".into(),
+                    "test:Fig".into()
+                ],
+                selected: Some(1),
+                stack: vec![String::new()],
+                panel: None,
+                toast: None,
+            }
+        );
+        model.select_next();
+        assert!(model.toggle_actions());
+        model.set_query("cop");
+        model.show_toast(Toast {
+            style: ToastStyle::Success,
+            title: "Copied".into(),
+        });
+        let snapshot = model.snapshot(false);
+        // While the panel is open the bar shows its filter; the page keeps its query.
+        assert_eq!(snapshot.query, "cop");
+        assert_eq!(model.page().query(), "fi");
+        assert_eq!(snapshot.panel, Some(vec!["Copy to Clipboard".into()]));
+        assert_eq!(snapshot.toast.as_deref(), Some("Copied"));
+        assert!(!snapshot.visible);
+    }
+
+    #[test]
+    fn highlight_ranges_merge_adjacent_characters_as_byte_ranges() {
+        assert_eq!(highlight_ranges("Firefox", &[0, 1, 2, 4]), vec![0..3, 4..5]);
+        assert_eq!(highlight_ranges("Café au", &[3, 5]), vec![3..5, 6..7]);
+        assert_eq!(
+            highlight_ranges("Fig", &[]),
+            Vec::<std::ops::Range<usize>>::new()
+        );
     }
 
     /// A model whose root shows `results` for the query `text`.

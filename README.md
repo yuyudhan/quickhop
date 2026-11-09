@@ -60,8 +60,9 @@ and `--paste` sends text results straight into the focused app. The daemon recor
 clipboard and keeps the file index current. The full tour, with every command:
 [docs/usage.md](docs/usage.md).
 
-quickhop's launcher window and global hotkey are being built on these same commands
-([plan](docs/plan.md)); everything on this page works today from the command line.
+On macOS the daemon also shows the launcher window when you press the global hotkey
+(`Alt+Space`) or run `quickhop toggle`; the Linux window is being built ([plan](docs/plan.md)).
+Everything else on this page works from the command line on both.
 
 ## What works today
 
@@ -80,6 +81,7 @@ quickhop's launcher window and global hotkey are being built on these same comma
 | Snippets with Raycast's dynamic placeholders | ✅ | ✅ |
 | Aliases, ordering and on/off switches per result | ✅ | ✅ |
 | Background daemon and launch at login | ✅ | ✅ |
+| Launcher window with a global hotkey and an action panel | ✅ | next |
 
 What each feature uses on each platform: [docs/platform-support.md](docs/platform-support.md).
 All 95 Raycast features and their status: [docs/features.md](docs/features.md).

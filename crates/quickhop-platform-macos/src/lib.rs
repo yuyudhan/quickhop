@@ -8,9 +8,15 @@
 #![deny(unsafe_op_in_unsafe_fn)]
 #![deny(clippy::undocumented_unsafe_blocks)]
 
+#[cfg(target_os = "macos")]
+pub mod hotkey;
 pub mod icon;
 #[cfg(target_os = "macos")]
+pub mod input;
+#[cfg(target_os = "macos")]
 pub mod keys;
+#[cfg(target_os = "macos")]
+pub mod layout;
 #[cfg(target_os = "macos")]
 pub mod pasteboard;
 

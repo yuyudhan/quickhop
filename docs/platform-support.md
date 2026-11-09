@@ -52,8 +52,10 @@ exactly what works where today, and which system tool or API each feature uses.
 
 ## The launcher window
 
-The launcher window and its global hotkey are under construction in `quickhop-ui`, using
-[gpui](adr/0001-ui-toolkit.md) on Metal (macOS) and Vulkan (Linux). The toolkit measurements
-behind that choice are in ADR 0001; the window's slices, machines and acceptance tests are in
-[plan.md](plan.md). Until it ships, bind a key in your desktop or compositor to a
-`quickhop open ID` command for a global shortcut to any result.
+The launcher window lives in `quickhop-ui`, using [gpui](adr/0001-ui-toolkit.md) on Metal
+(macOS) and Vulkan (Linux). On macOS it is built: `quickhop daemon` creates it hidden and
+registers the global `hotkey` through Carbon's `RegisterEventHotKey`, which needs no
+permission. It is a non-activating panel: the app in front stays in front while it shows.
+On Linux it is still being built; until then, bind a key in your desktop or compositor
+to a `quickhop open ID` command for a global shortcut to any result. The window's slices,
+machines and acceptance tests are in [plan.md](plan.md).

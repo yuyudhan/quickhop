@@ -1,9 +1,9 @@
 # Using quickhop
 
 Everything quickhop does is available from the `quickhop` command: search, run results, script
-commands, clipboard history, snippets, file search and the background daemon. The launcher
-window, opened by the global `hotkey`, is being built on top of the same commands (see
-[plan.md](plan.md), slices U2 and U3); this page covers what you can use now.
+commands, clipboard history, snippets, file search and the background daemon. On macOS the
+daemon also shows the launcher window, opened by the global `hotkey` (`Alt+Space` unless you
+set another); on Linux the window is still being built (see [plan.md](plan.md)).
 
 ![quickhop in a terminal: a unit conversion, the lock-screen command, a GitHub quicklink, a script command, clipboard history and a snippet](media/quickhop-cli.gif)
 
@@ -132,17 +132,24 @@ default app and offer reveal, copy path, Quick Look (macOS) and move to trash.
 
 ## The daemon
 
-One background process per user keeps the clipboard history and the live file index and
-answers `open` and `reload`:
+One background process per user keeps the clipboard history and the live file index,
+answers `open` and `reload`, and on macOS owns the launcher window and its global hotkey:
 
     quickhop autostart on                      # start at login; `off` and `status` too
     quickhop daemon                            # run it in the foreground
-    quickhop daemon status                     # what it runs and watches
+    quickhop daemon status                     # what it runs and watches, the hotkey it holds
+    quickhop toggle                            # show the window, or hide it (macOS)
+    quickhop show                              # also `quickhop hide`
     quickhop reload                            # re-read the config without a restart
     quickhop daemon stop
 
-A second `quickhop daemon` exits at once: a lock file in the runtime directory keeps it to
-one.
+`toggle`, `show` and `open` start a daemon when none runs. A second `quickhop daemon` exits at
+once: a lock file in the runtime directory keeps it to one. `quickhop daemon --no-window` runs
+it without the window and the hotkey.
+
+In the window, type to search, `↑`/`↓` to move, `Return` to run the selected result, `⌘K` to
+list all its actions (type to filter them) and `Esc` to close the panel, then the window. It
+also hides when another app takes the focus.
 
 ## Configuration and diagnostics
 

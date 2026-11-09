@@ -19,17 +19,17 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | ID | Feature | Status | P | macOS | Linux (X11 / Wayland) |
 |----|---------|--------|---|-------|------------------------|
-| LCH-01 | Global hotkey opens/closes the launcher (default `Alt+Space`) | planned | P0 | `RegisterEventHotKey` (Carbon) via the `global-hotkey` crate; no permission needed | X11: `XGrabKey` (`global-hotkey`). Wayland: `GlobalShortcuts` portal (KDE 5.27+, GNOME 48+, Hyprland); else a compositor binding to `quickhop toggle` (sway `bindsym`, Hyprland `bind`, GNOME custom shortcut via `gsettings`), set up by `quickhop doctor --fix` |
+| LCH-01 | Global hotkey opens/closes the launcher (default `Alt+Space`) | partial | P0 | built: `RegisterEventHotKey` (Carbon) in `quickhop-platform-macos::hotkey`, no permission needed; `quickhop daemon` registers `hotkey` from `config.toml` (parsed and checked by `quickhop_core::hotkey`, key codes from the current keyboard layout), `daemon status` says whether it holds it | X11: `XGrabKey`. Wayland: `GlobalShortcuts` portal (KDE 5.27+, GNOME 48+, Hyprland); else a compositor binding to `quickhop toggle` (sway `bindsym`, Hyprland `bind`, GNOME custom shortcut via `gsettings`), set up by `quickhop doctor --fix` |
 | LCH-02 | Root search: fuzzy match over every provider | done | P0 | nucleo matcher in `quickhop-core`, shared | same |
 | LCH-03 | Frecency ranking per query prefix (7-day half-life) | done | P0 | SQLite store | same |
 | LCH-04 | Aliases for any command (`g rust`, `:smile`) | done | P0 | quicklinks and emoji built in; `[[commands]] alias` for every item | same |
 | LCH-05 | Hotkey per command (open an app or run a script without the launcher) | planned | P1 | `global-hotkey` registrations from `[[commands]] hotkey` | X11 grabs; Wayland portal shortcuts (one per command) or compositor bindings to `quickhop run`/`quickhop open <id>` |
 | LCH-06 | Favorites pinned at the top of the empty root | planned | P1 | store table `favorites` | same |
-| LCH-07 | Action panel (`⌘K` / `Ctrl+K`) with every action of the selected item | planned | P0 | `Item::actions` already carries them; UI list | same |
+| LCH-07 | Action panel (`⌘K` / `Ctrl+K`) with every action of the selected item | partial | P0 | built: `⌘K` lists every action of the selected item, typing filters them, `Return` runs one, `Esc` closes the panel | `Ctrl+K`, with the Linux window |
 | LCH-08 | Fallback commands when nothing matches (web search, file search, AI) | planned | P1 | config `fallbacks = [...]` of command ids, ranked after results | same |
 | LCH-09 | Enable, disable and reorder root commands | done | P1 | `[providers]` switches; `[[commands]] enabled` and `order` (empty root) | same |
-| LCH-10 | Navigation stack: commands push views, `Esc` pops, `Esc` at root hides | planned | P0 | UI | same |
-| LCH-11 | Launcher window: borderless, rounded, translucent/blurred, on the active screen, hides on focus loss | planned | P0 | gpui `WindowBackgroundAppearance::Blurred` (NSVisualEffectView), `NSPanel`-style non-activating window, screen of the mouse/key window | X11: override-redirect-free centered dialog, `_NET_WM_STATE_ABOVE`, ARGB visual; Wayland: `wlr-layer-shell` overlay (sway, Hyprland, KWin, COSMIC) with KDE blur protocol when offered; GNOME (no layer-shell): normal centered undecorated window |
+| LCH-10 | Navigation stack: commands push views, `Esc` pops, `Esc` at root hides | partial | P0 | built: the view model's stack (push, pop, `Esc` pops, `Esc` at root hides) and the window over it; next: the views commands push (clipboard, snippets, files) | with the Linux window |
+| LCH-11 | Launcher window: borderless, rounded, translucent/blurred, on the active screen, hides on focus loss | partial | P0 | built: one gpui `WindowKind::PopUp` window (non-activating, above other apps) with a `Blurred` background, created hidden when the daemon starts, shown and hidden from then on, hidden when it loses the focus; next: the screen of the mouse instead of the main screen | X11: override-redirect-free centered dialog, `_NET_WM_STATE_ABOVE`, ARGB visual; Wayland: `wlr-layer-shell` overlay (sway, Hyprland, KWin, COSMIC) with KDE blur protocol when offered; GNOME (no layer-shell): normal centered undecorated window |
 | LCH-12 | Command arguments inline in the search bar (`alias` + space focuses them) | planned | P1 | UI over `ScriptArgument` | same |
 | LCH-13 | Deeplinks: `quickhop://commands/<id>?arguments=...` | planned | P1 | `CFBundleURLTypes` in Info.plist | `x-scheme-handler/quickhop` in the `.desktop` file, `xdg-mime` |
 | LCH-14 | Compact window mode and adjustable size/position | planned | P2 | config `[window]` | same |
@@ -39,7 +39,7 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | ID | Feature | Status | P | macOS | Linux (X11 / Wayland) |
 |----|---------|--------|---|-------|------------------------|
-| APP-01 | Search and open installed applications | done | P0 | `.app` bundles in `/Applications`, `/System/Applications`, `~/Applications` (Info.plist), opened with `open` | XDG desktop entries (`$XDG_DATA_DIRS/applications`, precedence, `TryExec`, `OnlyShowIn`, field codes), run directly; Flatpak and Snap exports are desktop entries too |
+| APP-01 | Search and open installed applications | done | P0 | `.app` bundles in `/Applications`, `/System/Applications`, `~/Applications` (Info.plist), opened with `open`; also shown in Finder or their path copied | XDG desktop entries (`$XDG_DATA_DIRS/applications`, precedence, `TryExec`, `OnlyShowIn`, field codes), run directly; Flatpak and Snap exports are desktop entries too |
 | APP-02 | Application icons | partial | P0 | `.icns` path resolved; any app's or file's icon rendered to PNG by `NSWorkspace iconForFile` in `quickhop-platform-macos` (asset catalogs included); shown in the window with U2 | Icon Theme spec lookup done (theme, `Inherits`, `hicolor`, pixmaps); SVG rendering with `resvg` in the UI |
 | APP-03 | Running apps: quit, hide, force quit, show in Finder | planned | P1 | `NSRunningApplication` (platform crate) | `/proc` scan, `kill`; window-level actions via WIN mechanisms |
 | APP-04 | Switch windows (search open windows, focus one) | planned | P1 | AX window list + `CGWindowListCopyWindowInfo` (Screen Recording permission for titles on macOS 10.15+) | X11: EWMH `_NET_CLIENT_LIST`, `_NET_ACTIVE_WINDOW`. Wayland: `wlr-foreign-toplevel-management` / `ext-foreign-toplevel-list` (sway, Hyprland, COSMIC), KWin scripting over D-Bus, GNOME Shell extension (no protocol) |
@@ -174,7 +174,7 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 | CFG-07 | Launch at login | partial | P0 | built: `quickhop autostart on\|off\|status` writes a LaunchAgent plist (`io.github.yuyudhan.quickhop`, `RunAtLoad`); to check on m4; `SMAppService.mainApp` with the `.app` | done: `quickhop autostart on\|off\|status` writes `~/.config/autostart/quickhop.desktop`; packages also ship a systemd user unit |
 | CFG-08 | Settings sync between machines | planned | P2 | plain files: the config dir is git/Syncthing friendly; `quickhop export/import` bundles config, snippets, quicklinks, encrypted with a passphrase (`age`) | same |
 | CFG-09 | Import a Raycast export (`.rayconfig`) | planned | P2 | decrypt with the user's export password, map snippets/quicklinks/aliases/hotkeys | same |
-| PLT-01 | Background daemon, single instance, IPC (`quickhop toggle`, `quickhop open <id>`) | partial | P0 | built (Unix): `quickhop daemon` with lock file and socket in `$TMPDIR/quickhop-$USER/`, `daemon status\|stop`, `open <id>` (starts a daemon when none runs), `reload`; `toggle` comes with the window | same, in `$XDG_RUNTIME_DIR/quickhop/`; the daemon also watches the clipboard and keeps the file index current |
+| PLT-01 | Background daemon, single instance, IPC (`quickhop toggle`, `quickhop open <id>`) | partial | P0 | built (Unix): `quickhop daemon` with lock file and socket in `$TMPDIR/quickhop-$USER/`, `daemon status\|stop`, `open <id>` (starts a daemon when none runs), `reload`; on macOS the daemon owns the launcher window: `toggle`, `show` (both start a daemon when none runs) and `hide`, `daemon --no-window`, and `daemon --test-socket <path>` answering `snapshot` with what the window shows | same, in `$XDG_RUNTIME_DIR/quickhop/`; the daemon also watches the clipboard and keeps the file index current; `toggle` with the Linux window |
 | PLT-02 | Permission onboarding (Accessibility, Input Monitoring, Screen Recording, Calendar) | partial | P1 | built: Accessibility check and prompt (`AXIsProcessTrusted`, `AXIsProcessTrustedWithOptions`) and the settings deep link; next: the onboarding view, the other permissions | portal permission prompts; `input` group guidance for SNP-03 |
 | PLT-03 | Packages and install | partial | P1 | `cargo install` today; signed and notarized `.app` in a DMG, Homebrew cask | built: `.deb` and tarball with `.desktop`, icon and systemd user unit (`just bundle-linux`, checked in a clean Debian container by `just bundle-linux-test`); later `.rpm`, AUR `PKGBUILD`; Flatpak later (host app launching needs `flatpak-spawn --host`) |
 | PLT-04 | Updates | planned | P2 | update check against GitHub releases, cask upgrade | package managers |
@@ -184,10 +184,10 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 
 | Priority | Features | done | partial | planned |
 |----------|---------:|-----:|--------:|--------:|
-| P0 | 30 | 19 | 7 | 4 |
+| P0 | 30 | 19 | 11 | 0 |
 | P1 | 36 | 1 | 7 | 28 |
 | P2 | 29 | 0 | 0 | 29 |
-| All | 95 | 20 | 14 | 61 |
+| All | 95 | 20 | 18 | 57 |
 
 Counted from the tables above; recount when editing them.
 
@@ -198,8 +198,8 @@ aliases, switches and root order, applications on macOS and Linux, calculator an
 system power commands, quicklinks, Raycast script commands end to end (`quickhop run`, all
 metadata, modes and arguments), and snippets with Raycast's dynamic placeholders.
 
-Missing for a first usable release (the P0 gaps): the launcher window and its global hotkey
-(LCH-01, LCH-07, LCH-10, LCH-11), `toggle` and the window in the daemon (PLT-01),
-Spotlight file search on macOS (FIL-01), the clipboard view, macOS clipboard watching and paste on Wayland and macOS (CLP-01, CLP-03), pasting snippets
-(SNP-01), application icon rendering (APP-02) and launch at login on macOS (CFG-07).
+Missing for a first usable release (the P0 gaps): the Linux launcher window and hotkey, and on
+both systems the views commands push (LCH-01, LCH-07, LCH-10, LCH-11, PLT-01); icons in the
+window's rows (APP-02); the clipboard view and paste on Wayland (CLP-01, CLP-03); pasting
+snippets from the window (SNP-01) and launch at login through the `.app` on macOS (CFG-07).
 [plan.md](plan.md) orders these into slices.

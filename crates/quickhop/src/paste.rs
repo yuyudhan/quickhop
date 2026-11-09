@@ -48,6 +48,16 @@ pub(crate) fn pasteboard() -> quickhop_platform_macos::pasteboard::Pasteboard {
         .map_or_else(Pasteboard::general, Pasteboard::named)
 }
 
+/// Puts `text` on the clipboard the clipboard commands use, without pasting it: the
+/// launcher window's copy actions.
+///
+/// # Errors
+/// When the pasteboard refuses the text.
+#[cfg(target_os = "macos")]
+pub(crate) fn copy(text: &str) -> Result<(), PasteError> {
+    Ok(ClipboardWriter::write_text(&pasteboard(), text).map_err(ClipboardRefused)?)
+}
+
 /// Where text goes and how the shortcut is sent in this session.
 struct Session {
     clipboard: Box<dyn ClipboardWriter>,

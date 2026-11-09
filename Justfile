@@ -49,6 +49,12 @@ check: fmt-check guards typos shell clippy test
 test:
     cargo test --workspace --all-features
 
+# The launcher window driven for real, one test at a time. macOS: run it from a terminal in
+# the logged-in session with Accessibility and Screen Recording granted, on an idle Mac.
+ui-test *args:
+    cargo build -p quickhop
+    cargo test -p quickhop-uitest -- --ignored --test-threads=1 {{args}}
+
 # Licences, advisories, duplicate dependencies, sources.
 deny:
     cargo deny check

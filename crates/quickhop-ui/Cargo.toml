@@ -10,6 +10,14 @@ publish.workspace = true
 
 [dependencies]
 quickhop-core.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+# The window: macOS first (plan slice U2); Linux joins with its own slice.
+[target.'cfg(target_os = "macos")'.dependencies]
+async-channel.workspace = true
+gpui.workspace = true
+gpui_platform.workspace = true
 
 [dev-dependencies]
 # The toolkit spike (examples/spike.rs, plan slice U0) measures gpui before the window code
