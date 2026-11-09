@@ -478,6 +478,9 @@ pub struct Snapshot {
     pub panel: Option<Vec<String>>,
     /// The toast's message, when one shows.
     pub toast: Option<String>,
+    /// For each result, whether the window draws its icon: filled in by the window, which
+    /// loads the icons; empty from the model alone.
+    pub icons: Vec<bool>,
 }
 
 impl Model {
@@ -502,6 +505,7 @@ impl Model {
                     .collect()
             }),
             toast: self.toast.as_ref().map(|toast| toast.title.clone()),
+            icons: Vec::new(),
         }
     }
 
@@ -607,6 +611,7 @@ mod tests {
                 stack: vec![String::new()],
                 panel: None,
                 toast: None,
+                icons: Vec::new(),
             }
         );
         model.select_next();

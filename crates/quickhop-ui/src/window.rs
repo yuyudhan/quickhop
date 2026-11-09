@@ -5,15 +5,16 @@
 //! [`Handle`] from other threads. Searches and actions go to a [`Backend`] on gpui's
 //! background threads, so the window never waits for a provider.
 
+use std::collections::HashMap;
 use std::io::Write as _;
 use std::sync::Arc;
 use std::sync::mpsc;
 
 use gpui::{
-    App, AppContext as _, Bounds, Context, Entity, FocusHandle, FontWeight, HighlightStyle,
-    KeyDownEvent, QuitMode, Render, SharedString, StyledText, Window, WindowBackgroundAppearance,
-    WindowBounds, WindowHandle, WindowKind, WindowOptions, div, prelude::*, px, rgb, rgba, size,
-    uniform_list,
+    App, AppContext as _, Bounds, Context, Entity, FocusHandle, FontWeight, HighlightStyle, Image,
+    ImageFormat, KeyDownEvent, QuitMode, Render, SharedString, StyledText, Window,
+    WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, div, img,
+    prelude::*, px, rgb, rgba, size, uniform_list,
 };
 use quickhop_core::{Action, Item, ItemId, Query, Ranked};
 
@@ -22,6 +23,12 @@ use crate::model::{Effect, Model, SearchRequest, Snapshot, Toast, ToastStyle, hi
 const ROW_HEIGHT: f32 = 44.0;
 const WINDOW_WIDTH: f32 = 750.0;
 const WINDOW_HEIGHT: f32 = 474.0;
+
+/// The size, in pixels, icons are asked for: the 24-point icon slot on a 2× display, with room.
+pub const ICON_PIXELS: u32 = 64;
+
+/// Icons kept at most; past it the cache starts again, since items come and go with searches.
+const MAX_ICONS: usize = 1_000;
 
 /// What the window needs from the rest of quickhop. Called on background threads.
 pub trait Backend: Send + Sync + 'static {
@@ -35,6 +42,20 @@ pub trait Backend: Send + Sync + 'static {
     /// # Errors
     /// A message for the user when the action failed.
     fn perform(&self, item: &Item, action: &Action, query: &Query) -> Result<String, String>;
+
+    /// The icon of `item` as PNG data at least [`ICON_PIXELS`] square, when the system has
+    /// one for it (an application, a file); `None` leaves the row's text icon, if any.
+    fn icon(&self, item: &Item) -> Option<Vec<u8>>;
+}
+
+/// A result's icon in the window's cache.
+enum Icon {
+    /// Asked of the backend, not answered yet.
+    Loading,
+    /// Drawn in the row.
+    Ready(Arc<Image>),
+    /// The backend has none.
+    Missing,
 }
 
 /// What a [`Handle`] asks of the window.
@@ -199,6 +220,7 @@ struct Launcher {
     backend: Arc<dyn Backend>,
     focus: FocusHandle,
     visible: bool,
+    icons: HashMap<ItemId, Icon>,
 }
 
 impl Launcher {
@@ -215,11 +237,47 @@ impl Launcher {
             backend,
             focus: cx.focus_handle(),
             visible: false,
+            icons: HashMap::new(),
         }
     }
 
     fn snapshot(&self) -> Snapshot {
-        self.model.snapshot(self.visible)
+        let mut snapshot = self.model.snapshot(self.visible);
+        snapshot.icons = self
+            .model
+            .page()
+            .results()
+            .iter()
+            .map(|ranked| matches!(self.icons.get(&ranked.item.id), Some(Icon::Ready(_))))
+            .collect();
+        snapshot
+    }
+
+    /// Asks the backend for the icons of `items`, whose icons are not asked for yet; each row
+    /// redraws once its icon arrives.
+    fn load_icons(&mut self, items: Vec<Item>, cx: &mut Context<Self>) {
+        if self.icons.len() + items.len() > MAX_ICONS {
+            self.icons.clear();
+        }
+        for item in items {
+            self.icons.insert(item.id.clone(), Icon::Loading);
+            let backend = Arc::clone(&self.backend);
+            let task = cx.background_executor().spawn(async move {
+                let png = backend.icon(&item);
+                (item.id, png)
+            });
+            cx.spawn(async move |this, cx| {
+                let (id, png) = task.await;
+                let icon = png.map_or(Icon::Missing, |bytes| {
+                    Icon::Ready(Arc::new(Image::from_bytes(ImageFormat::Png, bytes)))
+                });
+                let _ = this.update(cx, |launcher, cx| {
+                    launcher.icons.insert(id, icon);
+                    cx.notify();
+                });
+            })
+            .detach();
+        }
     }
 
     fn show(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -337,7 +395,12 @@ impl Launcher {
         self.apply(effect, cx);
     }
 
-    fn render_row(index: usize, ranked: &Ranked, selected: bool) -> impl IntoElement + use<> {
+    fn render_row(
+        index: usize,
+        ranked: &Ranked,
+        selected: bool,
+        icon: Option<Arc<Image>>,
+    ) -> impl IntoElement + use<> {
         let title = ranked.item.title.clone();
         let highlights = highlight_ranges(&title, &ranked.positions)
             .into_iter()
@@ -353,6 +416,12 @@ impl Launcher {
             })
             .collect::<Vec<_>>();
         let subtitle = ranked.item.subtitle.clone().unwrap_or_default();
+        let slot = div().size_6().flex().items_center().justify_center();
+        let slot = match (icon, text_icon(&ranked.item)) {
+            (Some(image), _) => slot.child(img(image).size_6()),
+            (None, Some(glyph)) => slot.child(glyph),
+            (None, None) => slot,
+        };
         div()
             .id(index)
             .h(px(ROW_HEIGHT))
@@ -363,7 +432,7 @@ impl Launcher {
             .gap_3()
             .rounded_md()
             .when(selected, |row| row.bg(rgba(0xffff_ff1f)))
-            .child(div().size_6().rounded_sm().bg(rgb(0x005e_81ac)))
+            .child(slot)
             .child(
                 div()
                     .flex_1()
@@ -471,14 +540,24 @@ impl Render for Launcher {
                 uniform_list(
                     "results",
                     count,
-                    cx.processor(|launcher, range: std::ops::Range<usize>, _window, _cx| {
+                    cx.processor(|launcher, range: std::ops::Range<usize>, _window, cx| {
+                        let missing: Vec<Item> = launcher.model.page().results()[range.clone()]
+                            .iter()
+                            .filter(|ranked| !launcher.icons.contains_key(&ranked.item.id))
+                            .map(|ranked| ranked.item.clone())
+                            .collect();
+                        launcher.load_icons(missing, cx);
                         let page = launcher.model.page();
                         let selected = page.selected();
                         page.results()[range.clone()]
                             .iter()
                             .zip(range)
                             .map(|(ranked, index)| {
-                                Self::render_row(index, ranked, selected == Some(index))
+                                let icon = match launcher.icons.get(&ranked.item.id) {
+                                    Some(Icon::Ready(image)) => Some(Arc::clone(image)),
+                                    _ => None,
+                                };
+                                Self::render_row(index, ranked, selected == Some(index), icon)
                             })
                             .collect::<Vec<_>>()
                     }),
@@ -489,4 +568,14 @@ impl Render for Launcher {
             .children(self.render_toast())
             .children(self.render_panel())
     }
+}
+
+/// The item's icon when it is text to draw as is, such as a script command's `👋`: a few
+/// characters that are not a file path or a URL (those are images, loaded by the backend).
+fn text_icon(item: &Item) -> Option<SharedString> {
+    const MAX_CHARS: usize = 4;
+    let icon = item.icon.as_deref()?.trim();
+    let is_text =
+        !icon.is_empty() && icon.chars().count() <= MAX_CHARS && !icon.contains(['/', '.', ':']);
+    is_text.then(|| SharedString::from(icon.to_owned()))
 }

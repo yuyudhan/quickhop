@@ -2,10 +2,12 @@
 //! searches from providers loaded once per configuration and carries out the chosen actions
 //! as `quickhop launch` does (macOS for now, plan slice U2).
 
+use std::path::Path;
 use std::sync::{Arc, Mutex, PoisonError};
 
 use quickhop_core::{Action, Boosts, Cancel, Config, Item, ItemId, Query, Ranked, Search};
-use quickhop_ui::window::Backend;
+use quickhop_platform_macos::icon::{IconRenderer as _, SystemIcons};
+use quickhop_ui::window::{Backend, ICON_PIXELS};
 
 /// The window's backend: the root search over every enabled provider.
 pub(crate) struct Launcher {
@@ -93,5 +95,16 @@ impl Backend for Launcher {
             crate::warn(warning);
         }
         Ok(message)
+    }
+
+    fn icon(&self, item: &Item) -> Option<Vec<u8>> {
+        // Applications and files open or show a path: the system draws that path's icon.
+        let path = item.actions.iter().find_map(|action| match action {
+            Action::Open { target } | Action::Reveal { path: target } => {
+                Some(Path::new(target)).filter(|path| path.is_absolute())
+            }
+            _ => None,
+        })?;
+        SystemIcons.render(path, ICON_PIXELS).ok()
     }
 }
