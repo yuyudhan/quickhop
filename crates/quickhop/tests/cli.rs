@@ -745,7 +745,20 @@ mod daemon {
             "stopping\n"
         );
         let mut child = cleanup.2.take().ok_or("no child")?;
-        assert!(child.wait()?.success());
+        // Bounded, so a daemon that outlives `stop` fails the test rather than hanging it.
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        let ended = loop {
+            if let Some(ended) = child.try_wait()? {
+                break ended;
+            }
+            if std::time::Instant::now() > deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err("the daemon still ran 10 s after `daemon stop`".into());
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        };
+        assert!(ended.success());
         assert!(!runtime.join("daemon.sock").exists());
         let after = client(&sandbox, &runtime)?
             .args(["daemon", "status"])

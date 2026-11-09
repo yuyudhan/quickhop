@@ -10,6 +10,8 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
@@ -581,6 +583,11 @@ pub(crate) fn serve(
     let ui = Arc::clone(&state.ui);
     #[cfg(target_os = "macos")]
     let (hotkey, hotkey_text) = (Arc::clone(&state.hotkey), state.config.hotkey.clone());
+    // Whether this thread is in the window's run loop, which only the window can end.
+    #[cfg(target_os = "macos")]
+    let window_running = Arc::new(AtomicBool::new(launcher.is_some()));
+    #[cfg(target_os = "macos")]
+    let running = Arc::clone(&window_running);
     let requests = std::thread::Builder::new()
         .name("quickhop-daemon".into())
         .spawn(move || {
@@ -590,10 +597,17 @@ pub(crate) fn serve(
             #[cfg(target_os = "macos")]
             let ui = Arc::clone(&state.ui);
             state.stop();
-            // Ends the app, and with it the process, once everything is stopped.
             #[cfg(target_os = "macos")]
-            if let Some(ui) = ui.get() {
-                let _ = ui.send(quickhop_ui::window::Command::Quit);
+            match ui.get() {
+                // Ends the app, and with it the process, once everything is stopped.
+                Some(ui) => {
+                    let _ = ui.send(quickhop_ui::window::Command::Quit);
+                }
+                // The window is still starting (seconds on a slow GPU), so nothing can ask it
+                // to quit, and once up it would run on alone: everything is stopped, so the
+                // process ends here.
+                None if running.load(Ordering::SeqCst) && served.is_ok() => std::process::exit(0),
+                None => {}
             }
             served
         })?;
@@ -616,6 +630,7 @@ pub(crate) fn serve(
                 serve_snapshots(&path, handle, launcher);
             }
         });
+        window_running.store(false, Ordering::SeqCst);
     }
     requests
         .join()
