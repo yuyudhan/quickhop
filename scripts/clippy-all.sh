@@ -49,6 +49,11 @@ checked=()
 deferred=()
 for target in "$@"; do
     target_os=$(os_of "$target")
+    # rust-toolchain.toml installs only the host target; add the ones this run checks.
+    if [[ "$target_os" == "$host_os" || "$target_os" == windows ]] &&
+        ! rustup target list --installed | grep -x "$target" >/dev/null; then
+        rustup target add "$target"
+    fi
     if [[ "$target" == "$host" ]]; then
         cargo clippy --workspace --all-targets --all-features --target "$target" -- -D warnings
         checked+=("$target")

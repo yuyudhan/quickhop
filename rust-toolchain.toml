@@ -1,4 +1,5 @@
 [toolchain]
 channel = "1.99.1"
 components = ["rustfmt", "clippy"]
-targets = ["x86_64-unknown-linux-gnu", "x86_64-pc-windows-gnu", "aarch64-apple-darwin"]
+# No `targets`: a clone builds for its host only. scripts/clippy-all.sh adds the cross targets
+# it checks when it needs them.
