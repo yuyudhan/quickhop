@@ -11,7 +11,7 @@ use std::sync::{Arc, Mutex};
 
 use quickhop_core::clipboard::PASSWORD_MANAGER_HINT;
 use quickhop_core::config::data_dir;
-use quickhop_core::{Clipboard, Config, Contents};
+use quickhop_core::{Clipboard, Config, Contents, Flavour};
 use quickhop_providers::views::clip_title;
 use quickhop_store::state::{State, StateError};
 
@@ -232,7 +232,9 @@ fn offered_types() -> Vec<String> {
 
 /// The history in the data directory, created if needed.
 pub(crate) fn open() -> Result<State, ClipboardError> {
-    let dir = data_dir(std::env::consts::OS, |name| std::env::var(name).ok())?;
+    let dir = data_dir(Flavour::CURRENT, std::env::consts::OS, |name| {
+        std::env::var(name).ok()
+    })?;
     std::fs::create_dir_all(&dir).map_err(|source| ClipboardError::DataDir {
         path: dir.clone(),
         source,

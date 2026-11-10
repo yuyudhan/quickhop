@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::Hotkey;
+use crate::{Flavour, Hotkey};
 
 /// Largest accepted `max_results`.
 pub const MAX_RESULTS_LIMIT: usize = 100;
@@ -209,9 +209,19 @@ pub struct Config {
 }
 
 impl Default for Config {
+    /// The defaults of this build's [`Flavour`].
     fn default() -> Self {
+        Self::defaults(Flavour::CURRENT)
+    }
+}
+
+impl Config {
+    /// The defaults of `flavour`: they differ only in the hotkey (see
+    /// [`Flavour::default_hotkey`]).
+    #[must_use]
+    pub fn defaults(flavour: Flavour) -> Self {
         Self {
-            hotkey: "Alt+Space".into(),
+            hotkey: flavour.default_hotkey().into(),
             max_results: 8,
             providers: Providers::default(),
             apps: Apps::default(),
@@ -222,9 +232,7 @@ impl Default for Config {
             commands: Vec::new(),
         }
     }
-}
 
-impl Config {
     /// Parses and validates TOML. Missing keys take their defaults.
     ///
     /// # Errors
@@ -333,13 +341,18 @@ fn xdg_dir(
     }
 }
 
-/// The config file path for `os` (a [`std::env::consts::OS`] value), looking variables up
-/// with `var`. `QUICKHOP_CONFIG` overrides everything; otherwise Linux, macOS and other
-/// Unixes use `$XDG_CONFIG_HOME` or `~/.config`, Windows `%APPDATA%`.
+/// The config file path of `flavour` for `os` (a [`std::env::consts::OS`] value), looking
+/// variables up with `var`. `QUICKHOP_CONFIG` overrides everything; otherwise Linux, macOS
+/// and other Unixes use `$XDG_CONFIG_HOME` or `~/.config`, Windows `%APPDATA%`, each with a
+/// [`Flavour::stem`] subdirectory (`quickhop`, or `quickhop-dev` for a development build).
 ///
 /// # Errors
 /// When the needed variables are unset or empty.
-pub fn config_path(os: &str, var: impl Fn(&str) -> Option<String>) -> Result<PathBuf, ConfigError> {
+pub fn config_path(
+    flavour: Flavour,
+    os: &str,
+    var: impl Fn(&str) -> Option<String>,
+) -> Result<PathBuf, ConfigError> {
     let get = |name: &str| var(name).filter(|v| !v.is_empty()).map(PathBuf::from);
     if let Some(path) = get("QUICKHOP_CONFIG") {
         return Ok(path);
@@ -348,7 +361,7 @@ pub fn config_path(os: &str, var: impl Fn(&str) -> Option<String>) -> Result<Pat
         "windows" => get("APPDATA").ok_or(ConfigError::NoConfigDir("APPDATA"))?,
         _ => xdg_dir(get, "XDG_CONFIG_HOME", ".config")?,
     };
-    Ok(dir.join("quickhop").join("config.toml"))
+    Ok(dir.join(flavour.stem()).join("config.toml"))
 }
 
 /// The default script-command directory: `scripts/` next to the config file, e.g.
@@ -356,21 +369,29 @@ pub fn config_path(os: &str, var: impl Fn(&str) -> Option<String>) -> Result<Pat
 ///
 /// # Errors
 /// As [`config_path`].
-pub fn scripts_dir(os: &str, var: impl Fn(&str) -> Option<String>) -> Result<PathBuf, ConfigError> {
-    let config = config_path(os, var)?;
+pub fn scripts_dir(
+    flavour: Flavour,
+    os: &str,
+    var: impl Fn(&str) -> Option<String>,
+) -> Result<PathBuf, ConfigError> {
+    let config = config_path(flavour, os, var)?;
     Ok(config
         .parent()
         .map_or_else(|| PathBuf::from("scripts"), |dir| dir.join("scripts")))
 }
 
-/// The data directory (frecency database) for `os`, looking variables up with `var`.
-/// `QUICKHOP_DATA` overrides everything; otherwise Linux, macOS and other Unixes use
-/// `$XDG_DATA_HOME` or `~/.local/share`, Windows `%LOCALAPPDATA%`, each with a `quickhop`
-/// subdirectory.
+/// The data directory (frecency database, clipboard history, file index) of `flavour` for
+/// `os`, looking variables up with `var`. `QUICKHOP_DATA` overrides everything; otherwise
+/// Linux, macOS and other Unixes use `$XDG_DATA_HOME` or `~/.local/share`, Windows
+/// `%LOCALAPPDATA%`, each with a [`Flavour::stem`] subdirectory.
 ///
 /// # Errors
 /// When the needed variables are unset or empty.
-pub fn data_dir(os: &str, var: impl Fn(&str) -> Option<String>) -> Result<PathBuf, ConfigError> {
+pub fn data_dir(
+    flavour: Flavour,
+    os: &str,
+    var: impl Fn(&str) -> Option<String>,
+) -> Result<PathBuf, ConfigError> {
     let get = |name: &str| var(name).filter(|v| !v.is_empty()).map(PathBuf::from);
     if let Some(path) = get("QUICKHOP_DATA") {
         return Ok(path);
@@ -379,28 +400,35 @@ pub fn data_dir(os: &str, var: impl Fn(&str) -> Option<String>) -> Result<PathBu
         "windows" => get("LOCALAPPDATA").ok_or(ConfigError::NoConfigDir("LOCALAPPDATA"))?,
         _ => xdg_dir(get, "XDG_DATA_HOME", ".local/share")?,
     };
-    Ok(dir.join("quickhop"))
+    Ok(dir.join(flavour.stem()))
 }
 
-/// The directory for the daemon's socket and lock file: `QUICKHOP_RUNTIME` if set, else
-/// `$XDG_RUNTIME_DIR/quickhop`, else `quickhop-<user>` in `$TMPDIR` (per user on macOS) or
-/// `/tmp`.
-pub fn runtime_dir(var: impl Fn(&str) -> Option<String>) -> PathBuf {
+/// The directory for the daemon's socket and lock file of `flavour`: `QUICKHOP_RUNTIME` if
+/// set, else `$XDG_RUNTIME_DIR/<stem>`, else `<stem>-<user>` in `$TMPDIR` (per user on
+/// macOS) or `/tmp`, with the [`Flavour::stem`] `quickhop` or `quickhop-dev`: the two
+/// flavours run separate daemons.
+pub fn runtime_dir(flavour: Flavour, var: impl Fn(&str) -> Option<String>) -> PathBuf {
     let get = |name: &str| var(name).filter(|v| !v.is_empty());
     if let Some(path) = get("QUICKHOP_RUNTIME") {
         return PathBuf::from(path);
     }
+    let stem = flavour.stem();
     if let Some(dir) = get("XDG_RUNTIME_DIR") {
-        return PathBuf::from(dir).join("quickhop");
+        return PathBuf::from(dir).join(stem);
     }
     let user = get("USER").unwrap_or_else(|| "user".into());
-    PathBuf::from(get("TMPDIR").unwrap_or_else(|| "/tmp".into())).join(format!("quickhop-{user}"))
+    PathBuf::from(get("TMPDIR").unwrap_or_else(|| "/tmp".into())).join(format!("{stem}-{user}"))
 }
 
 /// The directory quickhop 0.1 used on macOS for both the config and the data:
-/// `~/Library/Application Support/quickhop`. `None` on other OSes or without `HOME`.
-pub fn legacy_macos_dir(os: &str, var: impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
-    if os != "macos" {
+/// `~/Library/Application Support/quickhop`. `None` on other OSes, without `HOME`, and for a
+/// development build (0.1 had none, so there is nothing of its own to move).
+pub fn legacy_macos_dir(
+    flavour: Flavour,
+    os: &str,
+    var: impl Fn(&str) -> Option<String>,
+) -> Option<PathBuf> {
+    if os != "macos" || flavour != Flavour::Release {
         return None;
     }
     var("HOME")
@@ -468,6 +496,7 @@ pub fn migrate_legacy(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::Flavour::{Dev, Release};
 
     fn env(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
         let pairs: Vec<(String, String)> = pairs
@@ -542,42 +571,121 @@ mod tests {
     #[test]
     fn paths_per_os() {
         let home = env(&[("HOME", "/h")]);
+        let xdg = env(&[("HOME", "/h"), ("XDG_CONFIG_HOME", "/x")]);
+        for os in ["linux", "macos"] {
+            assert_eq!(
+                config_path(Release, os, &home).unwrap(),
+                Path::new("/h/.config/quickhop/config.toml"),
+                "{os}"
+            );
+            assert_eq!(
+                config_path(Release, os, &xdg).unwrap(),
+                Path::new("/x/quickhop/config.toml"),
+                "{os}"
+            );
+            assert_eq!(
+                scripts_dir(Release, os, &home).unwrap(),
+                Path::new("/h/.config/quickhop/scripts"),
+                "{os}"
+            );
+        }
         assert_eq!(
-            config_path("linux", &home).unwrap(),
-            Path::new("/h/.config/quickhop/config.toml")
-        );
-        assert_eq!(
-            config_path("linux", env(&[("HOME", "/h"), ("XDG_CONFIG_HOME", "/x")])).unwrap(),
-            Path::new("/x/quickhop/config.toml")
-        );
-        assert_eq!(
-            config_path("macos", &home).unwrap(),
-            Path::new("/h/.config/quickhop/config.toml")
-        );
-        assert_eq!(
-            config_path("macos", env(&[("HOME", "/h"), ("XDG_CONFIG_HOME", "/x")])).unwrap(),
-            Path::new("/x/quickhop/config.toml")
-        );
-        assert_eq!(
-            scripts_dir("macos", &home).unwrap(),
-            Path::new("/h/.config/quickhop/scripts")
-        );
-        assert_eq!(
-            scripts_dir("linux", env(&[("QUICKHOP_CONFIG", "/c/q.toml")])).unwrap(),
+            scripts_dir(Release, "linux", env(&[("QUICKHOP_CONFIG", "/c/q.toml")])).unwrap(),
             Path::new("/c/scripts")
         );
         assert_eq!(
-            config_path("windows", env(&[("APPDATA", "C:/a")])).unwrap(),
+            config_path(Release, "windows", env(&[("APPDATA", "C:/a")])).unwrap(),
             Path::new("C:/a/quickhop/config.toml")
         );
         assert_eq!(
-            config_path("windows", env(&[("QUICKHOP_CONFIG", "/c.toml")])).unwrap(),
+            config_path(Release, "windows", env(&[("QUICKHOP_CONFIG", "/c.toml")])).unwrap(),
             Path::new("/c.toml")
         );
         assert!(matches!(
-            config_path("windows", &home),
+            config_path(Release, "windows", &home),
             Err(ConfigError::NoConfigDir("APPDATA"))
         ));
+    }
+
+    #[test]
+    fn dev_config_lives_in_quickhop_dev_under_dot_config() {
+        let home = env(&[("HOME", "/h")]);
+        let xdg = env(&[("HOME", "/h"), ("XDG_CONFIG_HOME", "/x")]);
+        for os in ["linux", "macos"] {
+            assert_eq!(
+                config_path(Dev, os, &home).unwrap(),
+                Path::new("/h/.config/quickhop-dev/config.toml"),
+                "{os}"
+            );
+            assert_eq!(
+                config_path(Dev, os, &xdg).unwrap(),
+                Path::new("/x/quickhop-dev/config.toml"),
+                "{os}"
+            );
+            assert_eq!(
+                scripts_dir(Dev, os, &home).unwrap(),
+                Path::new("/h/.config/quickhop-dev/scripts"),
+                "{os}"
+            );
+        }
+        assert_eq!(
+            config_path(Dev, "windows", env(&[("APPDATA", "C:/a")])).unwrap(),
+            Path::new("C:/a/quickhop-dev/config.toml")
+        );
+        assert_eq!(
+            config_path(Dev, "linux", env(&[("QUICKHOP_CONFIG", "/c.toml")])).unwrap(),
+            Path::new("/c.toml"),
+            "an explicit override wins for both flavours"
+        );
+    }
+
+    #[test]
+    fn runtime_dirs_per_flavour() {
+        let xdg = env(&[("XDG_RUNTIME_DIR", "/run/user/1")]);
+        assert_eq!(
+            runtime_dir(Release, &xdg),
+            Path::new("/run/user/1/quickhop")
+        );
+        assert_eq!(
+            runtime_dir(Dev, &xdg),
+            Path::new("/run/user/1/quickhop-dev")
+        );
+        let tmp = env(&[("TMPDIR", "/t"), ("USER", "me")]);
+        assert_eq!(runtime_dir(Release, &tmp), Path::new("/t/quickhop-me"));
+        assert_eq!(runtime_dir(Dev, &tmp), Path::new("/t/quickhop-dev-me"));
+        assert_eq!(
+            runtime_dir(Release, env(&[])),
+            Path::new("/tmp/quickhop-user")
+        );
+        for flavour in [Release, Dev] {
+            assert_eq!(
+                runtime_dir(
+                    flavour,
+                    env(&[("QUICKHOP_RUNTIME", "/r"), ("TMPDIR", "/t")])
+                ),
+                Path::new("/r")
+            );
+        }
+    }
+
+    #[test]
+    fn defaults_differ_only_in_the_hotkey() {
+        let (release, dev) = (Config::defaults(Release), Config::defaults(Dev));
+        assert_eq!(release.hotkey, "Alt+Space");
+        assert_eq!(dev.hotkey, "Alt+Shift+Space");
+        assert_eq!(
+            Config {
+                hotkey: release.hotkey.clone(),
+                ..dev
+            },
+            release
+        );
+        assert_eq!(Config::default(), Config::defaults(Flavour::CURRENT));
+        assert_eq!(
+            Config::from_toml("").unwrap().hotkey,
+            Flavour::CURRENT.default_hotkey(),
+            "a file without a hotkey takes this build's"
+        );
     }
 
     #[test]
@@ -619,7 +727,8 @@ mod tests {
             "[[commands]]\nid = \"apps:x\"\nhotkey = \" \"\n",
             "[[commands]]\nid = \"apps:x\"\nhotkey = \"Ctrl+Hyper+X\"\n",
             "[[commands]]\nid = \"apps:x\"\nhotkey = \"x\"\n",
-            "[[commands]]\nid = \"apps:x\"\nhotkey = \"option+space\"\n",
+            // The launcher's hotkey, spelled differently (its default depends on the flavour).
+            "hotkey = \"Alt+Space\"\n[[commands]]\nid = \"apps:x\"\nhotkey = \"option+space\"\n",
             "[[commands]]\nid = \"apps:x\"\nhotkey = \"Ctrl+X\"\n\
              [[commands]]\nid = \"apps:y\"\nhotkey = \"ctrl+x\"\n",
             "hotkey = \"Alt+Spacebar\"\n",
@@ -640,41 +749,48 @@ mod tests {
     #[test]
     fn data_dirs_per_os() {
         let home = env(&[("HOME", "/h")]);
-        assert_eq!(
-            data_dir("linux", &home).unwrap(),
-            Path::new("/h/.local/share/quickhop")
-        );
-        assert_eq!(
-            data_dir("linux", env(&[("XDG_DATA_HOME", "/d")])).unwrap(),
-            Path::new("/d/quickhop")
-        );
-        assert_eq!(
-            data_dir("macos", &home).unwrap(),
-            Path::new("/h/.local/share/quickhop")
-        );
-        assert_eq!(
-            data_dir("windows", env(&[("LOCALAPPDATA", "C:/l")])).unwrap(),
-            Path::new("C:/l/quickhop")
-        );
-        assert_eq!(
-            data_dir("linux", env(&[("QUICKHOP_DATA", "/q")])).unwrap(),
-            Path::new("/q")
-        );
-        assert!(matches!(
-            data_dir("windows", &home),
-            Err(ConfigError::NoConfigDir("LOCALAPPDATA"))
-        ));
+        for (flavour, stem) in [(Release, "quickhop"), (Dev, "quickhop-dev")] {
+            for os in ["linux", "macos"] {
+                assert_eq!(
+                    data_dir(flavour, os, &home).unwrap(),
+                    Path::new("/h/.local/share").join(stem),
+                    "{flavour} {os}"
+                );
+                assert_eq!(
+                    data_dir(flavour, os, env(&[("XDG_DATA_HOME", "/d")])).unwrap(),
+                    Path::new("/d").join(stem),
+                    "{flavour} {os}"
+                );
+            }
+            assert_eq!(
+                data_dir(flavour, "windows", env(&[("LOCALAPPDATA", "C:/l")])).unwrap(),
+                Path::new("C:/l").join(stem)
+            );
+            assert_eq!(
+                data_dir(flavour, "linux", env(&[("QUICKHOP_DATA", "/q")])).unwrap(),
+                Path::new("/q")
+            );
+            assert!(matches!(
+                data_dir(flavour, "windows", &home),
+                Err(ConfigError::NoConfigDir("LOCALAPPDATA"))
+            ));
+        }
     }
 
     #[test]
     fn legacy_dir_is_macos_only() {
         let home = env(&[("HOME", "/h")]);
         assert_eq!(
-            legacy_macos_dir("macos", &home).unwrap(),
+            legacy_macos_dir(Release, "macos", &home).unwrap(),
             Path::new("/h/Library/Application Support/quickhop")
         );
-        assert_eq!(legacy_macos_dir("linux", &home), None);
-        assert_eq!(legacy_macos_dir("macos", env(&[])), None);
+        assert_eq!(legacy_macos_dir(Release, "linux", &home), None);
+        assert_eq!(legacy_macos_dir(Release, "macos", env(&[])), None);
+        assert_eq!(
+            legacy_macos_dir(Dev, "macos", &home),
+            None,
+            "a development build never moves the release's 0.1 files"
+        );
     }
 
     #[test]

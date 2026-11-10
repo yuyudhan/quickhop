@@ -19,7 +19,7 @@ use gpui::{
     WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, div, img,
     prelude::*, px, rgb, rgba, size, uniform_list,
 };
-use quickhop_core::{Action, Item, ItemId, Query, Ranked};
+use quickhop_core::{Action, Flavour, Item, ItemId, Query, Ranked};
 
 use crate::model::{
     Effect, Model, Outcome, PageKind, SearchRequest, Snapshot, ToastStyle, highlight_ranges,
@@ -300,7 +300,7 @@ fn open(backend: Arc<dyn Backend>, cx: &mut App) -> Result<Opened, Box<dyn std::
         is_resizable: false,
         is_minimizable: false,
         window_background: WindowBackgroundAppearance::Blurred,
-        app_id: Some("quickhop".into()),
+        app_id: Some(Flavour::CURRENT.stem().into()),
         ..WindowOptions::default()
     };
     let mut launcher = None;
@@ -406,7 +406,7 @@ impl Launcher {
             is_resizable: false,
             is_minimizable: false,
             window_background: WindowBackgroundAppearance::Blurred,
-            app_id: Some("quickhop".into()),
+            app_id: Some(Flavour::CURRENT.stem().into()),
             ..WindowOptions::default()
         };
         let message = SharedString::from(text.clone());

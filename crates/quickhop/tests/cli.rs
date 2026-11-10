@@ -96,9 +96,37 @@ fn stdout(cmd: &mut Command) -> Result<String, Box<dyn Error>> {
     Ok(String::from_utf8(output.stdout)?)
 }
 
+/// Whether the binary under test is a development build: debug builds and the `dev` feature
+/// are (`cargo test`, `just test`); `cargo test --release` tests a release.
+const DEV: bool = cfg!(any(debug_assertions, feature = "dev"));
+/// Its configuration and data folder name.
+const STEM: &str = if DEV { "quickhop-dev" } else { "quickhop" };
+
 #[test]
 fn version() -> TestResult {
-    assert!(stdout(quickhop()?.arg("--version"))?.starts_with("quickhop 0.1.0"));
+    let version = stdout(quickhop()?.arg("--version"))?;
+    assert!(version.starts_with("quickhop 0.1.0"), "{version}");
+    // A development build says so; a release prints the bare version.
+    assert_eq!(version.ends_with(" (dev)\n"), DEV, "{version}");
+    Ok(())
+}
+
+/// The configuration is in `~/.config/quickhop-dev` for a development build and in
+/// `~/.config/quickhop` for a release, on macOS and Linux alike.
+#[cfg(unix)]
+#[test]
+fn the_config_dir_is_the_flavours_own() -> TestResult {
+    let path = stdout(quickhop()?.args(["config", "path"]))?;
+    assert_eq!(
+        path.trim(),
+        format!("/nonexistent-quickhop-home/.config/{STEM}/config.toml")
+    );
+    let path = stdout(
+        quickhop()?
+            .env("XDG_CONFIG_HOME", "/x")
+            .args(["config", "path"]),
+    )?;
+    assert_eq!(path.trim(), format!("/x/{STEM}/config.toml"));
     Ok(())
 }
 
@@ -137,6 +165,12 @@ fn doctor_reports_providers() -> TestResult {
             .arg("doctor"),
     )?;
     assert!(text.contains("absent, using defaults"), "{text}");
+    let flavour = if DEV {
+        "flavour: dev (development build, apart from the release; config dir /nonexistent"
+    } else {
+        "flavour: release (config dir /nonexistent"
+    };
+    assert!(text.contains(flavour), "{text}");
     assert!(text.contains("provider calc: enabled"), "{text}");
     assert!(
         text.contains("provider system: enabled (5 items)"),
@@ -892,7 +926,9 @@ fn run_loads_the_default_scripts_dir_next_to_the_config() -> TestResult {
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
+/// A release moves quickhop 0.1's files; only a release-flavour test run (`cargo test
+/// --release`, without the `dev` feature) builds a release binary to check that with.
+#[cfg(all(target_os = "macos", not(any(debug_assertions, feature = "dev"))))]
 #[test]
 fn macos_moves_the_legacy_config_to_xdg() -> TestResult {
     let home = tempfile::tempdir()?;
@@ -919,5 +955,35 @@ fn macos_moves_the_legacy_config_to_xdg() -> TestResult {
             .is_file()
     );
     assert!(!legacy.join("config.toml").exists());
+    Ok(())
+}
+
+/// A development build has a config of its own and leaves the release's 0.1 files where
+/// they are, for the release to move.
+#[cfg(all(target_os = "macos", any(debug_assertions, feature = "dev")))]
+#[test]
+fn macos_development_builds_leave_the_legacy_config_alone() -> TestResult {
+    let home = tempfile::tempdir()?;
+    let legacy = home.path().join("Library/Application Support/quickhop");
+    std::fs::create_dir_all(&legacy)?;
+    std::fs::write(legacy.join("config.toml"), "max_results = 4\n")?;
+    std::fs::write(legacy.join("frecency.sqlite"), "")?;
+    let output = quickhop()?
+        .env("HOME", home.path())
+        .env_remove("XDG_DATA_HOME")
+        .args(["config", "path"])
+        .output()?;
+    assert!(output.status.success(), "{output:?}");
+    assert_eq!(
+        String::from_utf8(output.stdout)?.trim(),
+        home.path()
+            .join(".config/quickhop-dev/config.toml")
+            .display()
+            .to_string()
+    );
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("moved"));
+    assert!(legacy.join("config.toml").is_file());
+    assert!(legacy.join("frecency.sqlite").is_file());
+    assert!(!home.path().join(".config/quickhop").exists());
     Ok(())
 }

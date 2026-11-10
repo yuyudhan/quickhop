@@ -2,7 +2,11 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!--
     quickhop.app's Info.plist; scripts/bundle-macos.sh fills in @VERSION@ from the bundled
-    binary. The identifier is also the label of the LaunchAgent `quickhop autostart on` writes.
+    binary, and for a development build replaces the name with "quickhop Dev" and the
+    identifier with io.github.yuyudhan.quickhop.dev (crates/quickhop-core/src/flavour.rs), so
+    it never shares an Accessibility grant with the release. scripts/homebrew.sh reads the
+    release's identifier here. The identifier is also the label of the LaunchAgent
+    `quickhop autostart on` writes.
 -->
 <plist version="1.0">
 <dict>

@@ -7,12 +7,19 @@
 //! holds the app's Accessibility permission, not that of a bare `quickhop` on the `PATH`.
 //! sway, i3, Hyprland and river read no XDG autostart entries: there `autostart on` prints the
 //! line for the compositor's own configuration instead of claiming success.
+//!
+//! Each [`Flavour`] has its own entry (`quickhop.desktop` or `quickhop-dev.desktop`, the
+//! `LaunchAgent` `io.github.yuyudhan.quickhop` or `io.github.yuyudhan.quickhop.dev`) and app
+//! ("quickhop.app" or "quickhop Dev.app"), so switching a development build's autostart on
+//! or off never touches the release's.
 
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
-/// The `LaunchAgent` label, also the reverse-DNS id of the app.
-pub(crate) const LABEL: &str = "io.github.yuyudhan.quickhop";
+use quickhop_core::Flavour;
+
+/// This build's `LaunchAgent` label, also the reverse-DNS id of its app.
+pub(crate) const LABEL: &str = Flavour::CURRENT.bundle_id();
 
 /// What `quickhop autostart` does.
 #[derive(Debug, Clone, Copy, clap::Subcommand)]
@@ -92,11 +99,12 @@ fn config_home(var: &impl Fn(&str) -> Option<String>) -> Option<PathBuf> {
         .or_else(|| get("HOME").map(|home| home.join(".config")))
 }
 
-/// Where the login entry lives on `os`.
+/// Where `flavour`'s login entry lives on `os`.
 ///
 /// # Errors
 /// On Windows (not supported yet) or without `HOME` / `XDG_CONFIG_HOME`.
 pub(crate) fn entry_path(
+    flavour: Flavour,
     os: &str,
     var: impl Fn(&str) -> Option<String>,
 ) -> Result<PathBuf, AutostartError> {
@@ -107,11 +115,15 @@ pub(crate) fn entry_path(
             .map(|home| {
                 PathBuf::from(home)
                     .join("Library/LaunchAgents")
-                    .join(format!("{LABEL}.plist"))
+                    .join(format!("{}.plist", flavour.bundle_id()))
             })
             .ok_or(AutostartError::NoHome),
         _ => config_home(&var)
-            .map(|config| config.join("autostart").join("quickhop.desktop"))
+            .map(|config| {
+                config
+                    .join("autostart")
+                    .join(format!("{}.desktop", flavour.stem()))
+            })
             .ok_or(AutostartError::NoHome),
     }
 }
@@ -265,8 +277,8 @@ fn xml_unescape(text: &str) -> String {
         .replace("&amp;", "&")
 }
 
-/// The login entry that runs `exe daemon` on `os`.
-pub(crate) fn entry_text(os: &str, exe: &Path) -> String {
+/// `flavour`'s login entry that runs `exe daemon` on `os`.
+pub(crate) fn entry_text(flavour: Flavour, os: &str, exe: &Path) -> String {
     let exe = exe.to_string_lossy();
     if os == "macos" {
         return format!(
@@ -275,7 +287,7 @@ pub(crate) fn entry_text(os: &str, exe: &Path) -> String {
 <plist version=\"1.0\">
 <dict>
     <key>Label</key>
-    <string>{LABEL}</string>
+    <string>{}</string>
     <key>ProgramArguments</key>
     <array>
         <string>{}</string>
@@ -288,13 +300,14 @@ pub(crate) fn entry_text(os: &str, exe: &Path) -> String {
 </dict>
 </plist>
 ",
+            flavour.bundle_id(),
             xml_escape(&exe)
         );
     }
     format!(
         "[Desktop Entry]
 Type=Application
-Name=quickhop
+Name={}
 Comment=Keyboard launcher: clipboard history and file index in the background
 Exec={} daemon
 Icon=quickhop
@@ -302,6 +315,7 @@ Terminal=false
 NoDisplay=true
 X-GNOME-Autostart-enabled=true
 ",
+        flavour.app_name(),
         exec_quote(&exe)
     )
 }
@@ -334,20 +348,22 @@ pub(crate) fn app_bundle(exe: &Path) -> Option<&Path> {
         .then_some(bundle)
 }
 
-/// The quickhop.app executables `autostart on` looks for on macOS, in order.
-pub(crate) fn app_candidates(home: Option<&Path>) -> Vec<PathBuf> {
-    let exe = "quickhop.app/Contents/MacOS/quickhop";
-    let mut candidates = vec![Path::new("/Applications").join(exe)];
+/// The executables of `flavour`'s app ("quickhop.app" or "quickhop Dev.app") `autostart on`
+/// looks for on macOS, in order.
+pub(crate) fn app_candidates(flavour: Flavour, home: Option<&Path>) -> Vec<PathBuf> {
+    let exe = format!("{}.app/Contents/MacOS/quickhop", flavour.app_name());
+    let mut candidates = vec![Path::new("/Applications").join(&exe)];
     if let Some(home) = home {
-        candidates.push(home.join("Applications").join(exe));
+        candidates.push(home.join("Applications").join(&exe));
     }
     candidates
 }
 
-/// The program the login entry runs on `os`, for the running executable `exe`: on macOS,
-/// quickhop.app's executable when `exe` is not one and an app is installed (`exists`), so the
-/// daemon holds the app's Accessibility permission; else `exe` itself.
+/// The program `flavour`'s login entry runs on `os`, for the running executable `exe`: on
+/// macOS, the executable of `flavour`'s app when `exe` is not one and that app is installed
+/// (`exists`), so the daemon holds the app's Accessibility permission; else `exe` itself.
 pub(crate) fn program(
+    flavour: Flavour,
     os: &str,
     exe: &Path,
     home: Option<&Path>,
@@ -355,7 +371,9 @@ pub(crate) fn program(
 ) -> PathBuf {
     if os == "macos"
         && app_bundle(exe).is_none()
-        && let Some(app) = app_candidates(home).into_iter().find(|path| exists(path))
+        && let Some(app) = app_candidates(flavour, home)
+            .into_iter()
+            .find(|path| exists(path))
     {
         return app;
     }
@@ -408,25 +426,34 @@ pub(crate) fn entry_problem(
     })
 }
 
-/// The enabled link of the packages' systemd user unit `quickhop.service`, when there is one:
-/// in the user's `config_home` or `/etc`.
-fn unit_link(config_home: Option<&Path>) -> Option<PathBuf> {
+/// The enabled link of `flavour`'s systemd user unit (`quickhop.service`, which the packages
+/// ship; a development build's `quickhop-dev.service` exists only if someone made one), when
+/// there is one: in the user's `config_home` or `/etc`.
+fn unit_link(flavour: Flavour, config_home: Option<&Path>) -> Option<PathBuf> {
+    let unit = format!("{}.service", flavour.stem());
     let wants = ["graphical-session.target.wants", "default.target.wants"];
     let roots = config_home
         .map(|config| config.join("systemd/user"))
         .into_iter()
         .chain([PathBuf::from("/etc/systemd/user")]);
     roots
-        .flat_map(|root| wants.map(|w| root.join(w).join("quickhop.service")))
+        .flat_map(|root| wants.map(|w| root.join(w).join(&unit)))
         .find(|link| link.exists())
 }
 
-/// Whether the compositor configuration at `config` already starts quickhop's daemon.
-fn compositor_starts(config: &Path) -> bool {
+/// Whether the compositor configuration at `config` already starts `flavour`'s daemon: a
+/// release's is any `quickhop … daemon` line; a development build's must name its program
+/// `expected`, as the release's line names `quickhop` too.
+fn compositor_starts(flavour: Flavour, config: &Path, expected: &Path) -> bool {
+    let program = expected.to_string_lossy();
     std::fs::read_to_string(config).is_ok_and(|text| {
         text.lines().any(|line| {
             let line = line.trim_start();
-            !line.starts_with('#') && line.contains("quickhop") && line.contains("daemon")
+            let names = match flavour {
+                Flavour::Release => line.contains("quickhop"),
+                Flavour::Dev => line.contains(program.as_ref()),
+            };
+            !line.starts_with('#') && names && line.contains("daemon")
         })
     })
 }
@@ -442,17 +469,18 @@ pub(crate) struct Report {
     pub(crate) problems: Vec<String>,
 }
 
-/// How quickhop starts at login on `os` with the variables `var`, when `autostart on` would
-/// now register `expected`.
+/// How `flavour`'s quickhop starts at login on `os` with the variables `var`, when
+/// `autostart on` would now register `expected`.
 ///
 /// # Errors
 /// As [`entry_path`].
 pub(crate) fn report(
+    flavour: Flavour,
     os: &str,
     var: impl Fn(&str) -> Option<String>,
     expected: &Path,
 ) -> Result<Report, AutostartError> {
-    let path = entry_path(os, &var)?;
+    let path = entry_path(flavour, os, &var)?;
     let mut report = Report::default();
     if let Ok(text) = std::fs::read_to_string(&path) {
         let program = entry_program(os, &text);
@@ -474,14 +502,14 @@ pub(crate) fn report(
         return Ok(report);
     }
     let config_home = config_home(&var);
-    let unit = unit_link(config_home.as_deref());
+    let unit = unit_link(flavour, config_home.as_deref());
     if let Some(compositor) = compositor(&var) {
         let config = config_home.as_deref().map_or_else(
             || PathBuf::from("~/.config").join(compositor.config(Path::new(""))),
             |home| compositor.config(home),
         );
         let name = compositor.name();
-        if compositor_starts(&config) {
+        if compositor_starts(flavour, &config, expected) {
             report.on = true;
             report.summary = format!("on: {} starts quickhop daemon ({name})", config.display());
         } else if report.on {
@@ -519,7 +547,8 @@ pub(crate) fn report(
         } else {
             report.on = true;
             report.summary = format!(
-                "on: the systemd user unit quickhop.service ({})",
+                "on: the systemd user unit {}.service ({})",
+                flavour.stem(),
                 unit.display()
             );
         }
@@ -533,16 +562,23 @@ pub(crate) fn report(
 /// When the entry cannot be written or removed, the daemon cannot be started, the session's
 /// compositor reads no autostart entries, or the OS is not supported yet.
 pub(crate) fn run(action: AutostartAction, out: &mut impl Write) -> Result<(), AutostartError> {
+    let flavour = Flavour::CURRENT;
     let os = std::env::consts::OS;
     let var = |name: &str| std::env::var(name).ok().filter(|v| !v.is_empty());
-    let path = entry_path(os, var)?;
+    let path = entry_path(flavour, os, var)?;
     let file_error = |source| AutostartError::File {
         path: path.clone(),
         source,
     };
     let home = var("HOME").map(PathBuf::from);
     let expected = || -> Result<PathBuf, AutostartError> {
-        Ok(program(os, &this_exe()?, home.as_deref(), Path::is_file))
+        Ok(program(
+            flavour,
+            os,
+            &this_exe()?,
+            home.as_deref(),
+            Path::is_file,
+        ))
     };
     match action {
         AutostartAction::On { no_start, xdg } => {
@@ -555,7 +591,7 @@ pub(crate) fn run(action: AutostartAction, out: &mut impl Write) -> Result<(), A
                 if !no_start {
                     start_now(os, &program, None, out)?;
                 }
-                if compositor_starts(&config) {
+                if compositor_starts(flavour, &config, &program) {
                     let _ = writeln!(
                         out,
                         "{} starts quickhop daemon at login from {}",
@@ -573,7 +609,7 @@ pub(crate) fn run(action: AutostartAction, out: &mut impl Write) -> Result<(), A
             if let Some(dir) = path.parent() {
                 std::fs::create_dir_all(dir).map_err(file_error)?;
             }
-            std::fs::write(&path, entry_text(os, &program)).map_err(file_error)?;
+            std::fs::write(&path, entry_text(flavour, os, &program)).map_err(file_error)?;
             let _ = writeln!(
                 out,
                 "quickhop daemon starts at login: {} runs {} daemon",
@@ -581,16 +617,17 @@ pub(crate) fn run(action: AutostartAction, out: &mut impl Write) -> Result<(), A
                 program.display()
             );
             if os == "macos" {
+                let app = flavour.app_name();
                 let _ = match app_bundle(&program) {
-                    Some(app) => writeln!(
+                    Some(bundle) => writeln!(
                         out,
-                        "it runs {}, so the Accessibility permission you give quickhop.app \
+                        "it runs {}, so the Accessibility permission you give {app}.app \
                          covers its pasting",
-                        app.display()
+                        bundle.display()
                     ),
                     None => writeln!(
                         out,
-                        "note: no quickhop.app in /Applications or ~/Applications, so macOS asks \
+                        "note: no {app}.app in /Applications or ~/Applications, so macOS asks \
                          Accessibility for this binary itself ({})",
                         program.display()
                     ),
@@ -610,7 +647,7 @@ pub(crate) fn run(action: AutostartAction, out: &mut impl Write) -> Result<(), A
             Err(error) => return Err(file_error(error)),
         },
         AutostartAction::Status => {
-            let report = report(os, var, &expected()?)?;
+            let report = report(flavour, os, var, &expected()?)?;
             let _ = writeln!(out, "{}", report.summary);
             for problem in &report.problems {
                 let _ = writeln!(out, "warn: {problem}");
@@ -759,6 +796,7 @@ fn wait_for_daemon(program: &Path) -> Result<crate::daemon::Response, AutostartE
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quickhop_core::Flavour::{Dev, Release};
 
     fn vars(pairs: &[(&str, &str)]) -> impl Fn(&str) -> Option<String> {
         let pairs: Vec<(String, String)> = pairs
@@ -784,11 +822,21 @@ mod tests {
     fn entry_paths_per_os() {
         let (c, h) = (abs("c"), abs("h"));
         assert_eq!(
-            entry_path("linux", vars(&[("XDG_CONFIG_HOME", &c), ("HOME", &h)])).unwrap(),
+            entry_path(
+                Release,
+                "linux",
+                vars(&[("XDG_CONFIG_HOME", &c), ("HOME", &h)])
+            )
+            .unwrap(),
             PathBuf::from(&c).join("autostart").join("quickhop.desktop")
         );
         assert_eq!(
-            entry_path("freebsd", vars(&[("XDG_CONFIG_HOME", "rel"), ("HOME", &h)])).unwrap(),
+            entry_path(
+                Release,
+                "freebsd",
+                vars(&[("XDG_CONFIG_HOME", "rel"), ("HOME", &h)])
+            )
+            .unwrap(),
             PathBuf::from(&h)
                 .join(".config")
                 .join("autostart")
@@ -796,17 +844,52 @@ mod tests {
         );
         let user = abs("Users/a");
         assert_eq!(
-            entry_path("macos", vars(&[("HOME", &user)])).unwrap(),
+            entry_path(Release, "macos", vars(&[("HOME", &user)])).unwrap(),
             PathBuf::from(&user).join("Library/LaunchAgents/io.github.yuyudhan.quickhop.plist")
         );
         assert!(matches!(
-            entry_path("linux", vars(&[])),
+            entry_path(Release, "linux", vars(&[])),
             Err(AutostartError::NoHome)
         ));
         assert!(matches!(
-            entry_path("windows", vars(&[("HOME", &h)])),
+            entry_path(Release, "windows", vars(&[("HOME", &h)])),
             Err(AutostartError::Unsupported(_))
         ));
+    }
+
+    #[test]
+    fn a_development_build_has_its_own_entries() {
+        let (c, user) = (abs("c"), abs("Users/a"));
+        assert_eq!(
+            entry_path(Dev, "linux", vars(&[("XDG_CONFIG_HOME", &c)])).unwrap(),
+            PathBuf::from(&c)
+                .join("autostart")
+                .join("quickhop-dev.desktop")
+        );
+        assert_eq!(
+            entry_path(Dev, "macos", vars(&[("HOME", &user)])).unwrap(),
+            PathBuf::from(&user).join("Library/LaunchAgents/io.github.yuyudhan.quickhop.dev.plist")
+        );
+        let exe = Path::new("/w/quickhop/target/debug/quickhop");
+        let plist = entry_text(Dev, "macos", exe);
+        assert!(plist.contains("<string>io.github.yuyudhan.quickhop.dev</string>"));
+        assert!(!plist.contains("<string>io.github.yuyudhan.quickhop</string>"));
+        let desktop = entry_text(Dev, "linux", exe);
+        assert!(desktop.contains("\nName=quickhop Dev\n"), "{desktop}");
+        assert_eq!(entry_program("macos", &plist), Some(exe.to_path_buf()));
+        assert_eq!(
+            app_candidates(Dev, Some(Path::new("/Users/a"))),
+            [
+                PathBuf::from("/Applications/quickhop Dev.app/Contents/MacOS/quickhop"),
+                PathBuf::from("/Users/a/Applications/quickhop Dev.app/Contents/MacOS/quickhop"),
+            ]
+        );
+        // The installed release's app is not the development build's.
+        let release_app = Path::new("/Applications/quickhop.app/Contents/MacOS/quickhop");
+        let dev_app = Path::new("/Applications/quickhop Dev.app/Contents/MacOS/quickhop");
+        assert_eq!(program(Dev, "macos", exe, None, |p| p == release_app), exe);
+        assert_eq!(program(Dev, "macos", exe, None, |p| p == dev_app), dev_app);
+        assert_eq!(program(Release, "macos", exe, None, |p| p == dev_app), exe);
     }
 
     #[test]
@@ -825,10 +908,11 @@ mod tests {
 
     #[test]
     fn entries_run_the_daemon() {
-        let desktop = entry_text("linux", Path::new("/home/a b/.cargo/bin/quickhop"));
+        let desktop = entry_text(Release, "linux", Path::new("/home/a b/.cargo/bin/quickhop"));
         assert!(desktop.starts_with("[Desktop Entry]\nType=Application\n"));
         assert!(desktop.contains("\nExec=\"/home/a b/.cargo/bin/quickhop\" daemon\n"));
-        let plist = entry_text("macos", Path::new("/Applications/Q&A/quickhop"));
+        assert!(desktop.contains("\nName=quickhop\n"), "{desktop}");
+        let plist = entry_text(Release, "macos", Path::new("/Applications/Q&A/quickhop"));
         assert!(plist.contains(
             "<string>/Applications/Q&amp;A/quickhop</string>\n        <string>daemon</string>"
         ));
@@ -846,7 +930,7 @@ mod tests {
         ] {
             for os in ["linux", "macos"] {
                 assert_eq!(
-                    entry_program(os, &entry_text(os, Path::new(exe))),
+                    entry_program(os, &entry_text(Release, os, Path::new(exe))),
                     Some(PathBuf::from(exe)),
                     "{os}: {exe}"
                 );
@@ -869,23 +953,29 @@ mod tests {
             "/Users/a/Applications/quickhop.app/Contents/MacOS/quickhop",
         ];
         assert_eq!(
-            program("macos", cargo, Some(home), installed(both)),
+            program(Release, "macos", cargo, Some(home), installed(both)),
             system_app
         );
         let user: &[&str] = &["/Users/a/Applications/quickhop.app/Contents/MacOS/quickhop"];
         assert_eq!(
-            program("macos", cargo, Some(home), installed(user)),
+            program(Release, "macos", cargo, Some(home), installed(user)),
             user_app
         );
-        assert_eq!(program("macos", cargo, Some(home), installed(&[])), cargo);
+        assert_eq!(
+            program(Release, "macos", cargo, Some(home), installed(&[])),
+            cargo
+        );
         // An app registers itself, wherever it is.
         let elsewhere = Path::new("/opt/quickhop.app/Contents/MacOS/quickhop");
         assert_eq!(
-            program("macos", elsewhere, Some(home), installed(both)),
+            program(Release, "macos", elsewhere, Some(home), installed(both)),
             elsewhere
         );
         // Linux has no app.
-        assert_eq!(program("linux", cargo, Some(home), installed(both)), cargo);
+        assert_eq!(
+            program(Release, "linux", cargo, Some(home), installed(both)),
+            cargo
+        );
         assert_eq!(
             app_bundle(system_app),
             Some(Path::new("/Applications/quickhop.app"))
@@ -991,14 +1081,14 @@ mod tests {
             ("XDG_CURRENT_DESKTOP", "GNOME"),
         ];
         let session = vars(&pairs);
-        let off = report("linux", &session, &here)?;
+        let off = report(Release, "linux", &session, &here)?;
         assert!(!off.on && off.summary.starts_with("off: "), "{off:?}");
 
         let entry = config.join("autostart/quickhop.desktop");
         std::fs::create_dir_all(entry.parent().ok_or("no parent")?)?;
         let gone = dir.path().join("gone/quickhop");
-        std::fs::write(&entry, entry_text("linux", &gone))?;
-        let stale = report("linux", &session, &here)?;
+        std::fs::write(&entry, entry_text(Release, "linux", &gone))?;
+        let stale = report(Release, "linux", &session, &here)?;
         assert!(stale.on, "{stale:?}");
         assert_eq!(
             stale.summary,
@@ -1014,10 +1104,15 @@ mod tests {
         let wants = config.join("systemd/user/graphical-session.target.wants");
         std::fs::create_dir_all(&wants)?;
         std::fs::write(wants.join("quickhop.service"), "")?;
-        std::fs::write(&entry, entry_text("linux", &here))?;
-        let both = report("linux", &session, &here)?;
+        std::fs::write(&entry, entry_text(Release, "linux", &here))?;
+        let both = report(Release, "linux", &session, &here)?;
         assert_eq!(both.problems.len(), 1, "{both:?}");
         assert!(both.problems[0].contains("already running"), "{both:?}");
+
+        // A development build reads its own entry, and the release's unit is not its.
+        let dev = report(Dev, "linux", &session, &here)?;
+        assert!(!dev.on && dev.problems.is_empty(), "{dev:?}");
+        assert!(dev.summary.contains("quickhop-dev.desktop"), "{dev:?}");
         Ok(())
     }
 
@@ -1032,7 +1127,7 @@ mod tests {
             ("XDG_CURRENT_DESKTOP", "sway"),
         ];
         let sway = vars(&pairs);
-        let off = report("linux", &sway, here)?;
+        let off = report(Release, "linux", &sway, here)?;
         assert!(!off.on, "{off:?}");
         assert!(
             off.summary
@@ -1045,8 +1140,17 @@ mod tests {
             &sway_config,
             "# exec quickhop daemon\nexec /usr/bin/quickhop daemon\n",
         )?;
-        let on = report("linux", &sway, here)?;
+        let on = report(Release, "linux", &sway, here)?;
         assert!(on.on && on.problems.is_empty(), "{on:?}");
+        // The release's line does not start a development build's daemon.
+        let dev_exe = Path::new("/w/target/debug/quickhop");
+        let dev = report(Dev, "linux", &sway, dev_exe)?;
+        assert!(!dev.on, "{dev:?}");
+        std::fs::write(
+            &sway_config,
+            "exec /usr/bin/quickhop daemon\nexec /w/target/debug/quickhop daemon\n",
+        )?;
+        assert!(report(Dev, "linux", &sway, dev_exe)?.on);
         Ok(())
     }
 }

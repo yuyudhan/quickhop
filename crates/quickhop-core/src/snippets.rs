@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::Flavour;
 use crate::config::{ConfigError, config_path};
 
 /// One snippet.
@@ -94,15 +95,16 @@ impl SnippetsFile {
     }
 }
 
-/// `snippets.toml` next to the config file, e.g. `~/.config/quickhop/snippets.toml`.
+/// `snippets.toml` next to `flavour`'s config file, e.g. `~/.config/quickhop/snippets.toml`.
 ///
 /// # Errors
 /// As [`config_path`].
 pub fn snippets_path(
+    flavour: Flavour,
     os: &str,
     var: impl Fn(&str) -> Option<String>,
 ) -> Result<PathBuf, ConfigError> {
-    let config = config_path(os, var)?;
+    let config = config_path(flavour, os, var)?;
     Ok(config.parent().map_or_else(
         || PathBuf::from("snippets.toml"),
         |dir| dir.join("snippets.toml"),
@@ -149,8 +151,12 @@ mod tests {
         assert_eq!(file, SnippetsFile::default());
         let var = |name: &str| (name == "HOME").then(|| "/h".to_owned());
         assert_eq!(
-            snippets_path("linux", var).unwrap(),
+            snippets_path(Flavour::Release, "linux", var).unwrap(),
             Path::new("/h/.config/quickhop/snippets.toml")
+        );
+        assert_eq!(
+            snippets_path(Flavour::Dev, "macos", var).unwrap(),
+            Path::new("/h/.config/quickhop-dev/snippets.toml")
         );
     }
 }

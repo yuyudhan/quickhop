@@ -650,11 +650,13 @@ pub mod ax {
         }
     }
 
-    /// quickhop.app built around [`super::binary`] by `scripts/bundle-macos.sh` and opened
-    /// with `open`, as Finder opens it, over private directories as [`Daemon`] uses; stopped
-    /// when dropped.
+    /// The app bundle built around [`super::binary`] by `scripts/bundle-macos.sh` ("quickhop
+    /// Dev.app" for the debug build, "quickhop.app" for a release) and opened with `open`, as
+    /// Finder opens it, over private directories as [`Daemon`] uses; stopped when dropped.
     pub struct App {
         dir: tempfile::TempDir,
+        /// The bundle, as the script printed it.
+        bundle: std::path::PathBuf,
         /// The app's process id, which is its daemon's.
         pub pid: i32,
     }
@@ -685,6 +687,13 @@ pub mod ax {
                 )
                 .into());
             }
+            let printed = String::from_utf8(bundled.stdout)?;
+            let bundle = std::path::PathBuf::from(
+                printed
+                    .lines()
+                    .last()
+                    .ok_or_else(|| format!("{} printed no bundle", script.display()))?,
+            );
             let path = |name: &str| dir.path().join(name).display().to_string();
             let opened = Command::new("open")
                 .arg("-n")
@@ -697,10 +706,10 @@ pub mod ax {
                 ])
                 .args(["--stdout", &path("app.log")])
                 .args(["--stderr", &path("app.err")])
-                .arg(path("quickhop.app"))
+                .arg(&bundle)
                 .status()?;
             if !opened.success() {
-                return Err(format!("open quickhop.app failed: {opened}").into());
+                return Err(format!("open {} failed: {opened}", bundle.display()).into());
             }
             let deadline = Instant::now() + PATIENCE;
             loop {
@@ -711,15 +720,33 @@ pub mod ax {
                     .strip_prefix("running (pid ")
                     .and_then(|rest| rest.split(')').next()?.parse().ok());
                 if let Some(pid) = pid {
-                    return Ok(Self { dir, pid });
+                    return Ok(Self { dir, bundle, pid });
                 }
                 if Instant::now() > deadline {
                     let log =
                         std::fs::read_to_string(dir.path().join("app.err")).unwrap_or_default();
-                    return Err(format!("quickhop.app's daemon never answered: {log}").into());
+                    return Err(
+                        format!("{}'s daemon never answered: {log}", bundle.display()).into(),
+                    );
                 }
                 std::thread::sleep(Duration::from_millis(50));
             }
+        }
+
+        /// The bundle's identifier, from its Info.plist.
+        ///
+        /// # Errors
+        /// When `plutil` cannot read it.
+        pub fn bundle_id(&self) -> Fallible<String> {
+            let plist = self.bundle.join("Contents/Info.plist");
+            let read = Command::new("/usr/bin/plutil")
+                .args(["-extract", "CFBundleIdentifier", "raw", "-o", "-"])
+                .arg(&plist)
+                .output()?;
+            if !read.status.success() {
+                return Err(format!("plutil cannot read {}", plist.display()).into());
+            }
+            Ok(String::from_utf8(read.stdout)?.trim().to_owned())
         }
 
         /// Runs `quickhop <args>` against the app's daemon.
@@ -748,7 +775,8 @@ pub mod ax {
                 }
                 if Instant::now() > deadline {
                     return Err(format!(
-                        "no such window of quickhop.app (pid {}); its windows: {windows:?}; {}",
+                        "no such window of {} (pid {}); its windows: {windows:?}; {}",
+                        self.bundle.display(),
                         self.pid,
                         focus()
                     )

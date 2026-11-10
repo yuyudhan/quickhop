@@ -6,7 +6,7 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use quickhop_core::config::data_dir;
-use quickhop_core::{Cancel, Config, Query};
+use quickhop_core::{Cancel, Config, Flavour, Query};
 use quickhop_providers::Env;
 
 use crate::tools::{self, Display};
@@ -83,9 +83,42 @@ enum Daemon<'a> {
 #[cfg(any(target_os = "macos", test))]
 fn grantee(exe: &Path) -> String {
     match autostart::app_bundle(exe) {
-        Some(app) => format!("quickhop.app ({})", app.display()),
+        Some(app) => format!("{} ({})", bundle_name(app), app.display()),
         None => format!("the binary {}", exe.display()),
     }
+}
+
+/// The file name of the bundle `app` ("quickhop.app", "quickhop Dev.app").
+#[cfg(any(unix, test))]
+fn bundle_name(app: &Path) -> std::borrow::Cow<'_, str> {
+    app.file_name()
+        .map_or_else(|| app.to_string_lossy(), |name| name.to_string_lossy())
+}
+
+/// Which build this is (`flavour`), where its configuration lives (the folder of `config`, the
+/// config file in effect) and, on macOS (`os`), which app identity it has: a development build
+/// and the release keep apart every one of these.
+fn flavour_line(flavour: Flavour, os: &str, config: Option<&Path>) -> Line {
+    let dir = config
+        .and_then(Path::parent)
+        .map_or_else(|| "unknown".into(), |dir| dir.display().to_string());
+    let build = match flavour {
+        Flavour::Release => "",
+        Flavour::Dev => "development build, apart from the release; ",
+    };
+    let app = if os == "macos" {
+        format!(
+            ", app {}.app, bundle id {}",
+            flavour.app_name(),
+            flavour.bundle_id()
+        )
+    } else {
+        String::new()
+    };
+    Line::Info(format!(
+        "flavour: {} ({build}config dir {dir}{app})",
+        flavour.name()
+    ))
 }
 
 /// The daemon's lines: whether it runs, its version and executable, against this quickhop's
@@ -125,12 +158,13 @@ fn daemon_lines(daemon: Daemon<'_>, version: &str, expected: &Path) -> Vec<Line>
     if let Some(exe) = running.exe
         && exe != expected
     {
-        let why = if autostart::app_bundle(expected).is_some() {
-            ": quickhop.app is installed, and its Accessibility permission does not cover \
-             another program"
-        } else {
-            ""
-        };
+        let why = autostart::app_bundle(expected).map_or_else(String::new, |app| {
+            format!(
+                ": {} is installed, and its Accessibility permission does not cover another \
+                 program",
+                bundle_name(app)
+            )
+        });
         lines.push(Line::Warn(format!(
             "the daemon runs {}, not {}{why}; `quickhop autostart on` restarts it from {}",
             exe.display(),
@@ -220,7 +254,7 @@ fn copies(env: &Env) -> Vec<PathBuf> {
     let name = format!("quickhop{}", std::env::consts::EXE_SUFFIX);
     let home = env.var("HOME").map(PathBuf::from);
     let apps = if env.os == "macos" {
-        autostart::app_candidates(home.as_deref())
+        autostart::app_candidates(env.flavour, home.as_deref())
     } else {
         Vec::new()
     };
@@ -351,7 +385,7 @@ fn paths_section<W: Write>(report: &mut Report<'_, W>, env: &Env) -> std::io::Re
             Config::default()
         }
     };
-    match data_dir(std::env::consts::OS, var) {
+    match data_dir(env.flavour, &env.os, var) {
         Ok(dir) => report.info(format!("data: {}", dir.display()))?,
         Err(error) => report.info(format!("data: {error} (frecency disabled)"))?,
     }
@@ -374,7 +408,7 @@ fn autostart_section<W: Write>(
     env: &Env,
     expected: &Path,
 ) -> std::io::Result<()> {
-    match autostart::report(&env.os, var, expected) {
+    match autostart::report(env.flavour, &env.os, var, expected) {
         Ok(state) => {
             report.info(format!("autostart: {}", state.summary))?;
             for problem in state.problems {
@@ -419,7 +453,7 @@ fn providers_section<W: Write>(
 ) -> std::io::Result<()> {
     let dirs = quickhop_providers::script_dirs(config, env);
     if dirs.is_empty() {
-        match quickhop_core::config::scripts_dir(&env.os, var) {
+        match quickhop_core::config::scripts_dir(env.flavour, &env.os, var) {
             Ok(dir) => report.info(format!("scripts: none (create {})", dir.display()))?,
             Err(error) => report.info(format!("scripts: {error}"))?,
         }
@@ -458,6 +492,11 @@ pub(crate) fn run(strict: bool, out: &mut impl Write) -> Result<(), CliError> {
     let version = env!("CARGO_PKG_VERSION");
     let env = Env::current();
     report.info(format!("quickhop {version}"))?;
+    report.line(&flavour_line(
+        env.flavour,
+        &env.os,
+        default_path().ok().as_deref(),
+    ))?;
     let this = autostart::this_exe()?;
     let first_on_path = on_path(&env, &format!("quickhop{}", std::env::consts::EXE_SUFFIX));
     report.lines(&binary_lines(&this, &copies(&env), first_on_path))?;
@@ -469,6 +508,7 @@ pub(crate) fn run(strict: bool, out: &mut impl Write) -> Result<(), CliError> {
     let config = paths_section(&mut report, &env)?;
     let home = env.var("HOME").map(PathBuf::from);
     let expected = autostart::resolved(&autostart::program(
+        env.flavour,
         &env.os,
         &this,
         home.as_deref(),
@@ -509,6 +549,50 @@ mod tests {
             text.push('\n');
             text
         })
+    }
+
+    #[test]
+    fn the_flavour_line_names_the_build_and_its_config_dir() {
+        let release = Path::new("/Users/a/.config/quickhop/config.toml");
+        let dev = Path::new("/Users/a/.config/quickhop-dev/config.toml");
+        assert_eq!(
+            flavour_line(Flavour::Release, "macos", Some(release)).to_string(),
+            "flavour: release (config dir /Users/a/.config/quickhop, app quickhop.app, bundle \
+             id io.github.yuyudhan.quickhop)"
+        );
+        assert_eq!(
+            flavour_line(Flavour::Dev, "macos", Some(dev)).to_string(),
+            "flavour: dev (development build, apart from the release; config dir \
+             /Users/a/.config/quickhop-dev, app quickhop Dev.app, bundle id \
+             io.github.yuyudhan.quickhop.dev)"
+        );
+        assert_eq!(
+            flavour_line(
+                Flavour::Dev,
+                "linux",
+                Some(Path::new("/home/a/.config/quickhop-dev/config.toml"))
+            )
+            .to_string(),
+            "flavour: dev (development build, apart from the release; config dir \
+             /home/a/.config/quickhop-dev)"
+        );
+        assert_eq!(
+            flavour_line(Flavour::Release, "linux", None).to_string(),
+            "flavour: release (config dir unknown)"
+        );
+    }
+
+    #[test]
+    fn the_development_app_is_named_by_its_own_bundle() {
+        let dev_app = Path::new("/Applications/quickhop Dev.app/Contents/MacOS/quickhop");
+        assert_eq!(
+            grantee(dev_app),
+            "quickhop Dev.app (/Applications/quickhop Dev.app)"
+        );
+        assert_eq!(
+            grantee(Path::new(APP)),
+            "quickhop.app (/Applications/quickhop.app)"
+        );
     }
 
     fn running<'a>(

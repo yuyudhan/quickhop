@@ -16,7 +16,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use quickhop_core::config::runtime_dir;
-use quickhop_core::{Cancel, Config};
+use quickhop_core::{Cancel, Config, Flavour};
 use quickhop_index::{Index, Watcher};
 use quickhop_providers::Env;
 use serde::{Deserialize, Serialize};
@@ -163,7 +163,7 @@ struct Paths {
 }
 
 fn paths() -> Paths {
-    let dir = runtime_dir(|name| std::env::var(name).ok());
+    let dir = runtime_dir(Flavour::CURRENT, |name| std::env::var(name).ok());
     Paths {
         lock: dir.join("daemon.lock"),
         socket: dir.join("daemon.sock"),

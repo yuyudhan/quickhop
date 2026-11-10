@@ -34,7 +34,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 pub use env::Env;
-use quickhop_core::{Config, ConfigError, Provider};
+use quickhop_core::{Config, ConfigError, Flavour, Provider};
 
 /// Names of the built-in providers, matching the keys of `[providers]` in the config.
 pub const BUILTIN: [&str; 8] = [
@@ -56,12 +56,15 @@ pub const INLINE_SCRIPT_TIMEOUT: Duration = Duration::from_secs(2);
 /// # Errors
 /// When no data directory can be derived from the environment.
 pub fn index_path(env: &Env) -> Result<PathBuf, ConfigError> {
-    let dir = quickhop_core::config::data_dir(&env.os, |name| env.var(name).map(str::to_owned))?;
+    let dir = quickhop_core::config::data_dir(env.flavour, &env.os, |name| {
+        env.var(name).map(str::to_owned)
+    })?;
     Ok(dir.join("index.sqlite"))
 }
 
 /// What `quickhop index` covers for `config` in `env`: `[files] roots` (`~` expanded) or the
-/// home folder, the default exclusions plus `[files] exclude`, never the data directory.
+/// home folder, the default exclusions plus `[files] exclude`, never a data directory (of
+/// either flavour).
 pub fn index_options(config: &Config, env: &Env) -> quickhop_index::Options {
     let home = env.home();
     let roots = if config.files.roots.is_empty() {
@@ -77,10 +80,16 @@ pub fn index_options(config: &Config, env: &Env) -> quickhop_index::Options {
     let mut options = quickhop_index::Options::new(roots);
     options.hidden = config.files.hidden;
     options.exclude.extend(config.files.exclude.iter().cloned());
-    options.skip =
-        quickhop_core::config::data_dir(&env.os, |name| env.var(name).map(str::to_owned))
-            .into_iter()
-            .collect();
+    // Both flavours' data directories: neither indexes the other's index either.
+    options.skip = [Flavour::Release, Flavour::Dev]
+        .into_iter()
+        .filter_map(|flavour| {
+            quickhop_core::config::data_dir(flavour, &env.os, |name| {
+                env.var(name).map(str::to_owned)
+            })
+            .ok()
+        })
+        .collect();
     options
 }
 
@@ -96,10 +105,11 @@ pub struct Warning {
 /// The script-command directories for `config` in `env`: `scripts/` next to the config file
 /// (when it exists), then `[scripts] dirs` with a leading `~` expanded, without duplicates.
 pub fn script_dirs(config: &Config, env: &Env) -> Vec<PathBuf> {
-    let default =
-        quickhop_core::config::scripts_dir(&env.os, |name| env.var(name).map(str::to_owned))
-            .ok()
-            .filter(|dir| dir.is_dir());
+    let default = quickhop_core::config::scripts_dir(env.flavour, &env.os, |name| {
+        env.var(name).map(str::to_owned)
+    })
+    .ok()
+    .filter(|dir| dir.is_dir());
     let home = env.home();
     let mut dirs: Vec<PathBuf> = default.into_iter().collect();
     for dir in &config.scripts.dirs {
@@ -164,7 +174,7 @@ pub fn builtin(config: &Config, env: &Env) -> (Vec<Box<dyn Provider>>, Vec<Warni
         providers.push(Box::new(scripts));
     }
     if enabled.snippets {
-        let path = quickhop_core::snippets::snippets_path(&env.os, |name| {
+        let path = quickhop_core::snippets::snippets_path(env.flavour, &env.os, |name| {
             env.var(name).map(str::to_owned)
         });
         match path {

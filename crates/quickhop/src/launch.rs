@@ -5,9 +5,9 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
-use quickhop_core::Action;
 use quickhop_core::placeholders::{self, Context};
 use quickhop_core::snippets::{SnippetsFile, snippets_path};
+use quickhop_core::{Action, Flavour};
 use quickhop_providers::scripts;
 
 use crate::trash;
@@ -295,7 +295,7 @@ fn expand_snippet(template: &str, args: &[String]) -> Result<String, LaunchError
     if !missing.is_empty() {
         return Err(LaunchError::MissingArguments(missing.join(", ")));
     }
-    let library = snippets_path(std::env::consts::OS, var)
+    let library = snippets_path(Flavour::CURRENT, std::env::consts::OS, var)
         .ok()
         .and_then(|path| SnippetsFile::load(&path).ok())
         .unwrap_or_default();

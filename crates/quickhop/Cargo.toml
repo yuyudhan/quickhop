@@ -8,6 +8,11 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# A development build in the release profile (`just bundle-macos`), see
+# quickhop-core/src/flavour.rs. Debug builds are one anyway.
+dev = ["quickhop-core/dev"]
+
 [dependencies]
 clap.workspace = true
 getrandom.workspace = true

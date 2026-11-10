@@ -69,8 +69,15 @@ verify: check clippy-all deny
 bundle-linux:
     scripts/bundle-linux.sh
 
-# quickhop.app in target/bundle/, from the release build (macOS 14 or later).
+# The development flavour in the release profile has its own bundle id, Accessibility grant,
+# config and daemon, so it runs beside an installed quickhop.app. macOS 14 or later.
+# "quickhop Dev.app" (development flavour) in target/bundle/.
 bundle-macos:
+    scripts/bundle-macos.sh --dev
+
+# The release flavour: what the release pipeline ships. macOS 14 or later.
+# quickhop.app (release flavour) in target/bundle/, from the release build.
+bundle-macos-release:
     scripts/bundle-macos.sh
 
 # Install the .deb in a clean Debian container and run it (needs docker).

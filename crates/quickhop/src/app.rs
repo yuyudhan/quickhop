@@ -9,11 +9,14 @@
 //! the app's, so pasting would fail however the user answers the onboarding window.
 //!
 //! The app has no terminal, Dock icon or menu, so a failure is shown in an alert and appended
-//! to `~/Library/Logs/quickhop.log`, besides standard error.
+//! to `~/Library/Logs/quickhop.log` (`quickhop-dev.log` for a development build), besides
+//! standard error.
 
 use std::ffi::OsString;
 use std::io::{IsTerminal as _, Write};
 use std::path::{Path, PathBuf};
+
+use quickhop_core::Flavour;
 
 use crate::daemon::{self, DaemonError, Request, Response};
 use crate::{CliError, load_config};
@@ -149,9 +152,11 @@ fn failure_text(error: &CliError, config: Option<&Path>, log: Option<&Path>) -> 
     parts.join("\n\n")
 }
 
-/// The app's log: `~/Library/Logs/quickhop.log`, where Console finds it.
-fn log_path(home: &Path) -> PathBuf {
-    home.join("Library/Logs/quickhop.log")
+/// `flavour`'s app log: `~/Library/Logs/quickhop.log` or `quickhop-dev.log`, where Console
+/// finds it.
+fn log_path(flavour: Flavour, home: &Path) -> PathBuf {
+    home.join("Library/Logs")
+        .join(format!("{}.log", flavour.stem()))
 }
 
 /// Appends `line`, timestamped, to the log file at `path`, creating it.
@@ -166,14 +171,19 @@ fn append_log(path: &Path, line: &str) -> std::io::Result<()> {
         .create(true)
         .append(true)
         .open(path)?;
-    writeln!(file, "{} quickhop.app: {line}", jiff::Timestamp::now())
+    writeln!(
+        file,
+        "{} {}.app: {line}",
+        jiff::Timestamp::now(),
+        Flavour::CURRENT.app_name()
+    )
 }
 
 /// The log under this user's `HOME`, when it is set.
 fn user_log() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .filter(|home| !home.is_empty())
-        .map(|home| log_path(Path::new(&home)))
+        .map(|home| log_path(Flavour::CURRENT, Path::new(&home)))
 }
 
 /// Appends `line` to the user's log; a log that cannot be written is reported on standard
@@ -325,22 +335,27 @@ mod tests {
     #[test]
     fn the_log_is_in_the_users_library_logs() {
         assert_eq!(
-            log_path(Path::new("/Users/me")),
+            log_path(Flavour::Release, Path::new("/Users/me")),
             Path::new("/Users/me/Library/Logs/quickhop.log")
+        );
+        assert_eq!(
+            log_path(Flavour::Dev, Path::new("/Users/me")),
+            Path::new("/Users/me/Library/Logs/quickhop-dev.log")
         );
     }
 
     #[test]
     fn log_lines_are_appended_with_a_timestamp() {
         let home = tempfile::tempdir().unwrap();
-        let path = log_path(home.path());
+        let path = log_path(Flavour::CURRENT, home.path());
         append_log(&path, "first").unwrap();
         append_log(&path, "second").unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         let lines: Vec<&str> = text.lines().collect();
         assert_eq!(lines.len(), 2, "{text}");
-        assert!(lines[0].ends_with(" quickhop.app: first"), "{text}");
-        assert!(lines[1].ends_with(" quickhop.app: second"), "{text}");
+        let app = format!(" {}.app: ", Flavour::CURRENT.app_name());
+        assert!(lines[0].ends_with(&format!("{app}first")), "{text}");
+        assert!(lines[1].ends_with(&format!("{app}second")), "{text}");
         let stamp = lines[0].split(' ').next().unwrap();
         assert!(stamp.parse::<jiff::Timestamp>().is_ok(), "{stamp}");
     }

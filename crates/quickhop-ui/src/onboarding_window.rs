@@ -153,7 +153,7 @@ pub(crate) fn open(
         kind: WindowKind::Normal,
         is_resizable: false,
         is_minimizable: false,
-        app_id: Some("quickhop".into()),
+        app_id: Some(quickhop_core::Flavour::CURRENT.stem().into()),
         ..WindowOptions::default()
     };
     let handle = cx

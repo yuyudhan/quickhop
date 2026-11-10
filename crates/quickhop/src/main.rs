@@ -23,15 +23,22 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use clap::{Parser, Subcommand};
 use quickhop_core::config::{config_path, data_dir, legacy_macos_dir, migrate_legacy};
-use quickhop_core::{Action, Boosts, Cancel, Config, ItemId, Query, Ranked, Search, Tier};
+use quickhop_core::{Action, Boosts, Cancel, Config, Flavour, ItemId, Query, Ranked, Search, Tier};
 use quickhop_providers::scripts::{self, ScriptCommand};
 use quickhop_providers::{Env, Warning};
 use quickhop_store::Store;
 use serde::Serialize;
 
+/// What `quickhop --version` prints after the name: the version, and ` (dev)` for a
+/// development build ([`Flavour`]), which scripts/bundle-macos.sh reads to name the app.
+const VERSION: &str = match Flavour::CURRENT {
+    Flavour::Release => env!("CARGO_PKG_VERSION"),
+    Flavour::Dev => concat!(env!("CARGO_PKG_VERSION"), " (dev)"),
+};
+
 /// Keyboard launcher for macOS and Linux (and Windows).
 #[derive(Debug, Parser)]
-#[command(name = "quickhop", version, about)]
+#[command(name = "quickhop", version = VERSION, about)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -268,14 +275,15 @@ fn var(name: &str) -> Option<String> {
 }
 
 fn default_path() -> Result<PathBuf, quickhop_core::ConfigError> {
-    config_path(std::env::consts::OS, var)
+    config_path(Flavour::CURRENT, std::env::consts::OS, var)
 }
 
 /// Moves the config and frecency database from quickhop 0.1's macOS location
-/// (`~/Library/Application Support/quickhop`) to the XDG ones, once. Locations overridden
-/// with `QUICKHOP_CONFIG` / `QUICKHOP_DATA` are left alone. Problems are reported, not fatal.
+/// (`~/Library/Application Support/quickhop`) to the XDG ones, once, in a release (a
+/// development build leaves them to it). Locations overridden with `QUICKHOP_CONFIG` /
+/// `QUICKHOP_DATA` are left alone. Problems are reported, not fatal.
 fn migrate_legacy_files() {
-    let Some(legacy) = legacy_macos_dir(std::env::consts::OS, var) else {
+    let Some(legacy) = legacy_macos_dir(Flavour::CURRENT, std::env::consts::OS, var) else {
         return;
     };
     if !legacy.is_dir() {
@@ -287,7 +295,7 @@ fn migrate_legacy_files() {
         .and_then(Result::ok);
     let data = var("QUICKHOP_DATA")
         .is_none()
-        .then(|| data_dir(std::env::consts::OS, var))
+        .then(|| data_dir(Flavour::CURRENT, std::env::consts::OS, var))
         .and_then(Result::ok);
     let lines = match migrate_legacy(&legacy, config.as_deref(), data.as_deref()) {
         Ok(moved) => moved,
@@ -324,12 +332,14 @@ fn now_ms() -> i64 {
 /// The frecency store in the data directory; problems become warnings and the search
 /// runs without frecency.
 fn open_store(warnings: &mut Vec<String>) -> Option<Store> {
-    let opened = data_dir(std::env::consts::OS, |name| std::env::var(name).ok())
-        .map_err(|e| e.to_string())
-        .and_then(|dir| {
-            std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-            Store::open(&dir.join("frecency.sqlite")).map_err(|e| e.to_string())
-        });
+    let opened = data_dir(Flavour::CURRENT, std::env::consts::OS, |name| {
+        std::env::var(name).ok()
+    })
+    .map_err(|e| e.to_string())
+    .and_then(|dir| {
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        Store::open(&dir.join("frecency.sqlite")).map_err(|e| e.to_string())
+    });
     match opened {
         Ok(store) => Some(store),
         Err(error) => {

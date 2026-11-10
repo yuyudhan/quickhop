@@ -9,7 +9,7 @@
 
 #![cfg(target_os = "macos")]
 
-use quickhop_core::Hotkey;
+use quickhop_core::{Flavour, Hotkey};
 use quickhop_uitest::{Fallible, TEST_CONFIG, ax};
 
 /// A hotkey no other app uses, so no press of the test reaches another one.
@@ -26,9 +26,16 @@ fn status(app: &ax::App) -> Fallible<String> {
 fn the_app_runs_the_daemon_with_its_hotkey_and_asks_for_accessibility() -> Fallible {
     let _screen = ax::take_over()?;
     let app = ax::App::open(&format!("hotkey = \"{HOTKEY}\"\n{TEST_CONFIG}"))?;
+    let bundle_id = app.bundle_id()?;
+    assert!(
+        [Flavour::Release, Flavour::Dev]
+            .iter()
+            .any(|flavour| flavour.bundle_id() == bundle_id),
+        "{bundle_id} is neither flavour's identifier"
+    );
     assert_eq!(
         ax::app_name(app.pid).as_deref(),
-        Some("io.github.yuyudhan.quickhop"),
+        Some(bundle_id.as_str()),
         "macOS knows the process by the bundle's identifier"
     );
 

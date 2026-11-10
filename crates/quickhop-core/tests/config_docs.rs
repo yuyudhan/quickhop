@@ -2,14 +2,15 @@
 //! default, and nothing else: each table row that starts with two code spans, | `key` |
 //! `default` |, must match the structs exactly.
 //!
-//! Defaults come from serializing the defaults. Keys of array tables (`[[quicklinks]]`,
+//! Defaults come from serializing the release's defaults (a development build differs only in
+//! its hotkey, which the document mentions in prose). Keys of array tables (`[[quicklinks]]`,
 //! `[[commands]]`, `[[snippets]]`) are written `quicklinks[].name`; their default is the value a
 //! minimal entry gets, `required` for keys the minimal entry needs, or `unset`.
 
 use std::collections::BTreeMap;
 
 use quickhop_core::snippets::SnippetsFile;
-use quickhop_core::{CommandSettings, Config, Quicklink};
+use quickhop_core::{CommandSettings, Config, Flavour, Quicklink};
 use toml::{Table, Value};
 
 /// Every scalar or array key under `table`, as `prefix.key` = its TOML text.
@@ -66,7 +67,7 @@ fn array_rows(
 /// What the structs say docs/configuration.md must list.
 fn expected() -> TestResult<BTreeMap<String, String>> {
     let mut rows = BTreeMap::new();
-    let mut defaults = table_of(&Config::default())?;
+    let mut defaults = table_of(&Config::defaults(Flavour::Release))?;
     defaults.remove("quicklinks");
     defaults.remove("commands");
     flatten("", &defaults, &mut rows);

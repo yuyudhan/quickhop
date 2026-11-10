@@ -8,6 +8,7 @@
 pub mod clipboard;
 pub mod config;
 pub mod datefmt;
+pub mod flavour;
 pub mod fuzzy;
 pub mod hotkey;
 pub mod item;
@@ -21,6 +22,7 @@ pub use clipboard::{ClipboardSource, Contents, Copied, Watcher};
 pub use config::{
     Apps, Clipboard, CommandSettings, Config, ConfigError, Files, Providers, Quicklink, Scripts,
 };
+pub use flavour::Flavour;
 pub use fuzzy::{Match, Matcher, score};
 pub use hotkey::{Hotkey, HotkeyError};
 pub use item::{Action, Item, ItemId, ScriptArgument, ScriptArgumentKind, ScriptMode, View};

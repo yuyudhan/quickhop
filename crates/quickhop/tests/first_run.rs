@@ -34,13 +34,18 @@ impl Home {
         self.path().join("run")
     }
 
-    /// The login entry `autostart on` writes on this system.
+    /// The login entry `autostart on` writes on this system, for the flavour under test
+    /// (`quickhop-dev.desktop` and `io.github.yuyudhan.quickhop.dev` for a development build).
     fn entry(&self) -> PathBuf {
+        let flavour = quickhop_core::Flavour::CURRENT;
         if cfg!(target_os = "macos") {
             self.path()
-                .join("Library/LaunchAgents/io.github.yuyudhan.quickhop.plist")
+                .join("Library/LaunchAgents")
+                .join(format!("{}.plist", flavour.bundle_id()))
         } else {
-            self.config_home().join("autostart/quickhop.desktop")
+            self.config_home()
+                .join("autostart")
+                .join(format!("{}.desktop", flavour.stem()))
         }
     }
 

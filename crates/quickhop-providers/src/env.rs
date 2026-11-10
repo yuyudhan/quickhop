@@ -3,11 +3,16 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// OS name and environment variables a provider reads.
+use quickhop_core::Flavour;
+
+/// OS name, build flavour and environment variables a provider reads.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Env {
     /// A [`std::env::consts::OS`] value: `linux`, `macos`, `windows`, ...
     pub os: String,
+    /// Whose directories the providers read: this build's ([`Flavour::CURRENT`]) unless a
+    /// test picks one.
+    pub flavour: Flavour,
     vars: HashMap<String, String>,
 }
 
@@ -16,19 +21,21 @@ impl Env {
     pub fn current() -> Self {
         Self {
             os: std::env::consts::OS.into(),
+            flavour: Flavour::CURRENT,
             vars: std::env::vars_os()
                 .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
                 .collect(),
         }
     }
 
-    /// A fake environment for `os` with exactly `vars`.
+    /// A fake environment for `os` with exactly `vars`, for this build's flavour.
     pub fn new<K: Into<String>, V: Into<String>>(
         os: &str,
         vars: impl IntoIterator<Item = (K, V)>,
     ) -> Self {
         Self {
             os: os.into(),
+            flavour: Flavour::CURRENT,
             vars: vars
                 .into_iter()
                 .map(|(k, v)| (k.into(), v.into()))

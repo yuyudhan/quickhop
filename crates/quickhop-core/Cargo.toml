@@ -8,6 +8,11 @@ license.workspace = true
 repository.workspace = true
 publish.workspace = true
 
+[features]
+# A development build in the release profile (`just bundle-macos`): its own directories,
+# bundle identifier, app name and hotkey, see src/flavour.rs. Debug builds are one anyway.
+dev = []
+
 [dependencies]
 jiff.workspace = true
 nucleo-matcher.workspace = true

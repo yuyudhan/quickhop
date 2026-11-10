@@ -18,7 +18,8 @@ const PANE: &str = "System Settings › Privacy & Security › Accessibility (De
 /// The program macOS checks the permission of: the one to switch on in the list.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Program {
-    /// quickhop.app, listed by its name.
+    /// This build's app ("quickhop.app", or "quickhop Dev.app" for a development build), listed
+    /// by its name.
     App,
     /// A `quickhop` binary outside the app, at this path: macOS lists it by that file, or,
     /// started from a terminal, checks the terminal app instead.
@@ -160,7 +161,7 @@ impl Onboarding {
             };
         }
         let who = match &self.program {
-            Program::App => "quickhop".to_owned(),
+            Program::App => quickhop_core::Flavour::CURRENT.app_name().to_owned(),
             Program::Binary(path) => format!(
                 "{path} (the terminal app instead, when you started quickhop from a terminal)"
             ),
