@@ -265,3 +265,58 @@ fn missing_configured_directories_do_not_fail() {
     assert_eq!(apps.all().len(), 0);
     assert_eq!(warnings.len(), 0, "{warnings:?}");
 }
+
+/// `[apps] icon_theme` from a parsed config picks the theme the desktop entries' icons come
+/// from; empty means the GTK setting, else `hicolor`.
+#[test]
+fn config_icon_theme_picks_the_theme() -> TestResult {
+    let root = common::fixtures();
+    let gtk = tempfile::tempdir()?;
+    let firefox_icon =
+        |theme: &str, gtk_config: &Path| -> Result<PathBuf, Box<dyn std::error::Error>> {
+            let config = quickhop_core::Config::from_toml(&format!(
+                "[apps]\ndirs = [\"{}\"]\nicon_theme = \"{theme}\"\n",
+                root.join("applications")
+                    .to_string_lossy()
+                    .replace('\\', "/"),
+            ))?;
+            let env = quickhop_providers::Env::new(
+                "linux",
+                [
+                    ("HOME", "/nonexistent-home".to_owned()),
+                    ("XDG_DATA_DIRS", root.to_string_lossy().into_owned()),
+                    ("XDG_CONFIG_HOME", gtk_config.to_string_lossy().into_owned()),
+                    ("LANG", "en_US.UTF-8".to_owned()),
+                ],
+            );
+            let sources = quickhop_providers::apps::Sources::for_env(&config.apps, &env);
+            let (apps, _) = AppsProvider::load(&sources, &env);
+            Ok(icon_of(find(apps.all(), "Firefox Web Browser")?))
+        };
+    let icons = root.join("icons");
+    assert_eq!(
+        firefox_icon("Fixture", gtk.path())?,
+        icons.join("Fixture").join("48x48/apps/firefox.png")
+    );
+    assert_eq!(
+        firefox_icon("", gtk.path())?,
+        icons.join("hicolor").join("48x48/apps/firefox.png"),
+        "no theme and no GTK setting: hicolor"
+    );
+    std::fs::create_dir_all(gtk.path().join("gtk-3.0"))?;
+    std::fs::write(
+        gtk.path().join("gtk-3.0/settings.ini"),
+        "[Settings]\ngtk-icon-theme-name = \"Fixture\"\n",
+    )?;
+    assert_eq!(
+        firefox_icon("", gtk.path())?,
+        icons.join("Fixture").join("48x48/apps/firefox.png"),
+        "no theme: the GTK setting"
+    );
+    assert_eq!(
+        firefox_icon("hicolor", gtk.path())?,
+        icons.join("hicolor").join("48x48/apps/firefox.png"),
+        "the configured theme beats the GTK setting"
+    );
+    Ok(())
+}

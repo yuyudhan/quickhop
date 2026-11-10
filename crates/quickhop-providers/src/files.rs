@@ -256,7 +256,7 @@ impl FilesProvider {
 
     /// The item for `path`; its full path is a keyword, so the folder's name matches too
     /// (`work report` finds `~/work/quarterly-report.md`).
-    fn item(&self, path: &Path) -> Option<Item> {
+    fn item_for(&self, path: &Path) -> Option<Item> {
         let name = path.file_name()?.to_string_lossy().into_owned();
         let text = path.to_str()?;
         let mut actions = actions(&self.os, text).into_iter();
@@ -288,12 +288,17 @@ impl Provider for FilesProvider {
         Ok(paths
             .iter()
             .filter(|path| seen.insert(path.as_path()))
-            .filter_map(|path| self.item(path))
+            .filter_map(|path| self.item_for(path))
             .collect())
     }
 
-    fn has_key(&self, key: &str) -> Result<bool, ProviderError> {
-        self.source.contains(Path::new(key))
+    fn item(&self, key: &str) -> Result<Option<Item>, ProviderError> {
+        let path = Path::new(key);
+        Ok(if self.source.contains(path)? {
+            self.item_for(path)
+        } else {
+            None
+        })
     }
 }
 
@@ -435,7 +440,7 @@ mod tests {
         };
         let provider = FilesProvider::new(Box::new(Indexed::new(index)), "linux", None);
         assert_eq!(items(&provider, "report"), Vec::<Item>::new());
-        assert!(!provider.has_key("/home/ada/report.txt").unwrap_or(true));
+        assert!(matches!(provider.item("/home/ada/report.txt"), Ok(None)));
     }
 
     #[test]

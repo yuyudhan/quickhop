@@ -122,8 +122,8 @@ impl Provider for EmojiProvider {
         Ok(exact)
     }
 
-    fn has_key(&self, key: &str) -> Result<bool, ProviderError> {
-        Ok(self.items.iter().any(|item| item.id.key == key))
+    fn item(&self, key: &str) -> Result<Option<Item>, ProviderError> {
+        Ok(self.items.iter().find(|item| item.id.key == key).cloned())
     }
 }
 

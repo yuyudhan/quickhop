@@ -90,7 +90,8 @@ pub struct Apps {
     /// Directories to scan instead of the OS defaults (XDG `applications` dirs, the
     /// macOS Applications folders, the Windows Start Menu). Empty means the defaults.
     pub dirs: Vec<PathBuf>,
-    /// Icon theme looked up first on Linux; empty means `hicolor` only.
+    /// Icon theme looked up first on Linux; empty means the GTK setting
+    /// (`gtk-icon-theme-name`), else `hicolor` only.
     pub icon_theme: String,
 }
 

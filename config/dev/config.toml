@@ -1,0 +1,111 @@
+# quickhop development configuration: every option of config.toml set, for trying each one
+# on a development build. `just dev-config` installs this folder to
+# ~/.config/quickhop-dev/ ($XDG_CONFIG_HOME/quickhop-dev/), the directory development builds
+# read; a release (~/.config/quickhop/) never sees it. docs/configuration.md is the reference.
+#
+# Each key says its default and what it changes. After an edit:
+#   quickhop config check   # "ok", or the file, line and key that is wrong
+#   quickhop reload         # a running daemon reads the files again
+# Every other command (query, launch, doctor, index, clipboard, run) reads them each time.
+
+# Global shortcut that shows and hides the launcher window. Default: "Alt+Shift+Space" in a
+# development build ("Alt+Space" in a release, so both daemons can hold theirs). Modifiers
+# and one key joined by `+`, any order and case. `quickhop daemon status` shows the bound key.
+# Reload: re-registered.
+hotkey = "Alt+Shift+Space"
+
+# Results per search, 1 to 100. Default: 8. `quickhop query --limit N` overrides it once.
+# Reload: the window's next search.
+max_results = 10
+
+# Turn each built-in source of results on or off. Default: all true. `quickhop doctor`
+# prints `provider <name>: disabled` for the ones turned off. Reload: the next search.
+[providers]
+# Installed applications (macOS bundles, Linux desktop entries).
+apps = true
+# Calculator and unit conversion: `2+2*3`, `5 km to miles`.
+calc = true
+# Emoji by name and keyword: `smile`.
+emoji = true
+# Lock, log out, suspend, reboot and shut down.
+system = true
+# The [[quicklinks]] below.
+quicklinks = true
+# Raycast-compatible script commands (scripts/ next to this file, then [scripts] dirs).
+scripts = true
+# Snippets from snippets.toml next to this file; also the "Search Snippets" command.
+snippets = true
+# Files and folders: the quickhop index once built (`quickhop index`), else Spotlight on
+# macOS; also the "Search Files" command. false also stops the daemon's live index.
+files = true
+
+[apps]
+# Folders scanned for applications instead of the OS defaults. Default: [] (the OS
+# defaults: /Applications, ~/Applications and the system folders on macOS; every XDG
+# `applications` folder on Linux). Setting any folder replaces all of them.
+dirs = []
+# Linux icon theme searched first, e.g. "Papirus". Default: "" (the GTK setting
+# `gtk-icon-theme-name`, else hicolor). Ignored on macOS.
+icon_theme = ""
+
+[scripts]
+# More folders of script commands, scanned (not recursively) after scripts/ next to this
+# file. Default: []. A leading `~` is the home folder. `just dev-config` puts a sample
+# script here: `quickhop run dev-hello` prints "hello from the dev config".
+dirs = ["~/.config/quickhop-dev/scripts-extra"]
+
+# What `quickhop index` and the daemon's live index cover.
+[files]
+# Folders indexed. Default: [] (the home folder). A leading `~` is the home folder.
+# Reload: the daemon re-indexes the new roots (`daemon status`: "watching N roots").
+roots = ["~/Documents", "~/Desktop"]
+# Index names starting with `.`. Default: false.
+hidden = false
+# More file or folder names to skip. Default: []. Version control, dependency, build and
+# cache folders (.git, node_modules, target, ...) are always skipped.
+exclude = ["Archive"]
+
+# Clipboard history (`quickhop clipboard list`, "Clipboard History" in the window).
+[clipboard]
+# Record copied text. Default: true. false stops the daemon's watcher (`daemon status`:
+# "clipboard: off ([clipboard] enabled = false)"), makes `quickhop clipboard watch` refuse
+# and hides the "Clipboard History" command.
+enabled = true
+# Most entries kept, 1 to 100000; the oldest go first. Default: 1000. Reload: the next copy.
+max_entries = 500
+# Entries not copied again for this many days are deleted; 0 keeps them forever. Default: 90.
+max_age_days = 30
+
+# A URL opened with what you type after its alias (or its name's first word). Every
+# `{query}` is replaced with the percent-encoded text. Keys: name (required), url
+# (required), alias (default: unset; one word).
+[[quicklinks]]
+name = "GitHub search"
+url = "https://github.com/search?q={query}"
+alias = "gh"
+
+[[quicklinks]]
+name = "Crates"
+url = "https://crates.io/search?q={query}"
+alias = "cr"
+
+# Settings for one result, named by the id `quickhop query --json` prints (provider:key).
+# An id that matches nothing is a config error. Keys: id (required, once each), alias
+# (default: unset; one word that pins the result), enabled (default: true; false removes it
+# from every search), hotkey (default: unset; checked, not registered yet: bind
+# `quickhop open ID` in your desktop meanwhile), order (default: unset; position in the
+# empty search, lower first).
+[[commands]]
+id = "system:lock"
+alias = "lk"
+hotkey = "Ctrl+Alt+Shift+L"
+order = 1
+
+[[commands]]
+id = "emoji:1f604"
+alias = "smiley"
+order = 2
+
+[[commands]]
+id = "system:shutdown"
+enabled = false

@@ -1,0 +1,22 @@
+# quickhop development snippets: every key of snippets.toml set. Installed next to
+# config.toml by `just dev-config`. Each [[snippets]] entry is a result with the id
+# `snippets:` plus its lower-case name; `quickhop launch snippets:reply --arg Ada` prints it.
+#
+# Keys: name (required; unique ignoring case; `{snippet name="..."}` includes it elsewhere),
+# text (required; with Raycast placeholders), keyword (default: unset; a word that finds it).
+# A broken file fails `quickhop config check` and is a warning in every search.
+
+[[snippets]]
+name = "Signature"
+text = "Best,\nthe quickhop dev config"
+
+[[snippets]]
+name = "Reply"
+keyword = ";re"
+text = """
+Hi {argument name="name" default="there"},
+
+{cursor}
+
+{snippet name="Signature"}
+Sent {date format="yyyy-MM-dd"} · {uuid}"""

@@ -141,9 +141,9 @@ impl Search {
     }
 
     /// The `[[commands]]` ids that name no item: their provider is not registered, is a
-    /// computed one, or has no such key ([`Provider::has_key`]). Providers that fail to
-    /// answer are not judged. Asks every provider, so call it when commands are loaded, not
-    /// per keystroke.
+    /// computed one, or has no such key ([`Provider::item`]). Providers that fail to answer
+    /// are not judged. Asks every provider, so call it when commands are loaded, not per
+    /// keystroke.
     pub fn unknown_commands(&self) -> Vec<ItemId> {
         self.commands
             .iter()
@@ -152,7 +152,7 @@ impl Search {
                 self.providers
                     .iter()
                     .find(|p| p.name() == id.provider)
-                    .is_none_or(|p| matches!(p.has_key(&id.key), Ok(false)))
+                    .is_none_or(|p| matches!(p.item(&id.key), Ok(None)))
             })
             .cloned()
             .collect()
@@ -186,6 +186,7 @@ impl Search {
             }
         }
         let ranked = if query.is_empty() && overrides.values().any(|o| o.order.is_some()) {
+            self.add_ordered(&overrides, &mut candidates, &mut errors);
             let mut all = rank(query, candidates, boosts, usize::MAX);
             // Stable: items without an order keep their rank after the ordered ones.
             all.sort_by_key(|r| {
@@ -200,6 +201,32 @@ impl Search {
             rank(query, candidates, boosts, self.limit)
         };
         SearchResults { ranked, errors }
+    }
+
+    /// Adds the enabled items with an `order` that their provider leaves out of the empty
+    /// search (emoji, files), so `order` places every item it names.
+    fn add_ordered(
+        &self,
+        overrides: &HashMap<&ItemId, &Override>,
+        candidates: &mut Vec<(Item, bool)>,
+        errors: &mut Vec<ProviderError>,
+    ) {
+        for (id, settings) in &self.commands {
+            if settings.order.is_none()
+                || !settings.enabled
+                || candidates.iter().any(|(item, _)| &item.id == id)
+            {
+                continue;
+            }
+            let Some(provider) = self.providers.iter().find(|p| p.name() == id.provider) else {
+                continue;
+            };
+            match provider.item(&id.key) {
+                Ok(Some(item)) => candidates.extend(apply(overrides, item).map(|i| (i, false))),
+                Ok(None) => {}
+                Err(error) => errors.push(error),
+            }
+        }
     }
 }
 
@@ -603,5 +630,61 @@ mod tests {
             vec!["Terminal", "Files", "Visual Studio Code"]
         );
         assert_eq!(titles(&run(&search, "fi")), vec!["Firefox", "Files"]);
+    }
+
+    /// Answers only typed queries, like the emoji and files providers, but knows its items.
+    struct Quiet;
+
+    impl Provider for Quiet {
+        fn name(&self) -> &'static str {
+            "emoji"
+        }
+
+        fn items(&self, query: &Query, _cancel: &Cancel) -> Result<Vec<Item>, ProviderError> {
+            Ok(self
+                .item("smile")?
+                .filter(|_| !query.is_empty())
+                .into_iter()
+                .collect())
+        }
+
+        fn item(&self, key: &str) -> Result<Option<Item>, ProviderError> {
+            Ok((key == "smile").then(|| {
+                Item::new(
+                    ItemId::new("emoji", "smile"),
+                    "Smile",
+                    Action::Copy {
+                        text: "🙂".into()
+                    },
+                )
+            }))
+        }
+    }
+
+    #[test]
+    fn command_order_places_items_the_empty_search_leaves_out() {
+        let ordered = |id: &str, order: u32, enabled: bool| CommandSettings {
+            order: Some(order),
+            enabled,
+            alias: Some("sm".into()),
+            ..command(id)
+        };
+        let search = Search::new(3)
+            .with_provider(apps())
+            .with_provider(Box::new(Quiet))
+            .with_commands(&[ordered("emoji:smile", 1, true)]);
+        assert_eq!(
+            titles(&run(&search, "")),
+            vec!["Smile", "Visual Studio Code", "Firefox"]
+        );
+        assert_eq!(search.unknown_commands(), Vec::<ItemId>::new());
+        let off = Search::new(3)
+            .with_provider(apps())
+            .with_provider(Box::new(Quiet))
+            .with_commands(&[ordered("emoji:smile", 1, false)]);
+        assert_eq!(
+            titles(&run(&off, "")),
+            vec!["Visual Studio Code", "Firefox", "Files"]
+        );
     }
 }

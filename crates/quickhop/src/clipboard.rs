@@ -79,6 +79,8 @@ pub(crate) enum ClipboardError {
     Unsupported(&'static str),
     #[error("no entry {0}: the history holds {1}")]
     NoEntry(usize, usize),
+    #[error("clipboard history is off: [clipboard] enabled = false in the config")]
+    Disabled,
     #[error(transparent)]
     Paste(#[from] crate::paste::PasteError),
 }
@@ -115,6 +117,9 @@ pub(crate) fn run(
     out: &mut impl Write,
 ) -> Result<(), ClipboardError> {
     if let ClipboardAction::Watch = action {
+        if !config.clipboard.enabled {
+            return Err(ClipboardError::Disabled);
+        }
         let watching = start(Arc::new(Mutex::new(config.clipboard.clone())), now)?;
         writeln!(
             out,
@@ -132,6 +137,11 @@ pub(crate) fn run(
             io::stdin()
                 .read_to_end(&mut bytes)
                 .map_err(ClipboardError::Stdin)?;
+            // The copies `wl-paste --watch` hands over follow the switch, as the other
+            // watchers do; text added by hand is recorded anyway.
+            if !config.clipboard.enabled && std::env::var_os(WL_WATCH).is_some() {
+                return Ok(());
+            }
             let contents = added(
                 String::from_utf8_lossy(&bytes).into_owned(),
                 std::env::var("CLIPBOARD_STATE").ok().as_deref(),

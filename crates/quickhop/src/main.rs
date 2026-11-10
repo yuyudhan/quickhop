@@ -202,7 +202,8 @@ enum ConfigAction {
     Default,
     /// Print where the configuration file is read from.
     Path,
-    /// Validate a configuration file (default: the file at `config path`).
+    /// Validate a configuration file (default: the file at `config path`) and the
+    /// `snippets.toml` next to it.
     Check {
         /// File to check instead of the default location.
         file: Option<PathBuf>,
@@ -253,6 +254,12 @@ enum CliError {
     AmbiguousScript(String, String),
     #[error(transparent)]
     ScriptRun(#[from] scripts::RunError),
+    #[error("{path}: {source}")]
+    Snippets {
+        path: String,
+        #[source]
+        source: quickhop_core::ConfigError,
+    },
     #[error("script failed: {0}")]
     ScriptFailed(String),
     #[error(transparent)]
@@ -667,6 +674,13 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
                 None => default_path()?,
             };
             let config = Config::load(&path)?;
+            let snippets = path.with_file_name("snippets.toml");
+            quickhop_core::snippets::SnippetsFile::load(&snippets).map_err(|source| {
+                CliError::Snippets {
+                    path: snippets.display().to_string(),
+                    source,
+                }
+            })?;
             // Command ids are checked against the items the providers load.
             if !config.commands.is_empty() {
                 load_search(&config, 1)?;

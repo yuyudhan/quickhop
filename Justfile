@@ -34,8 +34,8 @@ clippy:
 clippy-all:
     scripts/clippy-all.sh {{targets}}
 
-# Shell scripts: shellcheck, then the installer's and the macOS bundle's end-to-end tests
-# (skipped on Windows; the bundle's also on Linux).
+# Shell scripts: shellcheck, then the installer's, the dev config's and the macOS bundle's
+# end-to-end tests (skipped on Windows; the bundle's also on Linux).
 shell:
     #!/usr/bin/env bash
     set -euo pipefail
@@ -43,6 +43,7 @@ shell:
     shellcheck scripts/*.sh .githooks/*
     scripts/test-install.sh
     scripts/test-install-from-source.sh
+    scripts/test-dev-config.sh
     scripts/test-bundle-macos.sh
 
 # The everyday gate (pre-commit, CI): format, guards, spelling, shell, host clippy, tests.
@@ -87,3 +88,9 @@ bundle-linux-test: bundle-linux
 # Use the repo's git hooks.
 install-hooks:
     git config core.hooksPath .githooks
+
+# The development config with every option set (config/dev/) into ~/.config/quickhop-dev/,
+# which development builds read. Keeps files already there unless --force, which backs
+# each one up first.
+dev-config *args:
+    scripts/dev-config.sh {{args}}
