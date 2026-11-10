@@ -357,6 +357,30 @@ else
     fail "unrunnable binary: ${out}"
 fi
 
+# 9b. Linux: a system the release cannot run on (musl, a glibc older than 2.31) is refused
+# before anything is fetched, with what to do instead. Stand-in ldd and getconf on the PATH
+# say what such a system says.
+if [ "$macos" = false ]; then
+    fake="${work}/fakebin"
+    mkdir -p "${fake}/musl" "${fake}/old"
+    printf '#!/bin/sh\necho "musl libc (aarch64)" >&2\nexit 1\n' >"${fake}/musl/ldd"
+    printf '#!/bin/sh\nexit 1\n' >"${fake}/musl/getconf"
+    printf '#!/bin/sh\necho "glibc 2.28"\n' >"${fake}/old/getconf"
+    chmod 755 "${fake}"/*/*
+    for kind in musl old; do
+        if out="$(env -i HOME="$home" PATH="${fake}/${kind}:/usr/bin:/bin" TERM=dumb \
+            bash "${installer[@]}" --from "$dist" 2>&1)"; then
+            fail "C library '${kind}' was not refused"
+        elif [[ "$out" != *"fetching"* ]] && [[ "$out" == *"needs glibc 2.31 or later"* ]] &&
+            { [ "$kind" = old ] || [[ "$out" == *"uses musl libc"* ]]; } &&
+            { [ "$kind" = musl ] || [[ "$out" == *"this system has glibc 2.28"* ]]; }; then
+            pass "C library '${kind}' (musl, or glibc 2.28) is refused before anything is fetched"
+        else
+            fail "${kind} C library refusal: ${out}"
+        fi
+    done
+fi
+
 # 10. Uninstall stops the daemon, turns autostart off and keeps the config and data.
 mkdir -p "${home}/.config/quickhop" "${home}/.local/share/quickhop"
 touch "${home}/.config/quickhop/config.toml" "${home}/.local/share/quickhop/state.sqlite"

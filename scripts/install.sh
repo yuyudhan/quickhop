@@ -119,8 +119,10 @@ glibc_hint() {
 
 # Refuses a Linux system the release binary cannot start on, before anything is downloaded.
 preflight_linux() {
-    local have
-    if ldd --version 2>&1 | grep -qi musl; then
+    local have ldd_says
+    # musl's ldd prints its version on stderr and exits 1.
+    ldd_says="$(ldd --version 2>&1 || true)"
+    if [[ "$ldd_says" == *[Mm]usl* ]]; then
         fail "this system uses musl libc (Alpine, Void musl), and $(glibc_hint). Build quickhop from source instead: ${source_url}"
     fi
     have="$(glibc_version)"
