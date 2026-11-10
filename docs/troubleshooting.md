@@ -43,6 +43,13 @@ Find the message below.
 
 ## Installing
 
+`scripts/install-from-source.sh` (in a clone) checks Rust, the C compiler, disk space and access
+to the repository before it builds, and prints the fix for the first one missing.
+
+**`cargo: command not found` right after installing Rust.** rustup's installer adds cargo to
+`PATH` for new terminals only. Run `. "$HOME/.cargo/env"` (fish: `source
+"$HOME/.cargo/env.fish"`), or open a new terminal.
+
 **`quickhop: command not found`.** The binary's folder is not on your `PATH`. `cargo install`
 uses `~/.cargo/bin`; the installer uses `~/.local/bin`. Add it in `~/.profile` (`~/.zprofile`
 on macOS), then open a new terminal:
@@ -60,9 +67,27 @@ again:
 folder you run it from wins over `stable`. Rust from a distribution package is usually too old;
 install it with rustup instead.
 
-**`cargo install` fails compiling `libsqlite3-sys`.** SQLite is bundled and compiled from C.
-Install a C compiler: `xcode-select --install` on macOS, `sudo apt install build-essential` on
-Debian and Ubuntu.
+**`this version of Cargo is older than the 2024 edition`.** The same cause as above, from a
+distribution's cargo (Debian, older Ubuntu). Install Rust with rustup and run the install from
+a new terminal.
+
+**`cargo install` fails compiling `libsqlite3-sys`, or says `cc not found`, `linker cc not
+found` or `xcrun: error: invalid active developer path`.** SQLite is bundled and compiled from
+C, and macOS builds need the SDK. Install a C compiler: `xcode-select --install` on macOS (wait
+until its installer finishes; `xcode-select -p` then prints a path), `sudo apt install
+build-essential` on Debian and Ubuntu, `sudo dnf install gcc` on Fedora, `sudo pacman -S
+base-devel` on Arch.
+
+**`failed to authenticate when downloading repository` or `failed to fetch into ...`.** The
+repository is private for now, or a proxy is in the way. With a GitHub account that has
+access: `gh auth login`, `gh auth setup-git`, then run the install as
+`CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install --locked --git
+https://github.com/yuyudhan/quickhop quickhop`, which fetches with git and its credentials and
+proxy settings.
+
+**The build stops with `signal: 9, SIGKILL` or `No space left on device`.** It ran out of
+memory or disk. Close other apps and free space (about 3 GB; `cargo clean` in old Rust
+projects frees the most), then run the install again.
 
 **The installer stops with `checksum mismatch`.** The download is incomplete or altered, and
 nothing was installed. Run it again; if it persists, report it with the two hashes it printed.

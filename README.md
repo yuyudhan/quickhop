@@ -16,13 +16,17 @@ A free alternative to Raycast that runs your Raycast script commands unchanged.
 
 ## Install
 
-No release has been published yet; building from source takes a couple of minutes.
+No release has been published yet, so you build it from source: Rust 1.98 or newer from
+rustup, a C compiler and about 3 GB of free disk; the first build takes several minutes. The
+repository is private for now, so cargo needs a GitHub account with access
+([details](docs/install.md#requirements)).
 
 **macOS** (Apple silicon or Intel)
 
 ```sh
-xcode-select --install
+xcode-select --install          # then wait until its installer finishes
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+. "$HOME/.cargo/env"            # or open a new terminal
 rustup update stable
 cargo install --locked --git https://github.com/yuyudhan/quickhop quickhop
 ```
@@ -31,14 +35,16 @@ cargo install --locked --git https://github.com/yuyudhan/quickhop quickhop
 
 ```sh
 sudo apt install build-essential xdg-utils wl-clipboard xclip
-sudo apt install libfontconfig-dev libfreetype-dev libwayland-dev libxkbcommon-x11-dev
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+. "$HOME/.cargo/env"            # or open a new terminal
 rustup update stable
 cargo install --locked --git https://github.com/yuyudhan/quickhop quickhop
 ```
 
-quickhop needs Rust 1.98 or newer; `rustup update stable` gets it when Rust is already installed,
-and an older Rust stops with `requires rustc 1.98` (see [troubleshooting](docs/troubleshooting.md#installing)).
+An older Rust stops at once with `requires rustc 1.98`: run `rustup update stable`. Rust from
+a distribution package is usually too old; use rustup. To have every requirement checked
+first, with the command that fixes whatever is missing, run `scripts/install-from-source.sh`
+from a clone ([troubleshooting](docs/troubleshooting.md#installing)).
 
 Then check the setup and start the background daemon at login:
 
@@ -179,10 +185,11 @@ validates your file. Every key, every placeholder: [docs/configuration.md](docs/
 quickhop autostart off
 quickhop daemon stop
 cargo uninstall quickhop
+tccutil reset Accessibility io.github.yuyudhan.quickhop   # macOS
 ```
 
 Your settings stay in `~/.config/quickhop` and your history in `~/.local/share/quickhop`
-until you delete them. For the `.deb` and the installer script, see
+until you delete them. For the `.deb`, the installer script and quickhop.app, see
 [docs/install.md](docs/install.md#uninstall).
 
 ## Troubleshooting

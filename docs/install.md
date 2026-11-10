@@ -2,48 +2,89 @@
 
 quickhop is one binary, `quickhop`, for macOS (Apple silicon and Intel) and Linux (x86_64 and
 aarch64, X11 and Wayland). No release has been published yet, so today you build it from
-source; it takes a couple of minutes and needs nothing beyond Rust and a C compiler.
+source with Rust and a C compiler.
 
+- [Requirements](#requirements)
 - [From source](#from-source) (works today)
 - [Debian and Ubuntu package](#debian-and-ubuntu-package) (built from source)
 - [The installer script](#the-installer-script) (what each release ships)
 - [After installing](#after-installing)
 - [Update](#update) · [Uninstall](#uninstall)
 
+## Requirements
+
+- **Rust 1.98 or newer, from [rustup](https://rustup.rs).** quickhop's window toolkit (gpui)
+  needs it. An older Rust stops at once with `requires rustc 1.98`; `rustup update stable`
+  fixes it. Rust from a distribution package (`apt install rustc`, `dnf install rust`) is
+  usually older: use rustup. `cargo install` does not read the repository's
+  `rust-toolchain.toml`; the toolchain you run it with is the one that builds.
+- **A C compiler**, for the bundled SQLite: the Xcode Command Line Tools on macOS
+  (`xcode-select --install`, then wait until its installer window finishes;
+  `xcode-select -p` prints a path once they are in), `build-essential` / `gcc` / `base-devel`
+  on Linux.
+- **Disk and network**: on macOS cargo downloads the window toolkit's git repository (about
+  0.5 GB: 409 MB of history and a 98 MB checkout), and the release build takes 1.1 GB more
+  (measured on Apple silicon); have about 3 GB free. The
+  first build takes several minutes, longer on small machines; with less than 8 GB of memory,
+  close other apps (an out-of-memory build ends in `signal: 9, SIGKILL`).
+- **Access to the repository.** It is private for now: you need a GitHub account with
+  access. With the GitHub CLI, `gh auth login` and `gh auth setup-git`, then run cargo with
+  `CARGO_NET_GIT_FETCH_WITH_CLI=true` so it uses git's credentials (this also helps behind
+  proxies).
+
+`scripts/install-from-source.sh` checks every one of these first and stops with the command
+that fixes the first one missing, before cargo starts; then it runs the install below. From a
+clone: `scripts/install-from-source.sh` (`--check` only checks; `--tag`, `--branch` and
+`--force` are passed to cargo).
+
 ## From source
 
 **macOS**
 
-    xcode-select --install                          # C compiler for the bundled SQLite
+    xcode-select --install                          # C compiler; wait until it finishes
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    . "$HOME/.cargo/env"                            # or open a new terminal
     rustup update stable                            # quickhop needs Rust 1.98 or newer
     cargo install --locked --git https://github.com/yuyudhan/quickhop quickhop
 
-**Linux** (Debian and Ubuntu shown; any distribution with a C compiler works)
+**Linux** (Debian and Ubuntu shown)
 
     sudo apt install build-essential xdg-utils
-    sudo apt install libfontconfig-dev libfreetype-dev libwayland-dev libxkbcommon-x11-dev  # window toolkit
     sudo apt install wl-clipboard                   # Wayland sessions: clipboard history
     sudo apt install xclip                          # X11 sessions: copying results
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+    . "$HOME/.cargo/env"                            # or open a new terminal
     rustup update stable                            # quickhop needs Rust 1.98 or newer
     cargo install --locked --git https://github.com/yuyudhan/quickhop quickhop
 
-Fedora: `sudo dnf install gcc xdg-utils wl-clipboard xclip fontconfig-devel freetype-devel
-wayland-devel libxkbcommon-x11-devel`. Arch: `sudo pacman -S base-devel xdg-utils wl-clipboard
-xclip fontconfig freetype2 wayland libxkbcommon-x11`.
+Fedora: `sudo dnf install gcc xdg-utils wl-clipboard xclip`. Arch: `sudo pacman -S base-devel
+xdg-utils wl-clipboard xclip`. On Linux the `quickhop` binary does not use the window toolkit
+yet, so it needs no graphics libraries to build.
 
-`cargo install` puts the binary in `~/.cargo/bin`, which rustup adds to your `PATH`. quickhop
-needs Rust 1.98 or newer (its window toolkit, gpui, does); `rustup update stable` gets it, and
-an older Rust stops with `requires rustc 1.98` before building anything. `cargo install` does not
-read the repository's `rust-toolchain.toml`, so the toolchain you run it with is the one that
-builds. `--locked` builds the dependency versions quickhop is tested with. Rust from a
-distribution package (`apt install rustc`) is usually older; use rustup.
+fish and nushell: instead of `. "$HOME/.cargo/env"`, source `env.fish` or `env.nu` from the
+same folder, or open a new terminal.
 
-From a clone instead:
+`cargo install` puts the binary in `~/.cargo/bin`, which rustup adds to your `PATH`.
+`--locked` builds the dependency versions in `Cargo.lock`, the ones quickhop is tested with;
+without it cargo picks the newest compatible versions, which can break the build.
+
+**Windows**: only the command line works there (no daemon, hotkey or window yet; see
+[platform support](platform-support.md)). With Rust from rustup and the Visual Studio build
+tools: `cargo install --locked --git https://github.com/yuyudhan/quickhop quickhop`.
+
+From a clone instead (its `rust-toolchain.toml` picks the toolchain quickhop is developed
+with):
 
     git clone https://github.com/yuyudhan/quickhop && cd quickhop
     cargo install --locked --path crates/quickhop
+
+Running the tests on Linux also builds the window toolkit, which needs `pkg-config` and its
+libraries: `sudo apt install pkg-config libfontconfig-dev libfreetype-dev libwayland-dev
+libxkbcommon-x11-dev` (Fedora: `pkgconf fontconfig-devel freetype-devel wayland-devel
+libxkbcommon-x11-devel`; Arch: `pkgconf fontconfig freetype2 wayland libxkbcommon-x11`).
+
+Offline: in a clone, `cargo fetch --locked` while online, then `cargo install --locked
+--offline --path crates/quickhop` (or `cargo vendor` to carry the sources elsewhere).
 
 ## Debian and Ubuntu package
 
@@ -58,7 +99,9 @@ with that tree under `quickhop-<version>/`.
 
 ## macOS app
 
-From a clone, on macOS 14 or later with the Command Line Tools:
+From a clone, on macOS 14 or later with the Command Line Tools and
+[`just`](https://github.com/casey/just) (`brew install just`; or run `scripts/bundle-macos.sh`
+directly):
 
     just bundle-macos
     cp -R target/bundle/quickhop.app /Applications/
@@ -89,7 +132,7 @@ the whole installation:
 
 To use the installer today, package your own build and install from the directory:
 
-    cargo build --release -p quickhop
+    cargo build --locked --release -p quickhop
     scripts/dist.sh --target x86_64-unknown-linux-gnu --bin target/release/quickhop
     scripts/install.sh --from target/dist
 
@@ -143,6 +186,12 @@ restart the daemon so it runs the new binary:
 | `cargo install` | `quickhop autostart off; quickhop daemon stop; cargo uninstall quickhop` |
 | the `.deb` | `quickhop autostart off; sudo apt remove quickhop` |
 | `install.sh` | `scripts/install.sh --uninstall` (add `--purge` to delete config and data) |
+| `quickhop.app` copied by hand | `quickhop daemon stop; rm -rf /Applications/quickhop.app` |
+
+On macOS, also remove quickhop's Accessibility entry: `tccutil reset Accessibility
+io.github.yuyudhan.quickhop`. If you removed quickhop without `autostart off` first, delete
+the login entry it left: `~/Library/LaunchAgents/io.github.yuyudhan.quickhop.plist` on macOS,
+`~/.config/autostart/quickhop.desktop` on Linux.
 
 Your settings stay in `~/.config/quickhop` and your history in `~/.local/share/quickhop` until
 you delete them.
