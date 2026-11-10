@@ -42,6 +42,7 @@ shell:
     case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) echo "shell: skipped on Windows"; exit 0 ;; esac
     shellcheck scripts/*.sh .githooks/*
     scripts/test-install.sh
+    scripts/test-install-from-source.sh
     scripts/test-bundle-macos.sh
 
 # The everyday gate (pre-commit, CI): format, guards, spelling, shell, host clippy, tests.
