@@ -64,7 +64,11 @@ pub(crate) enum ClipboardError {
     #[error(transparent)]
     X11(#[from] quickhop_platform_linux::clipboard::ClipboardError),
     #[cfg(all(unix, not(target_os = "macos")))]
-    #[error("cannot start wl-paste (install wl-clipboard): {0}")]
+    #[error("{}", crate::tools::cannot_start(
+        "wl-paste",
+        "it records clipboard history in this Wayland session",
+        .0
+    ))]
     WlPaste(io::Error),
     #[cfg(all(unix, not(target_os = "macos")))]
     #[error(

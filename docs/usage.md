@@ -135,9 +135,12 @@ default app and offer reveal, copy path, Quick Look (macOS) and move to trash.
 One background process per user keeps the clipboard history and the live file index,
 answers `open` and `reload`, and on macOS owns the launcher window and its global hotkey:
 
-    quickhop autostart on                      # start at login; `off` and `status` too
+    quickhop autostart on                      # start it now and at every login
+    quickhop autostart on --no-start           # only at the next login
+    quickhop autostart status                  # what starts it, and what is wrong with that
+    quickhop autostart off
     quickhop daemon                            # run it in the foreground
-    quickhop daemon status                     # what it runs and watches, the hotkey it holds
+    quickhop daemon status                     # pid, version, executable, what it watches
     quickhop toggle                            # show the window, or hide it (macOS)
     quickhop show                              # also `quickhop hide`
     quickhop onboarding                        # may quickhop paste? (macOS Accessibility)
@@ -147,6 +150,28 @@ answers `open` and `reload`, and on macOS owns the launcher window and its globa
 `toggle`, `show`, `onboarding` and `open` start a daemon when none runs. A second `quickhop
 daemon` exits at once: a lock file in the runtime directory keeps it to one. `quickhop daemon
 --no-window` runs it without the window and the hotkey.
+
+`quickhop autostart on` writes the login entry, then starts the daemon right away and prints
+its pid. A daemon that already runs from the registered program is kept; one from another
+program, or from another version of this binary, is stopped and replaced, so after an update
+the new version runs. On macOS the entry is a `LaunchAgent` loaded with `launchctl`, and it runs
+`quickhop.app` when one is installed in `/Applications` or `~/Applications`, even if you typed
+the command from a `quickhop` in `~/.cargo/bin`: the Accessibility permission you give the app
+then covers the daemon's pasting. Without an app it runs the binary itself and says so.
+
+On Linux the entry is an XDG autostart file, which GNOME, KDE, Xfce, Cinnamon and MATE run.
+sway, i3, Hyprland and river do not, so there `autostart on` writes nothing, starts the daemon
+for this session and prints the line to add to the compositor's configuration, for example
+`exec /home/you/.cargo/bin/quickhop daemon` in `~/.config/sway/config`, or `exec-once =
+/home/you/.cargo/bin/quickhop daemon` in `~/.config/hypr/hyprland.conf`. Once that line is
+there, `autostart on` and `status` see it. Sessions where dex or uwsm runs XDG autostart
+entries can write one anyway with `quickhop autostart on --xdg`. The packages also ship a
+systemd user unit (`systemctl --user enable --now quickhop`); enable it or `autostart on`, not
+both.
+
+The app-menu entry the packages install runs `quickhop daemon --notify`: it starts the daemon
+in the background unless one runs, and a desktop notification says which, as Linux has no
+launcher window yet.
 
 On macOS, opening `quickhop.app` ([install](install.md#macos-app)) from Finder or Spotlight
 runs the daemon inside the app and shows the launcher; when one runs already, opening the app
@@ -180,10 +205,16 @@ reveal, copy path, Quick Look and trash). On the command line they only say to o
     quickhop config path                       # the file in use
     quickhop config default                    # every setting with its default, as TOML
     quickhop config check [FILE]               # validate before you rely on it
-    quickhop doctor                            # platform, paths, session, tools, providers
+    quickhop doctor                            # what runs, what starts it, what is missing
+    quickhop doctor --strict                   # the same, failing when anything warned
 
-`quickhop doctor` is the first thing to run when something looks wrong; see
-[troubleshooting.md](troubleshooting.md).
+`quickhop doctor` is the first thing to run when something looks wrong. It names the running
+binary and the other `quickhop` copies (on the `PATH`, and `quickhop.app`), the daemon's pid,
+version and executable, on macOS whether the daemon may paste (Accessibility) and which
+program to switch on, the program the login entry runs, and the helper tools this session
+needs: on X11 `xclip`, on Wayland `wl-clipboard` (even when `DISPLAY` is set for XWayland).
+Each problem is a `warn:` line with its fix, such as the install command for your distribution;
+the last line counts them. See [troubleshooting.md](troubleshooting.md).
 
 ## For scripts and other programs
 

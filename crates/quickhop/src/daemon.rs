@@ -250,7 +250,6 @@ pub(crate) fn send_starting(request: &Request) -> Result<Response, DaemonError> 
 /// # Errors
 /// As [`send`], or [`DaemonError::Failed`] when it still holds the lock after
 /// [`START_TIMEOUT`].
-#[cfg(target_os = "macos")]
 pub(crate) fn stop_and_wait(pid: u32) -> Result<(), DaemonError> {
     match send(&Request::Stop) {
         Ok(_) | Err(DaemonError::NotRunning) => {}

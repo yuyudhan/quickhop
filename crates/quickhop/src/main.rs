@@ -8,8 +8,10 @@ mod autostart;
 mod clipboard;
 #[cfg(unix)]
 mod daemon;
+mod doctor;
 mod launch;
 mod paste;
+mod tools;
 mod trash;
 #[cfg(target_os = "macos")]
 mod window;
@@ -95,8 +97,13 @@ enum Command {
         #[arg(long, default_value_t = 60, value_parser = clap::value_parser!(u64).range(1..=3600))]
         timeout: u64,
     },
-    /// Report the platform, paths, session, helper tools and enabled providers.
-    Doctor,
+    /// Report the binary and its other copies, the daemon, Accessibility (macOS), autostart,
+    /// paths, the session's helper tools and the providers; `warn:` lines say how to fix.
+    Doctor {
+        /// Fail when anything warned.
+        #[arg(long)]
+        strict: bool,
+    },
     /// Build the file index (`[files] roots`, default the home folder) for file search.
     Index {
         /// Keep running and apply file changes as they happen.
@@ -122,6 +129,11 @@ enum Command {
         /// tests).
         #[arg(long, value_name = "PATH")]
         test_socket: Option<std::path::PathBuf>,
+        /// Start the daemon in the background unless one runs, and say so in a desktop
+        /// notification (the app-menu entry: Linux has no launcher window yet).
+        #[cfg(not(target_os = "macos"))]
+        #[arg(long, conflicts_with_all = ["no_window", "test_socket"])]
+        notify: bool,
     },
     /// Show the launcher window, or hide it when shown, starting the daemon when none runs.
     #[cfg(unix)]
@@ -247,6 +259,8 @@ enum CliError {
     NoIndexRoots,
     #[error(transparent)]
     Autostart(#[from] autostart::AutostartError),
+    #[error("doctor: {0} warning(s)")]
+    DoctorWarned(usize),
 }
 
 fn var(name: &str) -> Option<String> {
@@ -538,7 +552,11 @@ fn daemon_command(command: Command, out: &mut impl Write) -> Result<(), CliError
             action,
             no_window,
             test_socket,
+            #[cfg(not(target_os = "macos"))]
+            notify,
         } => match action {
+            #[cfg(not(target_os = "macos"))]
+            None if notify => return menu_start(out),
             None => {
                 let options = daemon::Options {
                     window: !no_window,
@@ -655,7 +673,7 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
             let found = find_script(&config, &script)?;
             run_script(&found, &args, yes, Duration::from_secs(timeout), out)?;
         }
-        Command::Doctor => doctor(out)?,
+        Command::Doctor { strict } => doctor::run(strict, out)?,
         Command::Index { watch } => index(watch, out)?,
     }
     Ok(())
@@ -772,146 +790,80 @@ fn run_script(
     Ok(())
 }
 
-/// Whether `program` is an executable file in one of `env`'s `PATH` directories.
-fn on_path(env: &Env, program: &str) -> bool {
-    env.search_path()
-        .iter()
-        .any(|dir| dir.join(program).is_file())
-}
-
-/// The Linux graphical session: Wayland, X11 or none, from the standard variables.
-fn session(env: &Env) -> &'static str {
-    match (env.var("WAYLAND_DISPLAY"), env.var("DISPLAY")) {
-        (Some(_), _) => "wayland",
-        (None, Some(_)) => "x11",
-        (None, None) => "none (no WAYLAND_DISPLAY or DISPLAY)",
-    }
-}
-
-/// External programs quickhop uses on `os`: opening targets, the clipboard, power commands.
-fn helper_tools(os: &str) -> &'static [&'static str] {
-    match os {
-        "macos" => &["open", "pbcopy", "pbpaste", "osascript", "pmset"],
-        "windows" => &["powershell.exe"],
-        _ => &[
-            "xdg-open",
-            "wl-copy",
-            "wl-paste",
-            "xclip",
-            "loginctl",
-            "systemctl",
-        ],
-    }
-}
-
-/// How the global hotkey is bound on this system, for `doctor`.
-fn hotkey_path() -> &'static str {
-    if cfg!(target_os = "macos") {
-        "registered by `quickhop daemon` through RegisterEventHotKey"
-    } else {
-        "not registered yet: the Linux window is still being built"
-    }
-}
-
-fn doctor(out: &mut impl Write) -> Result<(), CliError> {
-    writeln!(out, "quickhop {}", env!("CARGO_PKG_VERSION"))?;
-    writeln!(
-        out,
-        "platform: {}-{}",
-        std::env::consts::OS,
-        std::env::consts::ARCH
-    )?;
-    let config = match default_path() {
-        Ok(path) if path.exists() => match Config::load(&path) {
-            Ok(config) => {
-                writeln!(out, "config: {} (ok)", path.display())?;
-                config
-            }
-            Err(error) => {
-                writeln!(out, "config: {} ({error})", path.display())?;
-                Config::default()
-            }
-        },
-        Ok(path) => {
-            writeln!(out, "config: {} (absent, using defaults)", path.display())?;
-            Config::default()
+/// `quickhop daemon --notify`, the Linux app-menu entry: starts the daemon in the background
+/// unless one runs, and says so in a desktop notification, as there is no window to show yet.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn menu_start(out: &mut impl Write) -> Result<(), CliError> {
+    const USE: &str = "Clipboard history and the file index run in the background. Search \
+                       with `quickhop query <text>` in a terminal, or bind a key in your \
+                       desktop's keyboard settings to `quickhop open <id>`; the Linux launcher \
+                       window is not built yet.";
+    let started = match daemon::send(&daemon::Request::Status) {
+        Ok(running) => Ok(("quickhop is already running", running.pid)),
+        Err(daemon::DaemonError::NotRunning) => daemon::send_starting(&daemon::Request::Status)
+            .map(|running| ("quickhop now runs in the background", running.pid)),
+        Err(error) => Err(error),
+    };
+    match started {
+        Ok((summary, pid)) => {
+            let body = format!("pid {pid}. {USE}");
+            notify_desktop(summary, &body);
+            writeln!(out, "{summary}: {body}")?;
+            Ok(())
         }
         Err(error) => {
-            writeln!(out, "config: {error} (using defaults)")?;
-            Config::default()
+            notify_desktop("quickhop could not start", &error.to_string());
+            Err(error.into())
         }
+    }
+}
+
+/// Shows a desktop notification through `notify-send` (libnotify), else through the
+/// notification service over `D-Bus` with `gdbus` (`GLib`); says on standard error when
+/// neither works.
+#[cfg(all(unix, not(target_os = "macos")))]
+fn notify_desktop(summary: &str, body: &str) {
+    use std::process::{Command, Stdio};
+
+    let ran = |command: &mut Command| {
+        command
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success())
     };
-    match data_dir(std::env::consts::OS, var) {
-        Ok(dir) => writeln!(out, "data: {}", dir.display())?,
-        Err(error) => writeln!(out, "data: {error} (frecency disabled)")?,
+    if ran(Command::new("notify-send").args([
+        "--app-name=quickhop",
+        "--icon=quickhop",
+        summary,
+        body,
+    ])) {
+        return;
     }
-    let env = Env::current();
-    if let Ok(path) = quickhop_providers::index_path(&env) {
-        let state = if path.is_file() {
-            quickhop_index::Index::open(&path)
-                .and_then(|index| index.len())
-                .map_or_else(|e| e.to_string(), |n| format!("{n} entries"))
-        } else {
-            "absent: run `quickhop index`".to_owned()
-        };
-        writeln!(out, "index: {} ({state})", path.display())?;
+    // gdbus parses each argument as a GVariant: strings go in single quotes.
+    let quoted = |text: &str| format!("'{}'", text.replace('\\', "\\\\").replace('\'', "\\'"));
+    if ran(Command::new("gdbus").args([
+        "call",
+        "--session",
+        "--dest=org.freedesktop.Notifications",
+        "--object-path=/org/freedesktop/Notifications",
+        "--method=org.freedesktop.Notifications.Notify",
+        "'quickhop'",
+        "0",
+        "'quickhop'",
+        &quoted(summary),
+        &quoted(body),
+        "[]",
+        "{}",
+        "-1",
+    ])) {
+        return;
     }
-    match autostart::entry_path(std::env::consts::OS, var) {
-        Ok(path) if path.is_file() => writeln!(out, "autostart: on ({})", path.display())?,
-        Ok(path) => writeln!(
-            out,
-            "autostart: off (`quickhop autostart on` writes {})",
-            path.display()
-        )?,
-        Err(error) => writeln!(out, "autostart: {error}")?,
-    }
-    let dirs = quickhop_providers::script_dirs(&config, &env);
-    if dirs.is_empty() {
-        match quickhop_core::config::scripts_dir(&env.os, var) {
-            Ok(dir) => writeln!(out, "scripts: none (create {})", dir.display())?,
-            Err(error) => writeln!(out, "scripts: {error}")?,
-        }
-    }
-    for dir in &dirs {
-        writeln!(out, "scripts: {}", dir.display())?;
-    }
-    if env.os != "macos" && env.os != "windows" {
-        writeln!(out, "session: {}", session(&env))?;
-    }
-    for tool in helper_tools(&env.os) {
-        let state = if on_path(&env, tool) {
-            "found"
-        } else {
-            "missing"
-        };
-        writeln!(out, "tool {tool}: {state}")?;
-    }
-    writeln!(out, "hotkey: {} ({})", config.hotkey, hotkey_path())?;
-    let (providers, warnings) = quickhop_providers::builtin(&config, &env);
-    let cancel = Cancel::new();
-    for name in quickhop_providers::BUILTIN {
-        match providers.iter().find(|p| p.name() == name) {
-            Some(provider) => {
-                // A one-letter query: providers that hide everything for an empty query
-                // (emoji) still report their size.
-                let count = provider
-                    .items(&Query::new("a"), &cancel)
-                    .map_or(0, |items| items.len());
-                writeln!(out, "provider {name}: enabled ({count} items)")?;
-            }
-            None => writeln!(out, "provider {name}: disabled")?,
-        }
-    }
-    for warning in &warnings {
-        writeln!(out, "warning: {}", warning_text(warning))?;
-    }
-    let ui = if cfg!(target_os = "macos") {
-        "launcher window in `quickhop daemon`: the hotkey or `quickhop toggle` shows it"
-    } else {
-        "launcher window not built yet (gpui, see docs/adr/0001-ui-toolkit.md)"
-    };
-    writeln!(out, "ui: {ui}")?;
-    Ok(())
+    warn(&format!(
+        "cannot show a desktop notification (neither notify-send nor gdbus reached a \
+         notification service): {summary}: {body}"
+    ));
 }
 
 fn main() -> ExitCode {

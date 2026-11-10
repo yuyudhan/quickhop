@@ -147,6 +147,8 @@ mod copier {
     pub(super) struct Copier {
         program: &'static str,
         args: &'static [&'static str],
+        /// What it is for in this session, for the message when it cannot be started.
+        purpose: &'static str,
     }
 
     impl Copier {
@@ -154,6 +156,7 @@ mod copier {
             Self {
                 program: "xclip",
                 args: &["-selection", "clipboard", "-in"],
+                purpose: "it copies text on X11",
             }
         }
 
@@ -161,6 +164,8 @@ mod copier {
             Self {
                 program: "wl-copy",
                 args: &[],
+                purpose: "it copies text in this Wayland session; xclip is not used here, even \
+                          with DISPLAY set for XWayland",
             }
         }
 
@@ -172,6 +177,7 @@ mod copier {
                     "-Command",
                     "Set-Clipboard -Value ([Console]::In.ReadToEnd())",
                 ],
+                purpose: "it copies text on Windows",
             }
         }
     }
@@ -179,20 +185,19 @@ mod copier {
     impl ClipboardWriter for Copier {
         fn write_text(&self, text: &str) -> Result<(), String> {
             let program = self.program;
-            let spawn_error =
-                |e: std::io::Error| format!("cannot start {program} (install it to paste): {e}");
             let mut child = Command::new(program)
                 .args(self.args)
                 .stdin(Stdio::piped())
                 .stdout(Stdio::null())
                 .stderr(Stdio::null())
                 .spawn()
-                .map_err(spawn_error)?;
+                .map_err(|e| crate::tools::cannot_start(program, self.purpose, &e))?;
+            let io_error = |e: std::io::Error| format!("{program}: {e}");
             if let Some(mut stdin) = child.stdin.take() {
-                stdin.write_all(text.as_bytes()).map_err(spawn_error)?;
+                stdin.write_all(text.as_bytes()).map_err(io_error)?;
             }
             // wl-copy and xclip leave a background process serving the text, then exit.
-            if !child.wait().map_err(spawn_error)?.success() {
+            if !child.wait().map_err(io_error)?.success() {
                 return Err(format!("{program} could not set the clipboard"));
             }
             let deadline = Instant::now() + SET_TIMEOUT;

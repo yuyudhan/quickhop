@@ -1,3 +1,8 @@
+# The packages' systemd user unit: `systemctl --user enable --now quickhop`. It starts with
+# graphical-session.target, which GNOME and KDE reach; sway, i3, Hyprland and river do not
+# (unless uwsm runs them), so start quickhop from their configuration instead: `quickhop
+# autostart on` prints the line. Enable this unit or `quickhop autostart on`, not both:
+# `quickhop doctor` warns when both start it.
 [Unit]
 Description=quickhop launcher daemon
 Documentation=https://github.com/yuyudhan/quickhop
