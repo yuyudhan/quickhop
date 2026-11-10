@@ -50,6 +50,7 @@ jobs:
                   command -v shellcheck >/dev/null || brew install shellcheck
                   shellcheck scripts/*.sh .githooks/*
                   scripts/test-install.sh
+                  scripts/test-install-from-source.sh
                   scripts/test-bundle-macos.sh
             - name: Clippy
               run: cargo clippy --workspace --all-targets --all-features -- -D warnings
@@ -63,3 +64,84 @@ jobs:
         steps:
             - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
             - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+
+    msrv:
+        # The declared rust-version must build, and must not fall below the toolchain the pinned
+        # zed revision (gpui) is built with: moving the zed pin can raise the floor.
+        name: MSRV (${{ matrix.os }})
+        strategy:
+            fail-fast: false
+            matrix:
+                os: [ubuntu-latest, macos-latest]
+        runs-on: ${{ matrix.os }}
+        steps:
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+            - name: The declared rust-version builds the workspace
+              run: |
+                  msrv=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)
+                  echo "rust-version: $msrv"
+                  rustup toolchain install "$msrv" --profile minimal
+                  cargo +"$msrv" check --locked --workspace
+            - name: rust-version is not below the pinned zed's toolchain
+              run: |
+                  msrv=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)
+                  rev=$(sed -n 's/^gpui = .*rev = "\([0-9a-f]*\)".*/\1/p' Cargo.toml)
+                  file=$(find "$HOME/.cargo/git/checkouts" -path "*/zed-*/${rev:0:7}/rust-toolchain.toml" | head -n 1)
+                  zed=$(sed -n 's/^channel = "\([0-9]*\.[0-9]*\).*"$/\1/p' "$file")
+                  echo "rust-version $msrv, zed ${rev:0:7} builds with $zed"
+                  lowest=$(printf '%s\n' "$msrv" "$zed" | sort -V | head -n 1)
+                  if [ "$lowest" != "$zed" ]; then
+                      echo "::error::rust-version $msrv is below $zed, the toolchain of the pinned zed revision"
+                      exit 1
+                  fi
+
+    install-as-documented:
+        # What a stranger runs: stable Rust from rustup, outside the checkout (so its
+        # rust-toolchain.toml does not apply), through scripts/install-from-source.sh.
+        name: install (${{ matrix.name }})
+        env:
+            # A stranger's build: no -D warnings, which a newer stable's new lints would trip.
+            RUSTFLAGS: ""
+        strategy:
+            fail-fast: false
+            matrix:
+                include:
+                    - name: macOS arm64
+                      os: macos-latest
+                    - name: macOS Intel
+                      os: macos-15-intel
+                    - name: Fedora
+                      os: ubuntu-latest
+                      container: fedora:latest
+                      packages: dnf install -y gcc curl xdg-utils
+                    - name: Arch
+                      os: ubuntu-latest
+                      container: archlinux:latest
+                      packages: pacman -Syu --noconfirm gcc curl xdg-utils
+        runs-on: ${{ matrix.os }}
+        container: ${{ matrix.container }}
+        defaults:
+            run:
+                shell: bash
+        steps:
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+            - name: Distribution packages
+              if: matrix.packages
+              run: ${{ matrix.packages }}
+            - name: Rust stable from rustup, as the README installs it
+              run: |
+                  if ! command -v rustup >/dev/null; then
+                      curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal
+                  fi
+                  . "$HOME/.cargo/env"
+                  rustup update stable
+                  rustup default stable
+                  echo "$HOME/.cargo/bin" >>"$GITHUB_PATH"
+            - name: Install with the preflight script
+              working-directory: ${{ runner.temp }}
+              env:
+                  QUICKHOP_SOURCE: ${{ github.workspace }}
+              run: |
+                  "$QUICKHOP_SOURCE/scripts/install-from-source.sh"
+                  quickhop --version
+                  quickhop doctor
