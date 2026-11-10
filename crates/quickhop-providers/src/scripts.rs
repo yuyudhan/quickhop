@@ -719,7 +719,7 @@ mod tests {
         let fast = script("# @raycast.mode inline\n# @raycast.refreshTime 2s\n").unwrap();
         assert_eq!(fast.refresh, Some(MIN_REFRESH));
         let day = script("# @raycast.mode inline\n# @raycast.refreshTime 1d\n").unwrap();
-        assert_eq!(day.refresh, Some(Duration::from_secs(86_400)));
+        assert_eq!(day.refresh, Some(Duration::from_hours(24)));
     }
 
     #[test]
