@@ -33,5 +33,10 @@ name = "spike"
 # Its unit tests (highlight ranges, percentiles, fake data) run with `cargo test`.
 test = true
 
+# gpui's macOS platform starts only on the main thread, which libtest keeps for itself.
+[[test]]
+name = "onboarding_layout"
+harness = false
+
 [lints]
 workspace = true

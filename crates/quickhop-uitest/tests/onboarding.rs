@@ -1,7 +1,8 @@
 //! The onboarding window on macOS, driven for real (plan slice C2, PLT-02, **[ax]**): it says
-//! whether quickhop may paste, its button opens the Accessibility pane of System Settings, it
-//! asks again when quickhop comes back to the front, and `Return` or `Esc` close it once
-//! nothing is missing.
+//! whether quickhop may paste, its button opens the Accessibility pane of System Settings
+//! (Device Control and Data Access on macOS 27), it asks again when quickhop comes back to the
+//! front and, after the button, every moment until allowed, coming back to the front then, and
+//! `Return` or `Esc` close it once nothing is missing.
 //!
 //! The terminal running the tests holds the Accessibility permission, and the daemon it
 //! starts shares it, so the tests set what the window hears through the test socket
@@ -71,6 +72,10 @@ fn the_window_asks_again_when_quickhop_comes_back_to_the_front() -> Fallible {
     Ok(())
 }
 
+/// The titles System Settings gives the pane with the Accessibility list: before macOS 27, and
+/// since.
+const PANE_TITLES: [&str; 2] = ["Accessibility", "Device Control and Data Access"];
+
 #[test]
 #[ignore = "drives the real window: run with `just ui-test` in a GUI session"]
 fn the_button_opens_the_accessibility_pane_of_system_settings() -> Fallible {
@@ -83,7 +88,10 @@ fn the_button_opens_the_accessibility_pane_of_system_settings() -> Fallible {
         let front = ax::frontmost_pid();
         let app = front.and_then(ax::app_name);
         let title = front.and_then(ax::focused_window_title);
-        if app.as_deref() == Some(ax::SYSTEM_SETTINGS) && title.as_deref() == Some("Accessibility")
+        if app.as_deref() == Some(ax::SYSTEM_SETTINGS)
+            && title
+                .as_deref()
+                .is_some_and(|title| PANE_TITLES.contains(&title))
         {
             break;
         }
@@ -95,6 +103,23 @@ fn the_button_opens_the_accessibility_pane_of_system_settings() -> Fallible {
     let asked = daemon.snapshot()?;
     assert_eq!(asked["onboarding"]["asked"], true, "{asked}");
     assert_eq!(granted(&asked), Some(false), "{asked}");
+
+    // Turned on while System Settings stays in front: the window sees it and comes back.
+    daemon.set_permission("granted")?;
+    daemon.wait_for("the onboarding window to see the grant", |s| {
+        granted(s) == Some(true)
+    })?;
+    let deadline = std::time::Instant::now() + PATIENCE;
+    while ax::frontmost_pid() != Some(daemon.pid) {
+        if std::time::Instant::now() > deadline {
+            return Err(format!(
+                "quickhop did not come to the front; {:?} is",
+                ax::frontmost_pid().and_then(ax::app_name)
+            )
+            .into());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
     Ok(())
 }
 

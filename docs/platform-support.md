@@ -33,9 +33,26 @@ exactly what works where today, and which system tool or API each feature uses.
 ## Permissions
 
 - **macOS Accessibility** lets quickhop press ⌘V for `--paste`, `clipboard paste` and Clipboard
-  History. Grant it in System Settings → Privacy & Security → Accessibility to the program that
-  runs quickhop: quickhop.app, whose onboarding window leads there (`quickhop onboarding`), or
-  your terminal while you use the command line. Without it quickhop copies and tells you so.
+  History. Grant it in System Settings → Privacy & Security → Accessibility (on macOS 27 and
+  later the list is under Privacy & Security → **Device Control and Data Access**) to the
+  program that runs quickhop: quickhop.app, whose onboarding window leads there (`quickhop
+  onboarding`), or your terminal while you use the command line. A `quickhop` binary that runs
+  at login outside the app is a program of its own: the onboarding window names its path.
+  Without the permission quickhop copies and tells you so.
+- **The grant belongs to one build.** macOS ties it to the code signature, and an ad-hoc signed
+  quickhop.app gets a new one with every build or update: the list still shows quickhop
+  switched on, but macOS refuses the new copy. The onboarding window's button deletes the old
+  entry (`tccutil reset Accessibility io.github.yuyudhan.quickhop`) before macOS's prompt adds
+  the running copy, so the switch you turn on is the one macOS checks; the window then sees
+  the grant within a second and comes back to the front. A binary outside the app has no
+  bundle identifier to reset: remove its old entry with − and add it again with +.
+- **One quickhop runs the daemon.** Opening quickhop.app while a daemon runs from another
+  executable (`~/.cargo/bin/quickhop`, `~/.local/bin/quickhop`, or another version) stops that
+  daemon and runs it in the app, so pasting uses the app's grant. Every daemon reply names its
+  `version` and `exe`.
+- **quickhop.app failures** (an invalid `config.toml`, a daemon that cannot start) show an
+  alert naming the error, and the configuration file when that is the cause; they are also
+  appended to `~/Library/Logs/quickhop.log`.
 - **Linux** needs no permission on X11. On Wayland, clipboard watching relies on the
   compositor's data-control protocol rather than a permission prompt.
 

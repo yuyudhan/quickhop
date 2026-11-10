@@ -11,6 +11,6 @@ pub mod ansi;
 pub mod model;
 pub mod onboarding;
 #[cfg(target_os = "macos")]
-mod onboarding_window;
+pub mod onboarding_window;
 #[cfg(target_os = "macos")]
 pub mod window;

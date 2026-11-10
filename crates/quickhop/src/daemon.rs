@@ -89,6 +89,47 @@ pub(crate) struct Response {
     pub pid: u32,
     /// What to print: the result, or the error.
     pub message: String,
+    /// The daemon's quickhop version (`None`: a daemon from before replies carried it).
+    #[serde(default)]
+    pub version: Option<String>,
+    /// The executable the daemon runs from, as the system reports it (`None`: a daemon from
+    /// before replies carried it, or one that could not tell).
+    #[serde(default)]
+    pub exe: Option<PathBuf>,
+    /// Whether the daemon may press keys in other apps (macOS Accessibility, as macOS answers
+    /// the daemon's own process); `None` where no permission is needed or a daemon from before
+    /// replies carried it.
+    #[serde(default)]
+    pub may_paste: Option<bool>,
+}
+
+impl Response {
+    /// This process's answer: its pid, version and executable `exe`.
+    fn new(ok: bool, message: String, exe: Option<&Path>) -> Self {
+        Self {
+            ok,
+            pid: std::process::id(),
+            message,
+            version: Some(env!("CARGO_PKG_VERSION").to_owned()),
+            exe: exe.map(Path::to_path_buf),
+            #[cfg(target_os = "macos")]
+            may_paste: Some(quickhop_platform_macos::keys::is_trusted()),
+            #[cfg(not(target_os = "macos"))]
+            may_paste: None,
+        }
+    }
+}
+
+/// The first part of the `status` answer: `running (pid N); version V; exe PATH`, the exe
+/// left out when unknown.
+fn running_line(pid: u32, version: &str, exe: Option<&Path>) -> String {
+    match exe {
+        Some(exe) => format!(
+            "running (pid {pid}); version {version}; exe {}",
+            exe.display()
+        ),
+        None => format!("running (pid {pid}); version {version}"),
+    }
 }
 
 /// Why talking to or running the daemon failed.
@@ -203,9 +244,50 @@ pub(crate) fn send_starting(request: &Request) -> Result<Response, DaemonError> 
     send(request)
 }
 
+/// Asks the running daemon, pid `pid`, to stop and waits until it has ended: until its lock
+/// is free, so a new daemon can take it.
+///
+/// # Errors
+/// As [`send`], or [`DaemonError::Failed`] when it still holds the lock after
+/// [`START_TIMEOUT`].
+#[cfg(target_os = "macos")]
+pub(crate) fn stop_and_wait(pid: u32) -> Result<(), DaemonError> {
+    match send(&Request::Stop) {
+        Ok(_) | Err(DaemonError::NotRunning) => {}
+        Err(error) => return Err(error),
+    }
+    let paths = paths();
+    let deadline = Instant::now() + START_TIMEOUT;
+    loop {
+        let file = match OpenOptions::new().read(true).write(true).open(&paths.lock) {
+            Ok(file) => file,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(file_error(&paths.lock)(error)),
+        };
+        match file.try_lock() {
+            // Unlocked when `file` is dropped: free for the caller's daemon.
+            Ok(()) => return Ok(()),
+            Err(std::fs::TryLockError::WouldBlock) if Instant::now() < deadline => {
+                std::thread::sleep(Duration::from_millis(50));
+            }
+            Err(std::fs::TryLockError::WouldBlock) => {
+                return Err(DaemonError::Failed(format!(
+                    "the quickhop daemon (pid {pid}) did not stop within {} s",
+                    START_TIMEOUT.as_secs()
+                )));
+            }
+            Err(std::fs::TryLockError::Error(error)) => {
+                return Err(file_error(&paths.lock)(error));
+            }
+        }
+    }
+}
+
 /// The running services and the configuration they were started with.
 struct State {
     config: Config,
+    /// The executable this daemon runs from, for every reply.
+    exe: Option<PathBuf>,
     clipboard_settings: Settings,
     clipboard: Result<Watching, String>,
     index: Result<IndexService, String>,
@@ -316,6 +398,7 @@ impl State {
         let index = start_index(&config);
         Self {
             config,
+            exe: std::env::current_exe().ok(),
             clipboard_settings,
             clipboard,
             index,
@@ -404,9 +487,15 @@ impl State {
     }
 
     fn handle(&mut self, request: Request) -> Response {
-        let pid = std::process::id();
         let (ok, message) = match request {
-            Request::Status => (true, format!("running (pid {pid}); {}", self.status())),
+            Request::Status => {
+                let running = running_line(
+                    std::process::id(),
+                    env!("CARGO_PKG_VERSION"),
+                    self.exe.as_deref(),
+                );
+                (true, format!("{running}; {}", self.status()))
+            }
             Request::Open {
                 id,
                 query,
@@ -455,7 +544,7 @@ impl State {
             ),
             Request::Stop => (true, "stopping".into()),
         };
-        Response { ok, pid, message }
+        Response::new(ok, message, self.exe.as_deref())
     }
 }
 
@@ -652,14 +741,7 @@ fn accept(listener: &UnixListener, state: &mut State) -> Result<(), DaemonError>
                 let stop = matches!(request, Request::Stop);
                 (state.handle(request), stop)
             }
-            Err(message) => (
-                Response {
-                    ok: false,
-                    pid: std::process::id(),
-                    message,
-                },
-                false,
-            ),
+            Err(message) => (Response::new(false, message, state.exe.as_deref()), false),
         };
         let mut line = serde_json::to_string(&response)?;
         line.push('\n');
@@ -804,5 +886,43 @@ pub(crate) fn message(response: Response) -> Result<String, DaemonError> {
         Ok(response.message)
     } else {
         Err(DaemonError::Failed(response.message))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_reply_names_the_daemons_version_and_executable() {
+        let exe = Path::new("/Applications/quickhop.app/Contents/MacOS/quickhop");
+        let reply = serde_json::to_value(Response::new(true, "shown".into(), Some(exe))).unwrap();
+        assert_eq!(reply["version"], env!("CARGO_PKG_VERSION"));
+        assert_eq!(reply["exe"], exe.to_str().unwrap());
+        assert_eq!(reply["pid"], std::process::id());
+        assert_eq!(reply["may_paste"].is_boolean(), cfg!(target_os = "macos"));
+    }
+
+    #[test]
+    fn a_reply_from_an_older_daemon_has_no_version_or_executable() {
+        let reply: Response =
+            serde_json::from_str(r#"{"ok":true,"pid":7,"message":"running"}"#).unwrap();
+        assert_eq!(reply.version, None);
+        assert_eq!(reply.exe, None);
+        assert_eq!(reply.may_paste, None);
+        assert_eq!(message(reply).unwrap(), "running");
+    }
+
+    #[test]
+    fn the_status_keeps_its_pid_prefix_then_names_version_and_executable() {
+        let exe = Path::new("/Users/me/.cargo/bin/quickhop");
+        assert_eq!(
+            running_line(7, "1.2.3", Some(exe)),
+            "running (pid 7); version 1.2.3; exe /Users/me/.cargo/bin/quickhop"
+        );
+        assert_eq!(
+            running_line(7, "1.2.3", None),
+            "running (pid 7); version 1.2.3"
+        );
     }
 }

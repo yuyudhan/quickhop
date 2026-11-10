@@ -5,7 +5,45 @@
 //!
 //! The model holds no toolkit or system state: the window asks the system whether the
 //! permission is granted and passes the answer to [`Onboarding::recheck`], whenever quickhop
-//! becomes the active app again (the user comes back from System Settings).
+//! becomes the active app again (the user comes back from System Settings), and every moment
+//! while [`Onboarding::watching`] (the user is in System Settings).
+
+use std::path::Path;
+
+/// Where System Settings lists the programs allowed to control the computer: the pane's
+/// title before macOS 27 and since.
+const PANE: &str = "System Settings › Privacy & Security › Accessibility (Device Control and \
+                    Data Access on macOS 27 and later)";
+
+/// The program macOS checks the permission of: the one to switch on in the list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Program {
+    /// quickhop.app, listed by its name.
+    App,
+    /// A `quickhop` binary outside the app, at this path: macOS lists it by that file, or,
+    /// started from a terminal, checks the terminal app instead.
+    Binary(String),
+}
+
+impl Program {
+    /// The program running from the executable `exe` (symlinks resolved): the app when it is
+    /// the executable of a bundle (`<name>.app/Contents/MacOS/<file>`).
+    pub fn of(exe: &Path) -> Self {
+        let macos = exe.parent().filter(|macos| macos.ends_with("MacOS"));
+        let bundle = macos
+            .and_then(Path::parent)
+            .filter(|contents| contents.ends_with("Contents"))
+            .and_then(Path::parent);
+        if bundle
+            .and_then(Path::extension)
+            .is_some_and(|ext| ext == "app")
+        {
+            Self::App
+        } else {
+            Self::Binary(exe.display().to_string())
+        }
+    }
+}
 
 /// What the onboarding window says, as the UI tests' snapshot reports it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
@@ -34,16 +72,20 @@ pub struct Onboarding {
     failure: Option<String>,
     /// The hotkey that shows the launcher, when one is bound.
     hotkey: Option<String>,
+    /// The program to switch on.
+    program: Program,
 }
 
 impl Onboarding {
-    /// The window for a permission that is `granted` or not, naming `hotkey` once it is.
-    pub fn new(granted: bool, hotkey: Option<String>) -> Self {
+    /// The window for a permission that is `granted` or not to `program`, naming `hotkey`
+    /// once it is.
+    pub fn new(granted: bool, hotkey: Option<String>, program: Program) -> Self {
         Self {
             granted,
             asked: false,
             failure: None,
             hotkey,
+            program,
         }
     }
 
@@ -72,6 +114,12 @@ impl Onboarding {
         } else {
             Press::Ask
         }
+    }
+
+    /// Whether the window keeps asking the system: after the button led to System Settings,
+    /// until the permission is granted, so turning quickhop on there shows at once.
+    pub fn watching(&self) -> bool {
+        self.asked && self.failure.is_none() && !self.granted
     }
 
     /// Records the outcome of a [`Press::Ask`]: `Err` says why the settings did not open.
@@ -111,21 +159,39 @@ impl Onboarding {
                     .to_owned(),
             };
         }
+        let who = match &self.program {
+            Program::App => "quickhop".to_owned(),
+            Program::Binary(path) => format!(
+                "{path} (the terminal app instead, when you started quickhop from a terminal)"
+            ),
+        };
         if let Some(failure) = &self.failure {
             return format!(
-                "System Settings did not open ({failure}). Open it yourself and turn on \
-                 quickhop under Privacy & Security › Accessibility."
+                "System Settings did not open ({failure}). Open it yourself and turn on {who} \
+                 under {PANE}."
             );
         }
         if self.asked {
-            return "Turn on quickhop in the Accessibility list of System Settings, then come \
-                    back: quickhop checks again when it is in front."
-                .to_owned();
+            let stale = match &self.program {
+                Program::App => {
+                    "If quickhop was on already, that entry is an older build: switch it off \
+                     and on, or remove it with −, then press the button again."
+                }
+                Program::Binary(_) => {
+                    "Not in the list? Add it with +. On already? That entry is an older \
+                     build: remove it with −, then add this one with +."
+                }
+            };
+            return format!(
+                "Turn on {who} in the list System Settings shows, then come back: quickhop \
+                 checks again when it is in front. {stale}"
+            );
         }
-        "quickhop pastes clipboard history entries and snippets into the app you were using by \
-         pressing ⌘V for you. macOS allows that once you turn quickhop on under System \
-         Settings › Privacy & Security › Accessibility. Everything else works without it."
-            .to_owned()
+        format!(
+            "quickhop pastes clipboard history entries and snippets into the app you were using \
+             by pressing ⌘V for you. macOS allows that once you turn on {who} under {PANE}. \
+             Everything else works without it."
+        )
     }
 
     /// The button's label.
@@ -149,17 +215,25 @@ impl Onboarding {
 mod tests {
     use super::*;
 
+    fn app(granted: bool, hotkey: Option<&str>) -> Onboarding {
+        Onboarding::new(granted, hotkey.map(str::to_owned), Program::App)
+    }
+
+    const BINARY: &str = "/Users/me/.cargo/bin/quickhop";
+
     #[test]
     fn without_the_permission_the_button_asks_and_the_text_says_where_to_grant_it() {
-        let onboarding = Onboarding::new(false, Some("Alt+Space".into()));
+        let onboarding = app(false, Some("Alt+Space"));
         assert_eq!(onboarding.status_line(), "Accessibility: not allowed");
         assert_eq!(onboarding.press(), Press::Ask);
         assert_eq!(onboarding.button(), "Open Accessibility Settings");
+        let message = onboarding.message();
         assert!(
-            onboarding
-                .message()
-                .contains("Privacy & Security › Accessibility")
+            message.contains("Privacy & Security › Accessibility"),
+            "{message}"
         );
+        assert!(message.contains("turn on quickhop"), "{message}");
+        assert!(!onboarding.watching());
         assert_eq!(
             onboarding.status(),
             Status {
@@ -170,8 +244,24 @@ mod tests {
     }
 
     #[test]
+    fn every_text_names_the_macos_27_title_of_the_pane_too() {
+        let mut onboarding = app(false, None);
+        assert!(
+            onboarding
+                .message()
+                .contains("Device Control and Data Access")
+        );
+        onboarding.asked(Err("open exited with 1".into()));
+        assert!(
+            onboarding
+                .message()
+                .contains("Device Control and Data Access")
+        );
+    }
+
+    #[test]
     fn after_asking_the_text_says_to_come_back_and_the_button_asks_again() {
-        let mut onboarding = Onboarding::new(false, None);
+        let mut onboarding = app(false, None);
         let before = onboarding.message();
         onboarding.asked(Ok(()));
         assert_ne!(onboarding.message(), before);
@@ -181,8 +271,46 @@ mod tests {
     }
 
     #[test]
+    fn after_asking_the_text_says_what_to_do_with_an_entry_that_is_on_already() {
+        let mut onboarding = app(false, None);
+        onboarding.asked(Ok(()));
+        let message = onboarding.message();
+        assert!(message.contains("older build"), "{message}");
+        assert!(message.contains("switch it off and on"), "{message}");
+        assert!(message.contains("remove it with −"), "{message}");
+    }
+
+    #[test]
+    fn a_binary_outside_the_app_is_named_by_its_path_and_removed_with_minus() {
+        let mut onboarding = Onboarding::new(false, None, Program::Binary(BINARY.into()));
+        assert!(onboarding.message().contains(&format!("turn on {BINARY}")));
+        assert!(onboarding.message().contains("terminal"));
+        onboarding.asked(Ok(()));
+        let message = onboarding.message();
+        assert!(message.contains(BINARY), "{message}");
+        assert!(message.contains("remove it with −"), "{message}");
+        assert!(message.contains("Add it with +"), "{message}");
+    }
+
+    #[test]
+    fn the_window_watches_from_the_ask_until_the_permission_is_granted() {
+        let mut onboarding = app(false, None);
+        onboarding.asked(Ok(()));
+        assert!(onboarding.watching());
+        assert!(onboarding.recheck(true));
+        assert!(!onboarding.watching());
+    }
+
+    #[test]
+    fn a_failed_ask_is_not_watched() {
+        let mut onboarding = app(false, None);
+        onboarding.asked(Err("open exited with 1".into()));
+        assert!(!onboarding.watching());
+    }
+
+    #[test]
     fn a_failed_ask_says_why_until_the_next_one_works() {
-        let mut onboarding = Onboarding::new(false, None);
+        let mut onboarding = app(false, None);
         onboarding.asked(Err("open exited with 1".into()));
         assert!(onboarding.message().contains("open exited with 1"));
         onboarding.asked(Ok(()));
@@ -191,7 +319,7 @@ mod tests {
 
     #[test]
     fn a_recheck_that_finds_the_permission_offers_done_and_names_the_hotkey() {
-        let mut onboarding = Onboarding::new(false, Some("Alt+Space".into()));
+        let mut onboarding = app(false, Some("Alt+Space"));
         onboarding.asked(Ok(()));
         assert!(onboarding.recheck(true));
         assert_eq!(onboarding.status_line(), "Accessibility: allowed");
@@ -202,7 +330,7 @@ mod tests {
 
     #[test]
     fn an_unchanged_answer_changes_nothing() {
-        let mut onboarding = Onboarding::new(false, None);
+        let mut onboarding = app(false, None);
         let before = onboarding.clone();
         assert!(!onboarding.recheck(false));
         assert_eq!(onboarding, before);
@@ -210,7 +338,7 @@ mod tests {
 
     #[test]
     fn a_withdrawn_permission_asks_again() {
-        let mut onboarding = Onboarding::new(true, None);
+        let mut onboarding = app(true, None);
         assert_eq!(onboarding.press(), Press::Close);
         assert!(onboarding.recheck(false));
         assert_eq!(onboarding.press(), Press::Ask);
@@ -219,9 +347,32 @@ mod tests {
 
     #[test]
     fn without_a_hotkey_the_ready_text_says_how_to_open_quickhop() {
-        let mut onboarding = Onboarding::new(true, Some("Alt+Space".into()));
+        let mut onboarding = app(true, Some("Alt+Space"));
         onboarding.set_hotkey(None);
         assert!(!onboarding.message().contains("Alt+Space"));
         assert!(onboarding.message().contains("quickhop toggle"));
+    }
+
+    #[test]
+    fn the_executable_of_a_bundle_is_the_app_and_any_other_a_binary() {
+        assert_eq!(
+            Program::of(Path::new(
+                "/Applications/quickhop.app/Contents/MacOS/quickhop"
+            )),
+            Program::App
+        );
+        for exe in [
+            BINARY,
+            "/Applications/quickhop.app/quickhop",
+            "/Applications/quickhop/Contents/MacOS/quickhop",
+            "/Applications/quickhop.app/Contents/Resources/quickhop",
+            "quickhop",
+        ] {
+            assert_eq!(
+                Program::of(Path::new(exe)),
+                Program::Binary(exe.into()),
+                "{exe}"
+            );
+        }
     }
 }

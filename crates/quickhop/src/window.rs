@@ -375,14 +375,15 @@ impl Backend for Launcher {
     }
 
     fn allow_paste(&self) -> Result<(), String> {
-        // Puts quickhop in the Accessibility list, so the user only has to turn it on.
-        keys::request_trust();
-        let settings = Action::Open {
-            target: keys::ACCESSIBILITY_SETTINGS_URL.into(),
-        };
-        crate::launch::perform(&settings, &[])
-            .map(drop)
-            .map_err(|error| error.to_string())
+        // Clears quickhop.app's stale entry, then puts this copy in the Accessibility list, so
+        // the user only has to turn it on.
+        let asked = keys::ask_for_trust(&mut keys::MacTrust, crate::app::own_bundle_id())?;
+        if let Some(error) = asked.reset_failed {
+            crate::warn(&format!(
+                "cannot clear the old Accessibility entry of quickhop.app: {error}"
+            ));
+        }
+        Ok(())
     }
 
     fn hotkey(&self) -> Option<String> {
