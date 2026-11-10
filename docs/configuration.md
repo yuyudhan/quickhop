@@ -15,8 +15,11 @@ Start from the defaults:
     quickhop config default > ~/.config/quickhop/config.toml
     quickhop config check     # "ok", or the line and key that is wrong
 
+`quickhop config check` checks `config.toml` and the `snippets.toml` next to it.
+
 The daemon reads the files when it starts; `quickhop reload` makes a running daemon read them
-again. Every other command reads them each time it runs.
+again (it does not watch them). Every other command reads them each time it runs. What each
+key changes on a reload: [when changes apply](#when-changes-apply).
 
 ## Where files live
 
@@ -35,6 +38,15 @@ The same layout on macOS and Linux:
 quickhop 0.1 on macOS kept everything in `~/Library/Application Support/quickhop`; the first run
 of a newer version moves those files to the locations above and says so.
 
+**Development builds** (`cargo run`, any debug build, `just bundle-macos`) use
+`~/.config/quickhop-dev/` and `~/.local/share/quickhop-dev/` instead
+(`$XDG_CONFIG_HOME/quickhop-dev`, `$XDG_DATA_HOME/quickhop-dev`), their own daemon socket, and
+default the `hotkey` to `Alt+Shift+Space`, so they can run beside an installed release
+([install.md](install.md#development-builds)). `quickhop doctor` says which flavour runs
+(`flavour: dev …` or `flavour: release …`) and its config folder. In a clone, `just dev-config`
+installs a config there with every option set and commented (from `config/dev/`); it keeps
+files already there unless `--force`, which backs each one up first.
+
 ## config.toml
 
 Keys are written as TOML paths: `providers.apps` is `apps` under `[providers]`. Array tables
@@ -44,12 +56,14 @@ such as `[[quicklinks]]` repeat once per entry; their keys are written `quicklin
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `hotkey` | `"Alt+Space"` | Global shortcut that shows and hides the launcher window: modifiers and one key joined by `+`, in any order and case, e.g. `"Ctrl+Space"`, `"cmd+shift+k"`, `"F13"`. `Cmd`, `Command`, `Super` and `Meta` are one modifier, `Alt`, `Option` and `Opt` another; a key that types a character needs a modifier, function keys may stand alone. The macOS daemon registers it (`quickhop daemon status` says whether it holds it, or why not, such as another app holding it); on Linux the window, and so the hotkey, is still being built. |
-| `max_results` | `8` | Results shown per search, 1 to 100. `quickhop query --limit N` overrides it once. |
+| `hotkey` | `"Alt+Space"` | Global shortcut that shows and hides the launcher window: modifiers and one key joined by `+`, in any order and case, e.g. `"Ctrl+Space"`, `"cmd+shift+k"`, `"F13"`. `Cmd`, `Command`, `Super` and `Meta` are one modifier, `Alt`, `Option` and `Opt` another; a key that types a character needs a modifier, function keys may stand alone. A development build defaults to `"Alt+Shift+Space"`. The macOS daemon registers it (`quickhop daemon status` says whether it holds it, or why not, such as another app holding it) and binds the new one on `quickhop reload`; a reload with an invalid key is refused and the old one kept. On Linux the window, and so the hotkey, is still being built. |
+| `max_results` | `8` | Results shown per search, 1 to 100. `quickhop query --limit N` overrides it once; the window uses the new value from its next search. |
 
 ### `[providers]`
 
-Turn a built-in source of results on or off.
+Turn a built-in source of results on or off. A provider switched off loads nothing; with
+`snippets` or `files` off, the window's Search Snippets or Search Files command goes too, and
+`files = false` also stops the daemon's file index.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
@@ -67,13 +81,13 @@ Turn a built-in source of results on or off.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `apps.dirs` | `[]` | Folders to scan for applications instead of the OS defaults (`/Applications`, `~/Applications` and the system folders on macOS; every XDG `applications` folder on Linux). |
-| `apps.icon_theme` | `""` | Linux icon theme looked up before `hicolor`, e.g. `"Papirus"`. |
+| `apps.icon_theme` | `""` | Linux icon theme looked up before `hicolor`, e.g. `"Papirus"`. Empty uses the GTK setting (`gtk-icon-theme-name` in `~/.config/gtk-3.0/settings.ini`), else `hicolor` only. |
 
 ### `[scripts]`
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `scripts.dirs` | `[]` | More folders of script commands, scanned after `~/.config/quickhop/scripts`. Not recursive; a leading `~` is your home folder. |
+| `scripts.dirs` | `[]` | More folders of script commands, scanned after `~/.config/quickhop/scripts`, in the order given. Not recursive; a leading `~` is your home folder. |
 
 ### `[files]`
 
@@ -82,7 +96,7 @@ index exists.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `files.roots` | `[]` | Folders to index; empty means your home folder. |
+| `files.roots` | `[]` | Folders to index; empty means your home folder. A leading `~` is your home folder; a folder that does not exist indexes nothing, without a warning. |
 | `files.hidden` | `false` | Index hidden files and folders (names starting with `.`). |
 | `files.exclude` | `[]` | More file or folder names to skip. Version control, dependency, build and cache folders (`.git`, `node_modules`, `target`, …) are always skipped. |
 
@@ -90,7 +104,7 @@ index exists.
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `clipboard.enabled` | `true` | Record copied text into the history. |
+| `clipboard.enabled` | `true` | Record copied text into the history. `false` stops the daemon's watcher, makes `quickhop clipboard watch` refuse and hides the Clipboard History command; `quickhop clipboard add` by hand still records. |
 | `clipboard.max_entries` | `1000` | Most entries kept, 1 to 100000; the oldest go first. |
 | `clipboard.max_age_days` | `90` | Entries not copied again for this many days are deleted; `0` keeps them forever. |
 
@@ -102,7 +116,7 @@ percent-encoded text.
 | Key | Default | Meaning |
 |-----|---------|---------|
 | `quicklinks[].name` | `required` | Display name, e.g. `"GitHub search"`. |
-| `quicklinks[].url` | `required` | URL or path; `{query}` marks where the text goes. |
+| `quicklinks[].url` | `required` | URL or path; every `{query}` marks where the percent-encoded text goes (`a b&c` becomes `a%20b%26c`). |
 | `quicklinks[].alias` | `unset` | One word that pins this link: `gh tokio` searches GitHub for `tokio`. |
 
 ```toml
@@ -127,9 +141,9 @@ An id that matches nothing is a config error, so stale entries are caught.
 |-----|---------|---------|
 | `commands[].id` | `required` | The result, `provider:key`. Each id may appear once. |
 | `commands[].alias` | `unset` | One word that pins the result when typed alone or as the first word. |
-| `commands[].enabled` | `true` | `false` removes the result from every search. |
+| `commands[].enabled` | `true` | `false` removes the result from every search and from `quickhop open`. |
 | `commands[].hotkey` | `unset` | Global shortcut that runs the result directly, e.g. `"Ctrl+Alt+T"`, written as `hotkey` above. Checked today, including that no two commands, nor a command and the launcher, share one; registered once per-command hotkeys exist. Until then, bind the key in your desktop to `quickhop open ID`. |
-| `commands[].order` | `unset` | Position in the empty search: lower first, ahead of results without one. |
+| `commands[].order` | `unset` | Position in the empty search: lower first, ahead of results without one. Works for any result, including emoji and files, which the empty search otherwise leaves out. |
 
 ```toml
 [[commands]]
@@ -217,3 +231,24 @@ id = "system:lock"
 alias = "lk"
 order = 1
 ```
+
+A config with every option set, each with a comment giving its default and effect, is in the
+repository at `config/dev/config.toml` (and `config/dev/snippets.toml`); `just dev-config`
+installs it for a development build.
+
+## When changes apply
+
+Commands other than the daemon read the files every time they run, so a change applies to the
+next `quickhop query`, `launch` or `index`. The daemon reads them at start and on
+`quickhop reload`:
+
+| Key | After `quickhop reload` |
+|-----|-------------------------|
+| `hotkey` | The new one is bound and the old one released; an invalid one is refused and the old one kept. |
+| `max_results`, `[providers]`, `[apps]`, `[scripts]`, `[[quicklinks]]`, `[[commands]]`, snippets | The window's next search uses them; a provider switched on or off appears or goes. |
+| `[files]`, `providers.files` | The file index restarts over the new roots, hidden setting and exclusions. |
+| `clipboard.enabled` | The clipboard watcher stops or starts. |
+| `clipboard.max_entries`, `clipboard.max_age_days` | Applied when the next copy is recorded. |
+
+A reload of a file with an error changes nothing: the daemon keeps the settings it had and
+`quickhop reload` prints the error.

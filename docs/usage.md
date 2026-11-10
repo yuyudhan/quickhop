@@ -157,7 +157,9 @@ program, or from another version of this binary, is stopped and replaced, so aft
 the new version runs. On macOS the entry is a `LaunchAgent` loaded with `launchctl`, and it runs
 `quickhop.app` when one is installed in `/Applications` or `~/Applications`, even if you typed
 the command from a `quickhop` in `~/.cargo/bin`: the Accessibility permission you give the app
-then covers the daemon's pasting. Without an app it runs the binary itself and says so.
+then covers the daemon's pasting. Without an app it runs the binary itself and says so. A
+[development build](install.md#development-builds) registers its own login item
+(`quickhop Dev`), separate from the release's.
 
 On Linux the entry is an XDG autostart file, which GNOME, KDE, Xfce, Cinnamon and MATE run.
 sway, i3, Hyprland and river do not, so there `autostart on` writes nothing, starts the daemon
@@ -174,13 +176,20 @@ in the background unless one runs, and a desktop notification says which, as Lin
 launcher window yet.
 
 On macOS, opening `quickhop.app` ([install](install.md#macos-app)) from Finder or Spotlight
-runs the daemon inside the app and shows the launcher; when one runs already, opening the app
-shows its window instead. While quickhop may not paste into other apps, the app shows the
-onboarding window instead of the launcher: it says whether Accessibility is allowed, its
-button (or `Return`) opens System Settings › Privacy & Security › Accessibility with quickhop
-already in the list, and it checks again when you come back to quickhop, then names the
-hotkey; `Return` or `Esc` closes it. `quickhop onboarding` opens it any time and prints what it
-says. Everything but pasting works without the permission.
+runs the daemon inside the app and shows the launcher. When the app's own daemon runs already,
+opening the app shows its window instead; a daemon running from another executable
+(`~/.cargo/bin/quickhop`, `~/.local/bin/quickhop`) or another version is stopped and replaced
+by the app's, so pasting uses the app's permission. `quickhop daemon status` prints the
+running daemon's `version` and `exe`.
+
+While quickhop may not paste into other apps, the app shows the onboarding window instead of
+the launcher: it says whether Accessibility is allowed and names the program to switch on.
+Its button (or `Return`) clears quickhop.app's old Accessibility entry and opens System
+Settings › Privacy & Security › Accessibility (Device Control and Data Access on macOS 27 and
+later) with this build in the list. From then on it checks every second and comes back to the
+front once allowed, then names the hotkey; `Return` or `Esc` closes it. `quickhop onboarding`
+opens it any time and prints what it says. Everything but pasting works without the
+permission.
 
 In the window, type to search, `↑`/`↓` to move, `Return` to run the selected result, `⌘K` to
 list all its actions (type to filter them) and `Esc` to close the panel, then the window. It

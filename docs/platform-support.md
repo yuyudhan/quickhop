@@ -8,7 +8,7 @@ exactly what works where today, and which system tool or API each feature uses.
 | System | CPU | Status |
 |--------|-----|--------|
 | macOS | Apple silicon, Intel | Supported. Built and tested in CI and on Apple-silicon Macs. |
-| Linux, X11 | x86_64, aarch64 | Supported. Tested on Ubuntu 22.04 and under Xvfb. |
+| Linux, X11 | x86_64, aarch64 | Supported. Tested on Ubuntu 22.04 and under Xvfb. Release binaries need glibc 2.31 or later (Debian 11, Ubuntu 20.04, Fedora 32, RHEL 9 or newer) and not musl; build from source elsewhere. |
 | Linux, Wayland | x86_64, aarch64 | Supported; clipboard watching needs the data-control protocol (below). |
 | Windows | x86_64 | The search, launch and script-command CLI builds and passes CI. The daemon, autostart and the installer are Unix-only. |
 
@@ -27,8 +27,8 @@ exactly what works where today, and which system tool or API each feature uses.
 | Clipboard history | `clipboard watch` and the daemon poll the pasteboard every 250 ms; concealed and transient copies skipped | `clipboard watch` and the daemon (XFixes, large transfers included); copies flagged `x-kde-passwordManagerHint` skipped | `clipboard watch` and the daemon via `wl-paste --watch` on sway, Hyprland, KDE Plasma, COSMIC; password-manager copies skipped |
 | Paste into the focused app | copies, then ⌘V once Accessibility is granted | copies, then Ctrl+V (XTest) | copies; you press Ctrl+V |
 | Copy results | the pasteboard | `xclip` | `wl-copy` |
-| Daemon and autostart | LaunchAgent in `~/Library/LaunchAgents` | XDG autostart entry in `~/.config/autostart`, or the systemd user unit from the `.deb` | same as X11 |
-| Packages | `quickhop.app` (`just bundle-macos`), build from source | `.deb` and tarball (`just bundle-linux`), build from source | same as X11 |
+| Daemon and autostart | LaunchAgent in `~/Library/LaunchAgents` (`io.github.yuyudhan.quickhop.plist`; `io.github.yuyudhan.quickhop.dev.plist` for a development build), running quickhop.app when installed | XDG autostart entry `~/.config/autostart/quickhop.desktop` (`quickhop-dev.desktop` for a development build), or the systemd user unit from the `.deb`; on sway, i3, Hyprland and river `autostart on` prints the compositor's exec line instead | same as X11 |
+| Packages | universal release archive with `quickhop.app` and `install.sh`; `just bundle-macos-release` builds quickhop.app and `just bundle-macos` quickhop Dev.app in a clone; build from source | x86_64 and aarch64 release archives, `.deb` and `install.sh`; `.deb` and tarball from `just bundle-linux`; build from source | same as X11 |
 
 ## Permissions
 
@@ -45,14 +45,16 @@ exactly what works where today, and which system tool or API each feature uses.
   entry (`tccutil reset Accessibility io.github.yuyudhan.quickhop`) before macOS's prompt adds
   the running copy, so the switch you turn on is the one macOS checks; the window then sees
   the grant within a second and comes back to the front. A binary outside the app has no
-  bundle identifier to reset: remove its old entry with − and add it again with +.
+  bundle identifier to reset: remove its old entry with − and add it again with +. quickhop
+  Dev.app (`io.github.yuyudhan.quickhop.dev`, a development build) has an entry of its own,
+  so granting it never touches the release's.
 - **One quickhop runs the daemon.** Opening quickhop.app while a daemon runs from another
   executable (`~/.cargo/bin/quickhop`, `~/.local/bin/quickhop`, or another version) stops that
   daemon and runs it in the app, so pasting uses the app's grant. Every daemon reply names its
   `version` and `exe`.
 - **quickhop.app failures** (an invalid `config.toml`, a daemon that cannot start) show an
   alert naming the error, and the configuration file when that is the cause; they are also
-  appended to `~/Library/Logs/quickhop.log`.
+  appended to `~/Library/Logs/quickhop.log` (`quickhop-dev.log` for quickhop Dev.app).
 - **Linux** needs no permission on X11. On Wayland, clipboard watching relies on the
   compositor's data-control protocol rather than a permission prompt.
 

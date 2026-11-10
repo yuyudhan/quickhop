@@ -30,6 +30,14 @@ providers`, then review the `.snap` diff and commit it with the change that caus
 
 - Config lives in `~/.config/quickhop/` on macOS and Linux (`XDG_CONFIG_HOME` honoured), data
   in `~/.local/share/quickhop/`. Never introduce `~/Library/Application Support` paths.
+- Debug builds and `--features dev` are the development flavour
+  (`crates/quickhop-core/src/flavour.rs`, `~/.config/quickhop-dev`): never point them at
+  `~/.config/quickhop`. The release flavour's paths and identifiers must not change (users
+  have no migration); see [CONTRIBUTING.md](CONTRIBUTING.md#development-builds).
+- The minimum Rust is `rust-version` in `Cargo.toml`; raising it means updating
+  `scripts/install-from-source.sh` and the install docs too
+  ([CONTRIBUTING.md](CONTRIBUTING.md#minimum-rust-version)).
+- User-facing changes get a line under `[Unreleased]` in [CHANGELOG.md](CHANGELOG.md).
 - Script commands stay compatible with Raycast's `@raycast.*` format; the goldens in
   `crates/quickhop-providers/tests/fixtures/raycast-goldens/` are Raycast's own files and are
   never edited.

@@ -16,46 +16,69 @@ A free alternative to Raycast that runs your Raycast script commands unchanged.
 
 ## Install
 
-No release has been published yet, so you build it from source: Rust 1.98 or newer from
-rustup, a C compiler and about 3 GB of free disk; the first build takes several minutes. The
-repository is private for now, so cargo needs a GitHub account with access
+Two ways in: a prebuilt release, which needs no Rust, or a build from source with Rust 1.98 or
+newer. The repository is private for now: both need a GitHub account with access
 ([details](docs/install.md#requirements)).
 
-**macOS** (Apple silicon or Intel)
+**Prebuilt** (releases from v0.1.0): macOS on Apple silicon or Intel (one universal build),
+and Linux on x86_64 or aarch64 with glibc 2.31 or later (Debian 11, Ubuntu 20.04, Fedora 32,
+RHEL 9 or newer; not musl/Alpine). Download the installer, then run it:
 
 ```sh
-xcode-select --install          # then wait until its installer finishes
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+curl -fsSLO https://github.com/yuyudhan/quickhop/releases/latest/download/install.sh
+bash install.sh
+```
+
+It checks your system before downloading anything and says what to do when quickhop's build
+cannot run there, verifies every download's SHA-256, and installs `quickhop` into
+`~/.local/bin` without `sudo` (on macOS also `quickhop.app`). Downloading first, instead of
+piping `curl` into `bash`, means a failed download stops with its reason instead of running
+nothing and looking like success.
+
+**From source**: Rust 1.98 or newer from [rustup](https://rustup.rs), a C compiler and about
+3 GB of free disk; the first build takes several minutes. Already have Rust? Run
+`rustup update stable` first: an older Rust stops at once with `requires rustc 1.98`, and
+Rust from a distribution package (`apt install rustc`) is usually older still.
+
+macOS:
+
+```sh
+xcode-select --install          # C compiler; wait until its installer finishes
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup-init.sh
+sh rustup-init.sh               # skip both lines if rustup is already installed
 . "$HOME/.cargo/env"            # or open a new terminal
-rustup update stable
+rustup update stable            # quickhop needs Rust 1.98 or newer
 cargo install --locked --git https://github.com/yuyudhan/quickhop quickhop
 ```
 
-**Linux** (Debian and Ubuntu shown; Fedora and Arch in [docs/install.md](docs/install.md))
+Linux (Debian and Ubuntu shown; Fedora and Arch in [docs/install.md](docs/install.md#from-source)):
 
 ```sh
 sudo apt install build-essential xdg-utils wl-clipboard xclip
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs -o rustup-init.sh
+sh rustup-init.sh               # skip both lines if rustup is already installed
 . "$HOME/.cargo/env"            # or open a new terminal
-rustup update stable
+rustup update stable            # quickhop needs Rust 1.98 or newer
 cargo install --locked --git https://github.com/yuyudhan/quickhop quickhop
 ```
 
-An older Rust stops at once with `requires rustc 1.98`: run `rustup update stable`. Rust from
-a distribution package is usually too old; use rustup. To have every requirement checked
-first, with the command that fixes whatever is missing, run `scripts/install-from-source.sh`
-from a clone ([troubleshooting](docs/troubleshooting.md#installing)).
+To have every requirement checked first, with the command that fixes whatever is missing, run
+`scripts/install-from-source.sh` from a clone ([troubleshooting](docs/troubleshooting.md#installing)).
 
-Then check the setup and start the background daemon at login:
+Then check the setup and start the background daemon, now and at every login:
 
 ```sh
 quickhop doctor
 quickhop autostart on
 ```
 
-A `.deb`, the macOS app (`quickhop.app`, from `just bundle-macos` in a clone), the no-sudo
-installer script (`install.sh`, SHA-256 verified), updating and uninstalling:
-[docs/install.md](docs/install.md).
+`autostart on` starts the daemon at once, so the hotkey and clipboard history work right away.
+On sway, i3, Hyprland and river, which do not run XDG autostart entries, it starts the daemon
+for this session and prints the exec line to add to the compositor's config instead; add it
+there so the next login starts quickhop too.
+
+The `.deb`, the macOS app (`quickhop.app`, from `just bundle-macos-release` in a clone), every
+release asset, updating and uninstalling: [docs/install.md](docs/install.md).
 
 ## First steps
 
@@ -74,9 +97,10 @@ clipboard and keeps the file index current. The full tour, with every command:
 
 On macOS the daemon also shows the launcher window when you press the global hotkey
 (`Alt+Space`) or run `quickhop toggle`; opening `quickhop.app` starts it, and until quickhop may
-paste into other apps its onboarding window shows where to allow that. The Linux window is
-being built ([plan](docs/plan.md)). Everything else on this page works from the command line
-on both.
+paste into other apps its onboarding window shows where to allow that: System Settings ›
+Privacy & Security › Accessibility (Device Control and Data Access on macOS 27 and later).
+The Linux window is being built ([plan](docs/plan.md)). Everything else on this page works
+from the command line on both.
 
 ## What works today
 
@@ -182,14 +206,15 @@ validates your file. Every key, every placeholder: [docs/configuration.md](docs/
 ## Uninstall
 
 ```sh
-quickhop autostart off
+quickhop autostart off          # first, so no login entry is left behind
 quickhop daemon stop
-cargo uninstall quickhop
+cargo uninstall quickhop        # or: bash install.sh --uninstall
 tccutil reset Accessibility io.github.yuyudhan.quickhop   # macOS
 ```
 
 Your settings stay in `~/.config/quickhop` and your history in `~/.local/share/quickhop`
-until you delete them. For the `.deb`, the installer script and quickhop.app, see
+until you delete them. A login entry left by a removed quickhop shows up as a `warn:` line in
+`quickhop doctor`. For the `.deb` and quickhop.app, see
 [docs/install.md](docs/install.md#uninstall).
 
 ## Troubleshooting
@@ -198,8 +223,9 @@ until you delete them. For the `.deb`, the installer script and quickhop.app, se
   `PATH`.
 - **Clipboard history stays empty**: run `quickhop autostart on`, then `quickhop daemon status`
   says what is watched and why not. GNOME on Wayland gives no app the clipboard.
-- **`copied, not pasted`**: on macOS, grant Accessibility to the app running quickhop
-  (`quickhop onboarding` leads there); on Wayland, press Ctrl+V yourself.
+- **`copied, not pasted`**: on macOS, allow the app running quickhop in System Settings ›
+  Privacy & Security › Accessibility (Device Control and Data Access on macOS 27 and later);
+  `quickhop onboarding` leads there. On Wayland, press Ctrl+V yourself.
 - **A setting is ignored**: `quickhop config check`, then `quickhop reload` for a running
   daemon.
 
@@ -212,7 +238,7 @@ until you delete them. For the `.deb`, the installer script and quickhop.app, se
 [Script commands](docs/script-commands.md) · [Platform support](docs/platform-support.md) ·
 [Troubleshooting](docs/troubleshooting.md) · [Extensions](docs/extensions.md) · [AI](docs/ai.md) ·
 [Architecture](docs/architecture.md) · [Features](docs/features.md) · [Plan](docs/plan.md) ·
-[All docs](docs/README.md)
+[Changelog](CHANGELOG.md) · [All docs](docs/README.md)
 
 ## Contributing
 

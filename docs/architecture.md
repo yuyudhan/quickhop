@@ -200,16 +200,18 @@ runs any of an item's actions by kind.
 
 | OS | Artefacts | Notes |
 |----|-----------|-------|
-| macOS | built: `quickhop.app` from `just bundle-macos` (`scripts/bundle-macos.sh`): an `LSUIElement` agent app whose executable is the CLI (`Contents/MacOS/quickhop`; opened without arguments it is the app, `crates/quickhop/src/app.rs`), `packaging/macos/Info.plist.in`, `AppIcon.icns` rendered from `packaging/macos/quickhop.svg` by AppKit (`scripts/render-icon.swift`, `iconutil`), signed ad hoc; later a DMG and a Homebrew cask; `cargo install` for the CLI | opened, the app runs the daemon in its own process, so its window, hotkey and Accessibility permission belong to quickhop.app, and shows the launcher, or the onboarding window while it may not paste; opened again, it shows them again (`applicationShouldHandleReopen`, or a second process that asks the running daemon). Later: signed with a Developer ID and notarized in CI; universal binary (`aarch64` + `x86_64`) with `lipo`; `quickhop://` URL scheme in Info.plist (LCH-13) |
+| macOS | built: `quickhop.app` from `just bundle-macos-release` (`scripts/bundle-macos.sh`): an `LSUIElement` agent app whose executable is the CLI (`Contents/MacOS/quickhop`; opened without arguments it is the app, `crates/quickhop/src/app.rs`), `packaging/macos/Info.plist.in`, `AppIcon.icns` rendered from `packaging/macos/quickhop.svg` by AppKit (`scripts/render-icon.swift`, `iconutil`), signed ad hoc; `just bundle-macos` builds the development flavour as quickhop Dev.app (`io.github.yuyudhan.quickhop.dev`, named from the binary's `--version`); the release archive carries a universal binary (`aarch64` + `x86_64`, `lipo`); later a DMG; `cargo install` for the CLI | opened, the app runs the daemon in its own process, so its window, hotkey and Accessibility permission belong to quickhop.app, and shows the launcher, or the onboarding window while it may not paste; opened again, it shows them again (`applicationShouldHandleReopen`, or a second process that asks the running daemon). Later: signed with a Developer ID and notarized in CI (`scripts/sign-macos.sh` is wired, waiting for a certificate); `quickhop://` URL scheme in Info.plist (LCH-13) |
 | Linux | built: `.deb` (`dpkg-deb`, dependencies from `dpkg-shlibdeps`) and tarball from `just bundle-linux`; later `.rpm`, AUR `PKGBUILD`; `cargo install` | ships `quickhop.desktop` (later with `x-scheme-handler/quickhop`), a hicolor SVG icon and a systemd user unit (`systemctl --user enable --now quickhop`); `quickhop autostart on` writes an XDG autostart entry instead (GNOME and KDE turn it into a unit with `systemd-xdg-autostart-generator`). `just bundle-linux-test` installs the `.deb` in `debian:bookworm-slim` and runs `doctor` and a query. Flatpak later, since launching host apps needs `flatpak-spawn --host` |
 
-Release builds run on GitHub Actions for both OSes from a tag; the UI test jobs in
-[plan.md](plan.md) gate them. Each release also attaches, per target
-(`x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`, `universal-apple-darwin`),
-`quickhop-<target>.tar.gz` and its `.sha256` from `scripts/dist.sh`, plus `scripts/install.sh`,
-the no-sudo per-user installer ([install.md](install.md#the-installer-script)) that verifies
-the checksum and installs into `~/.local/bin`, `~/.local/share` and, for an archive carrying
-`quickhop.app`, `/Applications`.
+Release builds run on GitHub Actions from a `vX.Y.Z` tag (`.github/workflows/release.yml`).
+Each release attaches, per target (`x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
+`universal-apple-darwin`), `quickhop-<target>.tar.gz` from `scripts/dist.sh`, the
+`quickhop_<version>_{amd64,arm64}.deb`s, and `scripts/install.sh`, the no-sudo per-user
+installer ([install.md](install.md#the-installer-script)) that refuses systems the build
+cannot run on, verifies the checksum and installs into `~/.local/bin`, `~/.local/share` and,
+for an archive carrying `quickhop.app`, `/Applications`; each asset has a `.sha256`, and
+`SHA256SUMS` covers all of them. The Linux builds run in `debian:bullseye`, so they need glibc
+2.31 or later (`scripts/release-build.sh` fails a binary that asks for more).
 
 ## Testing
 

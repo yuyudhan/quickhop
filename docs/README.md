@@ -4,7 +4,7 @@
 
 | Page | Read it to |
 |------|-----------|
-| [install.md](install.md) | Install from source, as a `.deb`, or with the installer script; update and uninstall |
+| [install.md](install.md) | Install a prebuilt release with the installer script, build from source (Rust 1.98 or newer), or use the `.deb` or quickhop.app; development builds; update and uninstall |
 | [usage.md](usage.md) | Take the 30-second tour and learn every command: search, results, scripts, clipboard, snippets, files, the daemon |
 | [configuration.md](configuration.md) | Look up every `config.toml` and `snippets.toml` key with its default, and every snippet placeholder |
 | [script-commands.md](script-commands.md) | Write script commands, and see which Raycast metadata fields are supported |
@@ -28,7 +28,8 @@
 | [testing.md](testing.md) | Run and extend the tests: provider contract, fixtures, snapshots, gates |
 | [adr/0001-ui-toolkit.md](adr/0001-ui-toolkit.md) | See why the launcher window uses gpui, with measurements |
 | [adr/0002-licence-extensions-ai.md](adr/0002-licence-extensions-ai.md) | See the licence, extension and AI decisions |
-| [../CONTRIBUTING.md](../CONTRIBUTING.md) | Set up, run `just check`, follow the rules |
+| [../CONTRIBUTING.md](../CONTRIBUTING.md) | Set up, run `just check`, follow the rules; minimum Rust, development builds, releases |
+| [../CHANGELOG.md](../CHANGELOG.md) | See what changed in each release |
 
 The terminal recording in [media/](media/) was captured from the real `quickhop` release build
 under Xvfb on Ubuntu 22.04.

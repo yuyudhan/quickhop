@@ -1,27 +1,33 @@
 # Troubleshooting
 
-Start with `quickhop doctor`. It prints the version, the platform, every path quickhop uses and
-whether it exists, the graphical session, the helper tools it found, the hotkey and each
-provider with its item count. This is its output for a fresh account on Ubuntu 22.04, run over
-SSH (hence no session):
+Start with `quickhop doctor`. It prints the version and flavour, the binary that runs and any
+other `quickhop` copies, the platform, every path quickhop uses and whether it exists, the
+daemon (pid, version, executable), on macOS the Accessibility state and which program to
+switch on, the login entry, the graphical session, the helper tools this session needs, the
+hotkey and each provider with its item count. Each problem is a `warn:` line with its fix,
+and the last line counts them; `quickhop doctor --strict` fails when anything warned. This is
+its output right after `cargo install` in a fresh Ubuntu 22.04 container (hence no session):
 
     $ quickhop doctor
     quickhop 0.1.0
-    platform: linux-x86_64
-    config: /home/kalki3/.config/quickhop/config.toml (absent, using defaults)
-    data: /home/kalki3/.local/share/quickhop
-    index: /home/kalki3/.local/share/quickhop/index.sqlite (absent: run `quickhop index`)
-    autostart: off (`quickhop autostart on` writes /home/kalki3/.config/autostart/quickhop.desktop)
-    scripts: none (create /home/kalki3/.config/quickhop/scripts)
+    flavour: release (config dir /root/.config/quickhop)
+    binary: /root/.cargo/bin/quickhop
+    platform: linux-aarch64
+    config: /root/.config/quickhop/config.toml (absent, using defaults)
+    data: /root/.local/share/quickhop
+    index: /root/.local/share/quickhop/index.sqlite (absent: run `quickhop index`)
+    daemon: not running (`quickhop autostart on` starts it now and at every login)
+    autostart: off: /root/.config/autostart/quickhop.desktop does not exist (`quickhop autostart on` writes it)
     session: none (no WAYLAND_DISPLAY or DISPLAY)
     tool xdg-open: found
-    tool wl-copy: found
-    tool wl-paste: found
-    tool xclip: found
+    tool wl-copy: found (not used without a graphical session)
+    tool wl-paste: found (not used without a graphical session)
+    tool xclip: found (not used without a graphical session)
     tool loginctl: found
     tool systemctl: found
+    scripts: none (create /root/.config/quickhop/scripts)
     hotkey: Alt+Space (not registered yet: the Linux window is still being built)
-    provider apps: enabled (49 items)
+    provider apps: enabled (1 items)
     provider calc: enabled (0 items)
     provider emoji: enabled (1923 items)
     provider system: enabled (5 items)
@@ -30,6 +36,11 @@ SSH (hence no session):
     provider snippets: enabled (0 items)
     provider files: disabled
     ui: launcher window not built yet (gpui, see docs/adr/0001-ui-toolkit.md)
+    doctor: no problems found
+
+In an X11 session without `xclip`, the tool lines read `tool wl-copy: missing (not used in
+this x11 session)` and `warn: xclip missing (needed to copy on X11): sudo apt install xclip`,
+and the last line counts the warnings.
 
 Every error quickhop prints starts with `quickhop:` and names the file, key or id involved.
 Find the message below.
@@ -89,12 +100,33 @@ proxy settings.
 memory or disk. Close other apps and free space (about 3 GB; `cargo clean` in old Rust
 projects frees the most), then run the install again.
 
+**`curl … | bash` printed nothing and nothing was installed.** A failed download piped into
+bash runs an empty script and exits 0. Download the installer first, then run it, so a
+failure shows: `curl -fsSLO
+https://github.com/yuyudhan/quickhop/releases/latest/download/install.sh`, then
+`bash install.sh`.
+
+**`install.sh`: `… does not exist (HTTP 404)`.** No release has that asset: check the version
+at <https://github.com/yuyudhan/quickhop/releases>. While the repository is private, every
+download answers 404 to accounts without access; [build from source](install.md#from-source)
+with an account that has access instead.
+
+**`install.sh`: `this system uses musl libc` or `needs glibc 2.31 or later`.** The Linux
+release is built for glibc 2.31 and later (Debian 11, Ubuntu 20.04, Fedora 32, RHEL 9 or
+newer), and the installer refuses other systems before downloading. Build from source there:
+[install.md](install.md#from-source).
+
+**`version 'GLIBC_2.3x' not found` when running quickhop.** The same cause, for a release
+binary copied by hand onto an older system: build from source.
+
 **The installer stops with `checksum mismatch`.** The download is incomplete or altered, and
 nothing was installed. Run it again; if it persists, report it with the two hashes it printed.
 
-**macOS refuses to open a downloaded binary.** Files downloaded by a browser carry the
-quarantine flag. The installer clears it; for a file you fetched yourself, run
-`xattr -d com.apple.quarantine /path/to/quickhop`.
+**macOS says "quickhop.app is damaged" or refuses to open it.** Releases are signed ad hoc,
+not notarized, until quickhop has a Developer ID; an app downloaded with a browser carries the
+quarantine flag, which Gatekeeper then refuses. `install.sh` clears it; for a copy you
+downloaded yourself run `xattr -dr com.apple.quarantine /Applications/quickhop.app` (`-r`:
+the whole bundle), or for a bare binary `xattr -d com.apple.quarantine /path/to/quickhop`.
 
 ## Configuration
 
@@ -163,18 +195,29 @@ the variables to systemd and restart the unit:
     systemctl --user import-environment DISPLAY WAYLAND_DISPLAY
     systemctl --user restart quickhop
 
-**`cannot start wl-paste (install wl-clipboard)`.** Wayland watching runs `wl-paste --watch`;
-install the `wl-clipboard` package.
+**`cannot start wl-paste (it records clipboard history in this Wayland session): …; install
+it: sudo apt install wl-clipboard`.** Wayland watching runs `wl-paste --watch`; install the
+package the message names (it gives your distribution's command). The same holds for
+`cannot start xclip (it copies text on X11)` (package `xclip`) and `cannot start wl-copy (it
+copies text in this Wayland session …)` (package `wl-clipboard`). Under XWayland, where
+`DISPLAY` and `WAYLAND_DISPLAY` are both set, quickhop uses wl-clipboard, not xclip.
 
 **`wl-paste stopped ...: the compositor may lack the data-control protocol; GNOME has none`.**
 GNOME on Wayland gives no other program the clipboard. Use an X11 session, or add entries with
 `quickhop clipboard add`. See [platform-support.md](platform-support.md).
 
 **`copied, not pasted: ...`.** The text is on the clipboard but no paste key was sent; the
-reason follows. On macOS, grant Accessibility to the app running quickhop in System Settings →
-Privacy & Security → Accessibility; for quickhop.app, `quickhop onboarding` opens the window
-that leads there and says when it is allowed. On Wayland, synthetic paste is not available:
-press Ctrl+V.
+reason follows. On macOS, allow the app running quickhop in System Settings › Privacy &
+Security › Accessibility (Device Control and Data Access on macOS 27 and later); for
+quickhop.app, `quickhop onboarding` opens the window that leads there and says when it is
+allowed. On Wayland, synthetic paste is not available: press Ctrl+V.
+
+**quickhop is switched on in Accessibility but still says `copied, not pasted` after an
+update (macOS).** The grant belongs to one build: an ad-hoc signed quickhop.app gets a new
+signature with every build or update, and macOS refuses the new copy while the list still
+shows quickhop switched on. Open quickhop.app (or run `quickhop onboarding`) and press its
+button: it clears the old entry and adds this build, so the switch you turn on is the one
+macOS checks. For a bare `quickhop` binary, remove its entry with − and add it again with +.
 
 ## The daemon
 
@@ -182,15 +225,37 @@ press Ctrl+V.
 `quickhop daemon status` shows what it does; `quickhop daemon stop` ends it.
 
 **The daemon does not start at login.** `quickhop autostart status` shows whether the login
-entry exists and where. After moving or reinstalling the binary, run `quickhop autostart on`
-again so the entry starts the new one.
+entry exists, where, and what is wrong with it. After moving or reinstalling the binary, run
+`quickhop autostart on` again so the entry starts the new one.
 
-**The hotkey does nothing, or opens another launcher too (macOS).** `quickhop daemon status`
-ends with the hotkey the daemon holds, or `hotkey: off (...)` and why: `Alt+Space is taken by
-another app` means another app holds that combination for itself. macOS otherwise lets
-several apps register the same combination, so another launcher bound to it may open as
-well. Either way, set another `hotkey` in `config.toml` and run `quickhop reload`. With no
-daemon running there is no hotkey: `quickhop autostart on`, or run `quickhop toggle` once.
+**`autostart on` says `sway does not start XDG autostart entries`** (or i3, Hyprland, river).
+These compositors ignore XDG autostart, so quickhop writes no entry; it starts the daemon for
+this session and prints the line to add, such as `exec /home/you/.cargo/bin/quickhop daemon`
+for `~/.config/sway/config` or `exec-once = …` for `~/.config/hypr/hyprland.conf`. Add it to
+the config file it names, then log in again. When dex or uwsm runs XDG autostart entries in
+your session, `quickhop autostart on --xdg` writes one anyway.
+
+**`warn: autostart runs …, which does not exist (moved or uninstalled)`.** The login entry
+points at a binary that is gone, after moving, uninstalling or switching install methods. Run
+`quickhop autostart on` again with the quickhop you use now.
+
+**`warn: both the systemd user unit (…) and … start quickhop`.** Two login entries start the
+daemon, so every login logs `already running`. Keep one: `quickhop autostart off`, or
+`systemctl --user disable quickhop`.
+
+**The hotkey does nothing, or opens another launcher too (macOS).** Run `quickhop doctor`: its
+`daemon:` line says whether a daemon runs, which version and from where, and each `warn:` line
+gives a fix. With no daemon running there is no hotkey: `quickhop autostart on`, or run
+`quickhop toggle` once. `quickhop daemon status` ends with the hotkey the daemon holds, or
+`hotkey: off (...)` and why: `Alt+Space is taken by another app` means another app holds that
+combination for itself. macOS otherwise lets several apps register the same combination, so
+another launcher bound to it may open as well. Either way, set another `hotkey` in
+`config.toml` and run `quickhop reload`. A development build listens on `Alt+Shift+Space`
+unless its own config says otherwise ([install.md](install.md#development-builds)).
+
+**quickhop.app does nothing when opened (macOS).** It shows an alert saying why (an invalid
+`config.toml`, a daemon that cannot start); the same text is appended to
+`~/Library/Logs/quickhop.log` (`quickhop-dev.log` for quickhop Dev.app).
 
 ## Reporting a problem
 

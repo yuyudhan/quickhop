@@ -28,11 +28,16 @@ cross-check needs [zig](https://ziglang.org/download/) on `PATH` (the bundled SQ
 |---------|------|
 | `just fmt` | `cargo fmt` and `taplo fmt` in place |
 | `just check` | format check, guards, typos, shell, clippy `-D warnings` for the host, all tests: the everyday gate (pre-commit) |
-| `just shell` | shellcheck on `scripts/` and the hooks, then the installer's end-to-end test (`scripts/test-install.sh`) |
+| `just shell` | shellcheck on `scripts/` and the hooks, then the installer's, install-from-source's, dev config's and macOS bundle's end-to-end tests |
 | `just clippy-all` | clippy `-D warnings` for `x86_64-unknown-linux-gnu`, `x86_64-pc-windows-gnu`, `aarch64-apple-darwin` |
 | `just test` | all unit, integration, property, golden, snapshot and CLI e2e tests ([docs/testing.md](docs/testing.md)) |
 | `just deny` | cargo-deny: advisories, licences, duplicate versions, sources |
 | `just verify` | check, clippy-all, deny (pre-push) |
+| `just ui-test` | the launcher window driven by real key events (macOS, idle Mac, Accessibility and Screen Recording granted) |
+| `just bundle-macos-release` | `target/bundle/quickhop.app`, the release flavour |
+| `just bundle-macos` | `target/bundle/quickhop Dev.app`, the development flavour |
+| `just bundle-linux` | `.deb` and tarball in `target/bundle/` (needs `dpkg-dev`) |
+| `just dev-config` | `config/dev/` into `~/.config/quickhop-dev/`; `--force` replaces files, backing each up |
 
 ## Hooks
 
@@ -64,3 +69,78 @@ Never bypass them with `--no-verify`; fix the failure.
   `cfg`-gated), so `cargo clippy --target` works from any machine.
 - **Dependencies** must pass cargo-deny: permissive licences only, one version per crate. The
   one exception, nucleo-matcher (MPL-2.0), is allowed for that crate alone in `deny.toml`.
+
+## Minimum Rust version
+
+`rust-version` in the workspace `Cargo.toml` (1.98 today) is the oldest Rust that builds the
+tree; `cargo install --git` ignores `rust-toolchain.toml`, so this is what makes an older Rust
+stop with `requires rustc 1.98 or newer` instead of failing deep inside gpui. The pinned gpui
+(zed) revision sets the floor: moving the pin can raise it. When it changes, change together:
+
+- `rust-version` in `Cargo.toml`;
+- `MIN_RUST` in `scripts/install-from-source.sh` (`scripts/test-install-from-source.sh` fails
+  when the two differ);
+- every "Rust 1.98" and `requires rustc 1.98` in README.md, docs/install.md and
+  docs/troubleshooting.md.
+
+CI's MSRV job builds the workspace with exactly `rust-version` and fails when it is below the
+toolchain of the pinned zed revision. `rust-toolchain.toml` pins the newer toolchain quickhop is
+developed with; it is not the minimum.
+
+## Development builds
+
+Debug builds and `--features dev` are the development flavour
+(`crates/quickhop-core/src/flavour.rs`): `cargo run`, `cargo test`, `just test`, `just ui-test`
+and `just bundle-macos` (quickhop Dev.app) use `~/.config/quickhop-dev`,
+`~/.local/share/quickhop-dev`, their own daemon socket, login entry, log, bundle identifier
+(`io.github.yuyudhan.quickhop.dev`) and `Alt+Shift+Space`, so they run beside an installed
+release. `just dev-config` installs `config/dev/` (every option set and commented) into
+`~/.config/quickhop-dev`. Never point a development build at `~/.config/quickhop`.
+
+**The release flavour's paths and identifiers never change**: `~/.config/quickhop`,
+`~/.local/share/quickhop`, the runtime directory `quickhop`, `quickhop.app` and
+`io.github.yuyudhan.quickhop` (bundle id, LaunchAgent label and Accessibility entry),
+`quickhop.desktop` and `quickhop.service`. Users have no migration: changing one loses their
+settings, history, login item or permission. `cargo test --release` checks the release
+flavour's paths.
+
+## Releases
+
+A pushed tag `vX.Y.Z` runs `.github/workflows/release.yml`; the tag must equal
+`[workspace.package] version` in `Cargo.toml`, or the run fails. It builds the universal macOS
+archive with quickhop.app, the Linux x86_64 and aarch64 archives and `.deb`s (in
+`debian:bullseye`: glibc 2.31 floor), `install.sh`, a Homebrew formula (Linux) and cask
+(macOS), a `.sha256` per asset and `SHA256SUMS`, and publishes the GitHub release. Running the
+workflow by hand (`workflow_dispatch`) is a dry run: everything is built and tested and
+uploaded as a workflow artifact, with no release. Strangers can download the assets only once
+the repository is public.
+
+Optional repository secrets:
+
+| Secret | For |
+|--------|-----|
+| `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PASSWORD`, `MACOS_SIGN_IDENTITY` | Developer ID signing of quickhop.app and the binary (hardened runtime). Without them both stay ad hoc; a partial set is an error. |
+| `NOTARY_KEY`, `NOTARY_KEY_ID`, `NOTARY_ISSUER` | Notarization and stapling after signing (App Store Connect API key). |
+| `HOMEBREW_TAP_TOKEN` | Fine-grained token with contents: write on `yuyudhan/homebrew-tap`; the tag run pushes `Formula/quickhop.rb` and `Casks/quickhop.rb` there. |
+
+Homebrew stays out of the user docs until the tap is published. Once it is:
+
+    brew install --cask yuyudhan/tap/quickhop     # macOS: quickhop.app and the quickhop command
+    brew install yuyudhan/tap/quickhop            # Linux
+
+To try the installer against a local build before tagging (macOS shown; on Linux pass
+`--target x86_64-unknown-linux-gnu` or `aarch64-unknown-linux-gnu` and no `--app`):
+
+    arm="$(scripts/release-build.sh aarch64-apple-darwin)"
+    intel="$(scripts/release-build.sh x86_64-apple-darwin)"
+    mkdir -p target/universal-apple-darwin
+    lipo -create -output target/universal-apple-darwin/quickhop "$arm" "$intel"
+    app="$(scripts/bundle-macos.sh --bin target/universal-apple-darwin/quickhop --out target/bundle)"
+    scripts/dist.sh --target universal-apple-darwin --bin target/universal-apple-darwin/quickhop --app "$app"
+    home="$(mktemp -d)"   # throwaway home and runtime dir: your install and daemon stay untouched
+    HOME="$home" TMPDIR="$home/" XDG_RUNTIME_DIR="$home/run" QUICKHOP_APP_DIR="$home/Applications" \
+        bash target/dist/install.sh --from target/dist
+
+`scripts/dist.sh` refuses a macOS binary or app executable that is not universal. Every
+user-facing change gets a line in [CHANGELOG.md](CHANGELOG.md) under `[Unreleased]`; at a
+release that section becomes the version's.
