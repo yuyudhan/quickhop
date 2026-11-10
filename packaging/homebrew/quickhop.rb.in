@@ -1,0 +1,59 @@
+# Homebrew formula for quickhop on Linux, rendered by scripts/homebrew.sh for every release and
+# attached to it as quickhop.rb; the release workflow also publishes it to yuyudhan/homebrew-tap
+# as Formula/quickhop.rb when the repository has the HOMEBREW_TAP_TOKEN secret. Then:
+#   brew install yuyudhan/tap/quickhop
+# On macOS quickhop is an app, one program for the app and the command line so that it keeps one
+# Accessibility grant: the cask installs both, brew install --cask yuyudhan/tap/quickhop. The
+# macOS URL (the universal archive, for both CPUs) is here only so the formula loads there and
+# refuses with "Linux is required".
+class Quickhop < Formula
+  desc "Keyboard launcher: apps, files, calculator, clipboard history, script commands"
+  homepage "https://github.com/yuyudhan/quickhop"
+  license any_of: ["MIT", "Apache-2.0"]
+
+  livecheck do
+    url :stable
+    strategy :github_latest
+  end
+
+  depends_on :linux
+
+  on_macos do
+    on_arm do
+      url "https://github.com/yuyudhan/quickhop/releases/download/v@VERSION@/quickhop-universal-apple-darwin.tar.gz"
+      sha256 "@SHA256_UNIVERSAL_APPLE_DARWIN@"
+    end
+    on_intel do
+      url "https://github.com/yuyudhan/quickhop/releases/download/v@VERSION@/quickhop-universal-apple-darwin.tar.gz"
+      sha256 "@SHA256_UNIVERSAL_APPLE_DARWIN@"
+    end
+  end
+
+  on_linux do
+    on_intel do
+      url "https://github.com/yuyudhan/quickhop/releases/download/v@VERSION@/quickhop-x86_64-unknown-linux-gnu.tar.gz"
+      sha256 "@SHA256_X86_64_UNKNOWN_LINUX_GNU@"
+    end
+    on_arm do
+      url "https://github.com/yuyudhan/quickhop/releases/download/v@VERSION@/quickhop-aarch64-unknown-linux-gnu.tar.gz"
+      sha256 "@SHA256_AARCH64_UNKNOWN_LINUX_GNU@"
+    end
+  end
+
+  def install
+    bin.install "quickhop"
+    share.install "share/applications", "share/icons"
+  end
+
+  def caveats
+    <<~EOS
+      Start the daemon (clipboard history, file index, the launcher window) at login:
+        quickhop autostart on
+      Check the session, helper tools and providers with: quickhop doctor
+    EOS
+  end
+
+  test do
+    assert_equal "quickhop #{version}", shell_output("#{bin}/quickhop --version").strip
+  end
+end

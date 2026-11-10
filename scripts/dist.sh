@@ -8,6 +8,12 @@
 # Usage: scripts/dist.sh --target TRIPLE --bin PATH [--app PATH] [--out DIR]
 #   TRIPLE is x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu or universal-apple-darwin;
 #   OUT defaults to target/dist.
+#
+# universal-apple-darwin is the one archive install.sh gives every Mac, Apple silicon and Intel,
+# so its binary (and the app's executable) must be a universal Mach-O holding arm64 and x86_64:
+# dist.sh refuses anything else (`lipo -archs`, macOS only), as a single-architecture build
+# would fail on the other kind of Mac with "Bad CPU type in executable". The release workflow
+# builds both and joins them with `lipo -create`.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
@@ -36,6 +42,24 @@ esac
 if [ -n "$app" ]; then
     [ "$linux" = false ] || { echo "dist: --app is for universal-apple-darwin" >&2; exit 2; }
     [ -d "$app" ] || { echo "dist: --app ${app}: not a directory" >&2; exit 2; }
+fi
+
+# Refuses a macOS executable that is not universal (arm64 and x86_64).
+require_universal() {
+    local file="$1" archs
+    command -v lipo >/dev/null 2>&1 || {
+        echo "dist: universal-apple-darwin needs lipo (macOS) to check ${file} holds arm64 and x86_64" >&2
+        exit 2
+    }
+    archs=" $(lipo -archs "$file" 2>/dev/null || true) "
+    if [[ "$archs" != *" arm64 "* ]] || [[ "$archs" != *" x86_64 "* ]]; then
+        echo "dist: ${file} is not a universal binary (lipo -archs:${archs% }); build aarch64-apple-darwin and x86_64-apple-darwin and join them with lipo -create" >&2
+        exit 2
+    fi
+}
+if [ "$linux" = false ]; then
+    require_universal "$bin"
+    [ -z "$app" ] || require_universal "${app}/Contents/MacOS/quickhop"
 fi
 
 mkdir -p "$out"

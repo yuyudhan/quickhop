@@ -1,0 +1,284 @@
+name: Release
+
+# A pushed tag vX.Y.Z builds every platform and publishes the GitHub release with:
+#   quickhop-universal-apple-darwin.tar.gz   one archive for every Mac: quickhop.app and the
+#                                            binary, arm64 + x86_64 joined with lipo
+#   quickhop-{x86_64,aarch64}-unknown-linux-gnu.tar.gz
+#   quickhop_X.Y.Z_{amd64,arm64}.deb         both built in debian:bullseye (glibc 2.31 floor)
+#   install.sh, quickhop.rb (Homebrew formula, Linux), quickhop-cask.rb (Homebrew cask, macOS),
+#   a .sha256 beside every asset and SHA256SUMS over all of them.
+# With the HOMEBREW_TAP_TOKEN secret it also publishes the formula and cask to
+# yuyudhan/homebrew-tap. Running it by hand (workflow_dispatch) is a dry run: it builds, packs
+# and tests everything and uploads the assets as a workflow artifact, but creates no release.
+#
+# Strangers can download the assets (and run install.sh) only once the repository is public:
+# a private repository answers 404 to anyone without access, and install.sh says so.
+on:
+    push:
+        tags: ["v[0-9]+.[0-9]+.[0-9]+"]
+    workflow_dispatch:
+
+permissions:
+    contents: read
+
+env:
+    CARGO_TERM_COLOR: always
+
+jobs:
+    version:
+        name: Version
+        runs-on: ubuntu-latest
+        outputs:
+            version: ${{ steps.version.outputs.version }}
+        steps:
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+            - id: version
+              name: Read the workspace version
+              run: |
+                  version="$(sed -n '/^\[workspace\.package\]/,/^\[/s/^version = "\(.*\)"$/\1/p' Cargo.toml)"
+                  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+                      echo "::error::no X.Y.Z version in Cargo.toml [workspace.package]: '${version}'"
+                      exit 1
+                  }
+                  # A tag release must match the workspace version.
+                  if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v${version}" ]; then
+                      echo "::error::tag ${GITHUB_REF_NAME} does not match the workspace version ${version}"
+                      exit 1
+                  fi
+                  echo "version=${version}" >>"$GITHUB_OUTPUT"
+
+    linux:
+        name: Linux ${{ matrix.target }}
+        needs: version
+        # Native runners for both architectures (gpui links the system's fontconfig, wayland and
+        # xkbcommon, which a cross linker cannot find), each building inside debian:bullseye so
+        # the binaries run on glibc 2.31 and later; scripts/release-build.sh enforces that floor.
+        runs-on: ${{ matrix.runner }}
+        container: debian:bullseye
+        strategy:
+            fail-fast: true
+            matrix:
+                include:
+                    - target: x86_64-unknown-linux-gnu
+                      runner: ubuntu-24.04
+                    - target: aarch64-unknown-linux-gnu
+                      runner: ubuntu-24.04-arm
+        steps:
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+            - name: Install the build dependencies and the pinned toolchain
+              run: |
+                  scripts/release-linux-deps.sh
+                  echo "${CARGO_HOME:-$HOME/.cargo}/bin" >>"$GITHUB_PATH"
+            - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+              with:
+                  key: release-${{ matrix.target }}
+            - name: Build
+              id: build
+              # An assignment first, so a failed build fails this step.
+              run: |
+                  binary="$(scripts/release-build.sh ${{ matrix.target }})"
+                  echo "binary=${binary}" >>"$GITHUB_OUTPUT"
+            - name: Smoke test
+              env:
+                  BINARY: ${{ steps.build.outputs.binary }}
+                  VERSION: ${{ needs.version.outputs.version }}
+              run: |
+                  "$BINARY" --version
+                  [ "$("$BINARY" --version)" = "quickhop ${VERSION}" ]
+                  "$BINARY" query "2 + 2" | grep -q "^4 "
+            - name: Package
+              env:
+                  BINARY: ${{ steps.build.outputs.binary }}
+              run: |
+                  scripts/dist.sh --target ${{ matrix.target }} --bin "$BINARY" --out dist
+                  deb="$(scripts/bundle-linux.sh --bin "$BINARY" --out target/bundle | grep '\.deb$')"
+                  cp "$deb" dist/
+                  rm dist/install.sh
+            - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+              with:
+                  name: assets-${{ matrix.target }}
+                  path: dist/*
+                  if-no-files-found: error
+
+    linux-check:
+        name: Check on Debian 11 (${{ matrix.target }})
+        needs: [version, linux]
+        # A clean debian:bullseye, the oldest system the release promises: the .deb installs
+        # with apt (resolving its Depends) and runs, and install.sh installs the tarball.
+        runs-on: ${{ matrix.runner }}
+        container: debian:bullseye
+        strategy:
+            fail-fast: true
+            matrix:
+                include:
+                    - target: x86_64-unknown-linux-gnu
+                      runner: ubuntu-24.04
+                      deb: amd64
+                    - target: aarch64-unknown-linux-gnu
+                      runner: ubuntu-24.04-arm
+                      deb: arm64
+        steps:
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+            - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+              with:
+                  name: assets-${{ matrix.target }}
+                  path: dist
+            - name: Install the .deb and run it
+              env:
+                  VERSION: ${{ needs.version.outputs.version }}
+              run: |
+                  # Debian 11's packages live on archive.debian.org (see release-linux-deps.sh).
+                  printf 'deb http://archive.debian.org/debian bullseye main\ndeb http://archive.debian.org/debian-security bullseye-security main\n' >/etc/apt/sources.list
+                  rm -f /etc/apt/sources.list.d/debian.sources
+                  apt-get update -q
+                  apt-get install -y -q "./dist/quickhop_${VERSION}_${{ matrix.deb }}.deb" curl python3 procps
+                  [ "$(quickhop --version)" = "quickhop ${VERSION}" ]
+                  quickhop doctor
+                  apt-get remove -y -q quickhop
+            - name: install.sh installs the release tarball
+              env:
+                  VERSION: ${{ needs.version.outputs.version }}
+              run: |
+                  cp scripts/install.sh dist/
+                  home="$(mktemp -d)"
+                  env -i HOME="$home" PATH=/usr/bin:/bin bash dist/install.sh --from dist --version "$VERSION"
+                  [ "$(env -i HOME="$home" "${home}/.local/bin/quickhop" --version)" = "quickhop ${VERSION}" ]
+
+    macos:
+        name: macOS universal
+        needs: version
+        runs-on: macos-latest
+        outputs:
+            notarized: ${{ steps.signing.outputs.notarized }}
+        steps:
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+            - name: Install the pinned toolchain
+              run: |
+                  rustup show active-toolchain || rustup toolchain install
+                  rustup target add aarch64-apple-darwin x86_64-apple-darwin
+            - uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2
+              with:
+                  key: release-macos
+            - name: Build arm64 and x86_64, join them with lipo
+              id: build
+              run: |
+                  arm="$(scripts/release-build.sh aarch64-apple-darwin)"
+                  intel="$(scripts/release-build.sh x86_64-apple-darwin)"
+                  mkdir -p target/universal-apple-darwin
+                  binary=target/universal-apple-darwin/quickhop
+                  lipo -create -output "$binary" "$arm" "$intel"
+                  lipo -info "$binary"
+                  [ "$(lipo -archs "$binary")" = "x86_64 arm64" ]
+                  echo "binary=${binary}" >>"$GITHUB_OUTPUT"
+            - name: Smoke test both architectures
+              env:
+                  BINARY: ${{ steps.build.outputs.binary }}
+                  VERSION: ${{ needs.version.outputs.version }}
+              run: |
+                  [ "$(arch -arm64 "$BINARY" --version)" = "quickhop ${VERSION}" ]
+                  if arch -x86_64 /usr/bin/true 2>/dev/null; then
+                      [ "$(arch -x86_64 "$BINARY" --version)" = "quickhop ${VERSION}" ]
+                  else
+                      echo "::warning::no Rosetta on this runner: the x86_64 slice was built and joined but not run"
+                  fi
+            - name: Bundle quickhop.app
+              id: bundle
+              env:
+                  BINARY: ${{ steps.build.outputs.binary }}
+              run: |
+                  app="$(scripts/bundle-macos.sh --bin "$BINARY" --out target/bundle)"
+                  echo "app=${app}" >>"$GITHUB_OUTPUT"
+            # Developer ID signing and notarization when the repository has the secrets;
+            # without them quickhop.app stays ad-hoc signed (scripts/sign-macos.sh).
+            - name: Signing
+              id: signing
+              env:
+                  MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+                  MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+                  MACOS_SIGN_IDENTITY: ${{ secrets.MACOS_SIGN_IDENTITY }}
+                  NOTARY_KEY: ${{ secrets.NOTARY_KEY }}
+                  NOTARY_KEY_ID: ${{ secrets.NOTARY_KEY_ID }}
+                  NOTARY_ISSUER: ${{ secrets.NOTARY_ISSUER }}
+              run: scripts/sign-macos.sh "${{ steps.bundle.outputs.app }}" "${{ steps.build.outputs.binary }}"
+            - name: Package
+              env:
+                  BINARY: ${{ steps.build.outputs.binary }}
+                  APP: ${{ steps.bundle.outputs.app }}
+              run: |
+                  scripts/dist.sh --target universal-apple-darwin --bin "$BINARY" --app "$APP" --out dist
+                  rm dist/install.sh
+            - name: install.sh installs the archive (the command links into the app)
+              env:
+                  VERSION: ${{ needs.version.outputs.version }}
+              run: |
+                  cp scripts/install.sh "${RUNNER_TEMP}/install.sh"
+                  home="$(mktemp -d)"
+                  env -i HOME="$home" PATH=/usr/bin:/bin QUICKHOP_APP_DIR="${home}/Applications" \
+                      bash "${RUNNER_TEMP}/install.sh" --from dist --version "$VERSION"
+                  [ "$(readlink "${home}/.local/bin/quickhop")" = "${home}/Applications/quickhop.app/Contents/MacOS/quickhop" ]
+                  codesign -dv "${home}/.local/bin/quickhop" 2>&1 | grep -x 'Identifier=io.github.yuyudhan.quickhop'
+            - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+              with:
+                  name: assets-universal-apple-darwin
+                  path: dist/*
+                  if-no-files-found: error
+
+    assemble:
+        name: Assemble${{ github.ref_type == 'tag' && ' and publish' || ' (dry run)' }}
+        needs: [version, linux, linux-check, macos]
+        runs-on: ubuntu-latest
+        permissions:
+            contents: write
+        steps:
+            - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+            - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+              with:
+                  pattern: assets-*
+                  path: dist
+                  merge-multiple: true
+            - name: install.sh, Homebrew formula and cask, SHA256SUMS
+              env:
+                  QUICKHOP_NOTARIZED: ${{ needs.macos.outputs.notarized }}
+              run: scripts/release-finish.sh "${{ needs.version.outputs.version }}" dist
+            - name: List assets
+              run: ls -l dist && cat dist/SHA256SUMS
+            - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+              with:
+                  name: release-${{ needs.version.outputs.version }}
+                  path: dist/*
+                  if-no-files-found: error
+            - name: Publish the GitHub release
+              if: github.ref_type == 'tag'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+              run: |
+                  gh release create "$GITHUB_REF_NAME" dist/* \
+                      --title "quickhop ${GITHUB_REF_NAME}" --generate-notes --verify-tag
+            # Needs a token that can push to yuyudhan/homebrew-tap (a fine-grained PAT with
+            # contents: write on that repository); without it the formula and cask are only
+            # release assets.
+            - name: Publish the formula and cask to yuyudhan/homebrew-tap
+              if: github.ref_type == 'tag'
+              env:
+                  TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+                  VERSION: ${{ needs.version.outputs.version }}
+              run: |
+                  if [ -z "$TAP_TOKEN" ]; then
+                      echo "::notice::no HOMEBREW_TAP_TOKEN secret: the formula and cask are attached to the release but not published to the tap"
+                      exit 0
+                  fi
+                  tap="$(mktemp -d)"
+                  git clone --depth 1 "https://x-access-token:${TAP_TOKEN}@github.com/yuyudhan/homebrew-tap.git" "$tap"
+                  mkdir -p "${tap}/Formula" "${tap}/Casks"
+                  cp dist/quickhop.rb "${tap}/Formula/quickhop.rb"
+                  cp dist/quickhop-cask.rb "${tap}/Casks/quickhop.rb"
+                  cd "$tap"
+                  git config user.name "github-actions[bot]"
+                  git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                  git add Formula/quickhop.rb Casks/quickhop.rb
+                  if git diff --cached --quiet; then
+                      echo "the tap already has quickhop ${VERSION}"
+                  else
+                      git commit -m "quickhop ${VERSION}"
+                      git push origin HEAD
+                  fi

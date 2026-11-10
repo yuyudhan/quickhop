@@ -1,0 +1,40 @@
+# Homebrew cask for quickhop.app, rendered by scripts/homebrew.sh for every release and attached
+# to it as quickhop-cask.rb; the release workflow also publishes it to yuyudhan/homebrew-tap as
+# Casks/quickhop.rb when the repository has the HOMEBREW_TAP_TOKEN secret. Then:
+#   brew install --cask yuyudhan/tap/quickhop
+# The quickhop command it links is the app's own executable, so the command line and the app
+# are one program with one Accessibility grant.
+cask "quickhop" do
+  version "@VERSION@"
+  sha256 "@SHA256_UNIVERSAL_APPLE_DARWIN@"
+
+  url "https://github.com/yuyudhan/quickhop/releases/download/v#{version}/quickhop-universal-apple-darwin.tar.gz"
+  name "quickhop"
+  desc "Keyboard launcher: apps, files, calculator, clipboard history, script commands"
+  homepage "https://github.com/yuyudhan/quickhop"
+
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
+  @MACOS_DEPENDS@
+
+  app "quickhop-universal-apple-darwin/quickhop.app"
+  binary "#{appdir}/quickhop.app/Contents/MacOS/quickhop"
+@QUARANTINE@
+  uninstall launchctl: "@BUNDLE_ID@",
+            quit:      "@BUNDLE_ID@"
+
+  zap trash: [
+    "~/.config/quickhop",
+    "~/.local/share/quickhop",
+    "~/Library/LaunchAgents/@BUNDLE_ID@.plist",
+    "~/Library/Logs/quickhop.log",
+  ]
+
+  caveats <<~EOS
+    Open quickhop.app once: it asks for the Accessibility permission it needs to paste.
+    Start it at login with: quickhop autostart on
+  EOS
+end
