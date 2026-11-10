@@ -5,7 +5,10 @@ members = ["crates/*"]
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.89"
+# The oldest Rust that builds the whole tree: the pinned gpui revision uses
+# `Option::map_or_default` (stable in 1.98). `cargo install --git` ignores rust-toolchain.toml,
+# so this is what tells an older toolchain to update instead of failing inside gpui.
+rust-version = "1.98"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/yuyudhan/quickhop"
 publish = false

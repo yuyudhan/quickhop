@@ -23,7 +23,8 @@ No release has been published yet; building from source takes a couple of minute
 ```sh
 xcode-select --install
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cargo install --git https://github.com/yuyudhan/quickhop quickhop
+rustup update stable
+cargo install --locked --git https://github.com/yuyudhan/quickhop quickhop
 ```
 
 **Linux** (Debian and Ubuntu shown; Fedora and Arch in [docs/install.md](docs/install.md))
@@ -32,8 +33,12 @@ cargo install --git https://github.com/yuyudhan/quickhop quickhop
 sudo apt install build-essential xdg-utils wl-clipboard xclip
 sudo apt install libfontconfig-dev libfreetype-dev libwayland-dev libxkbcommon-x11-dev
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-cargo install --git https://github.com/yuyudhan/quickhop quickhop
+rustup update stable
+cargo install --locked --git https://github.com/yuyudhan/quickhop quickhop
 ```
+
+quickhop needs Rust 1.98 or newer; `rustup update stable` gets it when Rust is already installed,
+and an older Rust stops with `requires rustc 1.98` (see [troubleshooting](docs/troubleshooting.md#installing)).
 
 Then check the setup and start the background daemon at login:
 

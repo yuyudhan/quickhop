@@ -16,7 +16,8 @@ source; it takes a couple of minutes and needs nothing beyond Rust and a C compi
 
     xcode-select --install                          # C compiler for the bundled SQLite
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-    cargo install --git https://github.com/yuyudhan/quickhop quickhop
+    rustup update stable                            # quickhop needs Rust 1.98 or newer
+    cargo install --locked --git https://github.com/yuyudhan/quickhop quickhop
 
 **Linux** (Debian and Ubuntu shown; any distribution with a C compiler works)
 
@@ -25,19 +26,24 @@ source; it takes a couple of minutes and needs nothing beyond Rust and a C compi
     sudo apt install wl-clipboard                   # Wayland sessions: clipboard history
     sudo apt install xclip                          # X11 sessions: copying results
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-    cargo install --git https://github.com/yuyudhan/quickhop quickhop
+    rustup update stable                            # quickhop needs Rust 1.98 or newer
+    cargo install --locked --git https://github.com/yuyudhan/quickhop quickhop
 
 Fedora: `sudo dnf install gcc xdg-utils wl-clipboard xclip fontconfig-devel freetype-devel
 wayland-devel libxkbcommon-x11-devel`. Arch: `sudo pacman -S base-devel xdg-utils wl-clipboard
 xclip fontconfig freetype2 wayland libxkbcommon-x11`.
 
 `cargo install` puts the binary in `~/.cargo/bin`, which rustup adds to your `PATH`. quickhop
-needs Rust 1.89 or newer; `rustup update` gets it.
+needs Rust 1.98 or newer (its window toolkit, gpui, does); `rustup update stable` gets it, and
+an older Rust stops with `requires rustc 1.98` before building anything. `cargo install` does not
+read the repository's `rust-toolchain.toml`, so the toolchain you run it with is the one that
+builds. `--locked` builds the dependency versions quickhop is tested with. Rust from a
+distribution package (`apt install rustc`) is usually older; use rustup.
 
 From a clone instead:
 
     git clone https://github.com/yuyudhan/quickhop && cd quickhop
-    cargo install --path crates/quickhop
+    cargo install --locked --path crates/quickhop
 
 ## Debian and Ubuntu package
 
@@ -123,8 +129,8 @@ Then follow the [30-second tour](usage.md#a-30-second-tour).
 
 ## Update
 
-Run the same command you installed with (`cargo install --git
-https://github.com/yuyudhan/quickhop quickhop --force`, the newer `.deb`, or `install.sh`), then
+Run the same command you installed with (`rustup update stable`, then `cargo install --locked
+--git https://github.com/yuyudhan/quickhop quickhop --force`, the newer `.deb`, or `install.sh`), then
 restart the daemon so it runs the new binary:
 
     quickhop daemon stop

@@ -49,6 +49,17 @@ on macOS), then open a new terminal:
 
     export PATH="$HOME/.local/bin:$PATH"
 
+**`cargo install` stops with `requires rustc 1.98` or `use of unstable library feature`.** Your
+Rust is older than quickhop needs (1.98, for its window toolkit gpui). Update it, then install
+again:
+
+    rustup update stable
+    cargo install --locked --git https://github.com/yuyudhan/quickhop quickhop
+
+`rustup show` prints the version in use; a `rust-toolchain.toml` or `rustup override` in the
+folder you run it from wins over `stable`. Rust from a distribution package is usually too old;
+install it with rustup instead.
+
 **`cargo install` fails compiling `libsqlite3-sys`.** SQLite is bundled and compiled from C.
 Install a C compiler: `xcode-select --install` on macOS, `sudo apt install build-essential` on
 Debian and Ubuntu.
