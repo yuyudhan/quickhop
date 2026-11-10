@@ -19,6 +19,7 @@ use std::path::{Path, PathBuf};
 use quickhop_core::Flavour;
 
 /// This build's `LaunchAgent` label, also the reverse-DNS id of its app.
+#[cfg(unix)]
 pub(crate) const LABEL: &str = Flavour::CURRENT.bundle_id();
 
 /// What `quickhop autostart` does.

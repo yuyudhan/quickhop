@@ -100,6 +100,7 @@ fn stdout(cmd: &mut Command) -> Result<String, Box<dyn Error>> {
 /// are (`cargo test`, `just test`); `cargo test --release` tests a release.
 const DEV: bool = cfg!(any(debug_assertions, feature = "dev"));
 /// Its configuration and data folder name.
+#[cfg(unix)]
 const STEM: &str = if DEV { "quickhop-dev" } else { "quickhop" };
 
 #[test]
