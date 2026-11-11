@@ -17,9 +17,19 @@ Start from the defaults:
 
 `quickhop config check` checks `config.toml` and the `snippets.toml` next to it.
 
-The daemon reads the files when it starts; `quickhop reload` makes a running daemon read them
-again (it does not watch them). Every other command reads them each time it runs. What each
-key changes on a reload: [when changes apply](#when-changes-apply).
+You do not have to edit the file by hand. As in Raycast, type **settings** in the launcher
+(or pick Settings… in the menu-bar icon's menu, or run `quickhop settings`) to open quickhop's
+settings window on macOS: the hotkey (press Record, then the new combination), launch at
+login, the menu-bar icon, the theme, results per search, each provider, clipboard history and
+hidden files, and **Open config file** for everything else. Each change is written into
+`config.toml` at once, keeping your comments and order, and applied; a change that would make
+the file invalid is refused. On Linux `quickhop settings` (and Settings… in the tray icon's
+menu) opens `config.toml` in your default editor. The search also offers **Reload quickhop
+config**, **About quickhop** and **Quit quickhop**.
+
+The daemon reads the files when it starts and again whenever `config.toml` or `snippets.toml`
+is saved; `quickhop reload` does the same by hand. Every other command reads them each time it
+runs. What each key changes on a reload: [when changes apply](#when-changes-apply).
 
 ## Where files live
 
@@ -58,6 +68,8 @@ such as `[[quicklinks]]` repeat once per entry; their keys are written `quicklin
 |-----|---------|---------|
 | `hotkey` | `"Alt+Shift+Space"` | Global shortcut that shows and hides the launcher window: modifiers and one key joined by `+`, in any order and case, e.g. `"Ctrl+Space"`, `"cmd+shift+k"`, `"F13"`. `Cmd`, `Command`, `Super` and `Meta` are one modifier, `Alt`, `Option` and `Opt` another; a key that types a character needs a modifier, function keys may stand alone. The default is not `Alt+Space`, Raycast's and Alfred's, so quickhop runs beside them, and avoids Spotlight (`Cmd+Space`), input-source switching (`Ctrl+Space`, `Ctrl+Alt+Space`) and nomouse's hotkeys. A development build defaults to `"Ctrl+Alt+Shift+Space"`. The macOS daemon registers it (`quickhop daemon status` says whether it holds it, or why not, such as another app holding it) and binds the new one on `quickhop reload`; a reload with an invalid key is refused and the old one kept. On Linux the window, and so the hotkey, is still being built. |
 | `max_results` | `8` | Results shown per search, 1 to 100. `quickhop query --limit N` overrides it once; the window uses the new value from its next search. |
+| `theme` | `"system"` | The windows' colours: `"system"` follows the system appearance (light or dark), `"dark"` and `"light"` keep one. Applied the next time a window draws. |
+| `menu_bar_icon` | `true` | quickhop's icon in the macOS menu bar (Open quickhop, Settings…, Quit quickhop) or the Linux system tray (Settings…, Reload quickhop config, Quit quickhop). `false` removes it; the hotkey and quickhop Settings in the search still work. |
 
 ### `[providers]`
 
@@ -239,16 +251,18 @@ installs it for a development build.
 ## When changes apply
 
 Commands other than the daemon read the files every time they run, so a change applies to the
-next `quickhop query`, `launch` or `index`. The daemon reads them at start and on
-`quickhop reload`:
+next `quickhop query`, `launch` or `index`. The daemon reads them at start, when either file is
+saved (the settings window saves for you) and on `quickhop reload`:
 
-| Key | After `quickhop reload` |
-|-----|-------------------------|
+| Key | After a save or `quickhop reload` |
+|-----|-----------------------------------|
 | `hotkey` | The new one is bound and the old one released; an invalid one is refused and the old one kept. |
 | `max_results`, `[providers]`, `[apps]`, `[scripts]`, `[[quicklinks]]`, `[[commands]]`, snippets | The window's next search uses them; a provider switched on or off appears or goes. |
 | `[files]`, `providers.files` | The file index restarts over the new roots, hidden setting and exclusions. |
 | `clipboard.enabled` | The clipboard watcher stops or starts. |
 | `clipboard.max_entries`, `clipboard.max_age_days` | Applied when the next copy is recorded. |
+| `theme` | Each window uses the new colours the next time it draws (the launcher when next shown). |
+| `menu_bar_icon` | The menu-bar or tray icon appears or goes. |
 
-A reload of a file with an error changes nothing: the daemon keeps the settings it had and
-`quickhop reload` prints the error.
+A reload of a file with an error changes nothing: the daemon keeps the settings it had, and
+`quickhop reload` or the settings window says which key is wrong.

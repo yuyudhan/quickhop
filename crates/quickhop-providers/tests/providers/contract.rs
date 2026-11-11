@@ -143,6 +143,7 @@ provider_contract! {
     files_indexed => common::indexed_files()?,
     files => common::files(),
     views => quickhop_providers::views::ViewsProvider::new(&quickhop_core::Config::default()),
+    quickhop => quickhop_providers::quickhop::QuickhopProvider::new("1.2.3"),
 }
 
 /// Whether a contract test covers the provider `name`.

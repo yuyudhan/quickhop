@@ -139,6 +139,45 @@ pub enum Action {
         /// Which list.
         view: View,
     },
+    /// One of quickhop's own commands: its settings, reloading its config, quitting it.
+    Quickhop {
+        /// Which command.
+        command: QuickhopCommand,
+    },
+}
+
+/// quickhop's own commands, listed in the search like Raycast's.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum QuickhopCommand {
+    /// Open the settings.
+    Settings,
+    /// Read `config.toml` and `snippets.toml` again.
+    Reload,
+    /// Stop quickhop: the daemon, and with it the launcher window and the menu-bar icon.
+    Quit,
+    /// Show the version and where quickhop keeps its files.
+    About,
+}
+
+impl QuickhopCommand {
+    /// Every command, in display order.
+    pub const ALL: [Self; 4] = [Self::Settings, Self::Reload, Self::About, Self::Quit];
+
+    /// The key of its item id (`quickhop:settings`).
+    pub fn key(self) -> &'static str {
+        match self {
+            Self::Settings => "settings",
+            Self::Reload => "reload",
+            Self::Quit => "quit",
+            Self::About => "about",
+        }
+    }
+
+    /// The command whose key is `key`.
+    pub fn from_key(key: &str) -> Option<Self> {
+        Self::ALL.into_iter().find(|command| command.key() == key)
+    }
 }
 
 /// A searchable list a command opens in the launcher window.
@@ -164,7 +203,8 @@ impl Action {
             | Self::Paste { .. }
             | Self::Snippet { .. }
             | Self::Reveal { .. }
-            | Self::View { .. } => false,
+            | Self::View { .. }
+            | Self::Quickhop { .. } => false,
         }
     }
 
@@ -180,6 +220,7 @@ impl Action {
             Self::Reveal { .. } => "reveal",
             Self::Trash { .. } => "trash",
             Self::View { .. } => "view",
+            Self::Quickhop { .. } => "quickhop",
         }
     }
 }

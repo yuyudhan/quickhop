@@ -7,12 +7,17 @@ mod app;
 mod autostart;
 mod clipboard;
 #[cfg(unix)]
+mod config_watch;
+#[cfg(unix)]
 mod daemon;
 mod doctor;
 mod launch;
 mod paste;
+mod settings;
 mod tools;
 mod trash;
+#[cfg(all(unix, not(target_os = "macos")))]
+mod tray;
 #[cfg(target_os = "macos")]
 mod window;
 
@@ -156,6 +161,9 @@ enum Command {
     /// runs.
     #[cfg(unix)]
     Onboarding,
+    /// Open quickhop's settings: the settings window on macOS (starting the daemon when none
+    /// runs), else `config.toml` in the default editor, reloaded by the daemon on save.
+    Settings,
     /// Run a result's action in the daemon, starting the daemon when none runs.
     #[cfg(unix)]
     Open {
@@ -560,8 +568,9 @@ fn launch(
     Ok(())
 }
 
-/// The commands that run or talk to the daemon: `daemon`, `toggle`, `show`, `hide`, `open`
-/// and `reload`. `toggle`, `show` and `open` start a daemon when none runs.
+/// The commands that run or talk to the daemon: `daemon`, `toggle`, `show`, `hide`,
+/// `onboarding`, `settings`, `open` and `reload`. `toggle`, `show`, `onboarding`, `settings`
+/// and `open` start a daemon when none runs.
 #[cfg(unix)]
 fn daemon_command(command: Command, out: &mut impl Write) -> Result<(), CliError> {
     let (request, start) = match command {
@@ -590,6 +599,7 @@ fn daemon_command(command: Command, out: &mut impl Write) -> Result<(), CliError
         Command::Show => (daemon::Request::Show, true),
         Command::Hide => (daemon::Request::Hide, false),
         Command::Onboarding => (daemon::Request::Onboarding, true),
+        Command::Settings => (daemon::Request::Settings, true),
         Command::Reload => (daemon::Request::Reload, false),
         Command::Open {
             id,
@@ -658,8 +668,16 @@ fn run(cli: Cli, out: &mut impl Write) -> Result<(), CliError> {
         | Command::Show
         | Command::Hide
         | Command::Onboarding
+        | Command::Settings
         | Command::Open { .. }
         | Command::Reload) => daemon_command(command, out)?,
+        #[cfg(not(unix))]
+        Command::Settings => {
+            let failed = |error| CliError::Launch(launch::LaunchError::Quickhop(error));
+            let path = settings::config_file().map_err(failed)?;
+            settings::open_in_editor(&path).map_err(failed)?;
+            writeln!(out, "opened {}", path.display())?;
+        }
         Command::Config {
             action: ConfigAction::Default,
         } => write!(out, "{}", Config::default_toml())?,

@@ -22,17 +22,27 @@ objc2-application-services = { workspace = true, features = [
 ] }
 objc2-app-kit = { workspace = true, features = [
     "NSBitmapImageRep",
+    "NSButton",
+    "NSCell",
+    "NSControl",
+    "NSEvent",
     "NSGraphicsContext",
     "NSImage",
     "NSImageRep",
+    "NSMenu",
+    "NSMenuItem",
     "NSPasteboard",
     "NSPasteboardItem",
     "NSResponder",
     "NSRunningApplication",
+    "NSStatusBar",
+    "NSStatusBarButton",
+    "NSStatusItem",
     "NSView",
     "NSWindow",
     "NSWorkspace",
     "libc",
+    "objc2-core-foundation",
     "objc2-core-graphics",
 ] }
 objc2-core-foundation = { workspace = true, features = [

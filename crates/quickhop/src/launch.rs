@@ -7,7 +7,7 @@ use std::time::Duration;
 
 use quickhop_core::placeholders::{self, Context};
 use quickhop_core::snippets::{SnippetsFile, snippets_path};
-use quickhop_core::{Action, Flavour};
+use quickhop_core::{Action, Flavour, QuickhopCommand};
 use quickhop_providers::scripts;
 
 use crate::trash;
@@ -61,6 +61,9 @@ pub(crate) enum LaunchError {
     /// The action opens a list in the launcher window, which the command line cannot show.
     #[error("this opens a list in the launcher window: run `quickhop toggle` and pick it there")]
     View,
+    /// One of quickhop's own commands failed (the daemon could not be reached, …).
+    #[error("{0}")]
+    Quickhop(String),
 }
 
 /// The command that opens `target` with the system handler.
@@ -224,6 +227,43 @@ pub(crate) fn perform(action: &Action, args: &[String]) -> Result<String, Launch
             }
         }
         Action::View { .. } => Err(LaunchError::View),
+        Action::Quickhop { command } => own(*command),
+    }
+}
+
+/// Runs one of quickhop's own commands from the command line: the daemon opens the settings,
+/// reloads or stops; About is printed.
+#[cfg(unix)]
+fn own(command: QuickhopCommand) -> Result<String, LaunchError> {
+    use crate::daemon::{self, DaemonError, Request};
+
+    let failed = |error: DaemonError| LaunchError::Quickhop(error.to_string());
+    let answer = match command {
+        QuickhopCommand::About => return Ok(crate::settings::about()),
+        QuickhopCommand::Settings => daemon::send_starting(&Request::Settings),
+        QuickhopCommand::Reload => daemon::send(&Request::Reload),
+        QuickhopCommand::Quit => match daemon::send(&Request::Stop) {
+            Err(DaemonError::NotRunning) => return Ok("quickhop is not running".into()),
+            answer => answer,
+        },
+    };
+    answer.and_then(daemon::message).map_err(failed)
+}
+
+/// Runs one of quickhop's own commands where no daemon runs: the settings are the config file
+/// in the editor; About is printed.
+#[cfg(not(unix))]
+fn own(command: QuickhopCommand) -> Result<String, LaunchError> {
+    match command {
+        QuickhopCommand::About => Ok(crate::settings::about()),
+        QuickhopCommand::Settings => {
+            let path = crate::settings::config_file().map_err(LaunchError::Quickhop)?;
+            crate::settings::open_in_editor(&path).map_err(LaunchError::Quickhop)?;
+            Ok(format!("opened {}", path.display()))
+        }
+        QuickhopCommand::Reload | QuickhopCommand::Quit => Err(LaunchError::Quickhop(
+            "no quickhop daemon runs on this system".into(),
+        )),
     }
 }
 

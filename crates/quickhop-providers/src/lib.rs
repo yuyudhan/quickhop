@@ -11,9 +11,10 @@
 //! | `snippets`   | [`snippets`]   | `snippets.toml` next to the config file, with Raycast placeholders |
 //! | `files`      | [`files`]      | files and folders by name: Spotlight (`mdfind`) on macOS, else the index built by `quickhop index` |
 //! | `views`      | [`views`]      | the commands that open a list in the launcher window: clipboard history, snippets, files |
+//! | `quickhop`   | [`quickhop`]   | quickhop's own commands: Settings, Reload quickhop config, About, Quit |
 //!
-//! `views` has no `[providers]` switch: each of its commands follows the switch of what it
-//! lists.
+//! `views` and `quickhop` have no `[providers]` switch: each `views` command follows the switch
+//! of what it lists, and quickhop's own commands are always there.
 //!
 //! Every provider takes its environment explicitly ([`Env`]) so tests can point it at
 //! fixture directories and a fixed OS.
@@ -24,6 +25,7 @@ pub mod calc;
 pub mod emoji;
 mod env;
 pub mod files;
+pub mod quickhop;
 pub mod quicklinks;
 pub mod scripts;
 pub mod snippets;
@@ -196,6 +198,9 @@ pub fn builtin(config: &Config, env: &Env) -> (Vec<Box<dyn Provider>>, Vec<Warni
         providers.push(Box::new(system::SystemProvider::for_os(&env.os)));
     }
     providers.push(Box::new(views::ViewsProvider::new(config)));
+    providers.push(Box::new(quickhop::QuickhopProvider::new(env!(
+        "CARGO_PKG_VERSION"
+    ))));
     if enabled.emoji {
         providers.push(Box::new(emoji::EmojiProvider::new()));
     }

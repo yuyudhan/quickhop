@@ -1,6 +1,7 @@
 //! The launcher window on macOS: one gpui window over the [`Model`], created hidden when the
 //! app starts and shown and hidden from then on (ADR 0001: reopening doubles the show time).
-//! Beside it, on demand, the onboarding window that asks for the permission pasting needs.
+//! Beside it, on demand, the onboarding window that asks for the permission pasting needs and
+//! the settings window. Every window draws with the palette of the `theme` setting.
 //!
 //! [`run`] takes over the main thread; everything else talks to the window through a
 //! [`Handle`] from other threads. Searches and actions go to a [`Backend`] on gpui's
@@ -19,7 +20,7 @@ use gpui::{
     WindowBackgroundAppearance, WindowBounds, WindowHandle, WindowKind, WindowOptions, div, img,
     prelude::*, px, rgb, rgba, size, uniform_list,
 };
-use quickhop_core::{Action, Flavour, Item, ItemId, Query, Ranked};
+use quickhop_core::{Action, Flavour, Item, ItemId, Query, QuickhopCommand, Ranked, Theme};
 
 use crate::edit::{self, Keymap};
 use crate::model::{
@@ -27,6 +28,9 @@ use crate::model::{
     keeps_window,
 };
 use crate::onboarding_window::{self, OnboardingView};
+use crate::settings::{Change, Values};
+use crate::settings_window::{self, SettingsView, is_dark};
+use crate::theme::{self, Palette};
 
 const ROW_HEIGHT: f32 = 44.0;
 const WINDOW_WIDTH: f32 = 750.0;
@@ -81,6 +85,21 @@ pub trait Backend: Send + Sync + 'static {
 
     /// The global hotkey that shows the launcher, as bound; `None` when none is.
     fn hotkey(&self) -> Option<String>;
+
+    /// What the settings window shows: the configuration, launch at login, the config file.
+    ///
+    /// # Errors
+    /// Why the config file cannot be read (an invalid file: the message names the key).
+    fn settings(&self) -> Result<Values, String>;
+
+    /// Carries out a change made in the settings window and returns the values read back.
+    ///
+    /// # Errors
+    /// What failed, for the user.
+    fn change_setting(&self, change: &Change) -> Result<Values, String>;
+
+    /// The windows' theme.
+    fn theme(&self) -> Theme;
 }
 
 /// A result's icon in the window's cache.
@@ -112,6 +131,8 @@ pub enum Command {
     /// quickhop.app was opened (Finder, Spotlight, `open`): show the launcher, or the
     /// onboarding window while quickhop may not paste yet.
     AppOpened,
+    /// Open the settings window, or bring it to the front; the launcher goes off screen.
+    Settings,
     /// End the app: [`run`] returns.
     Quit,
 }
@@ -176,9 +197,9 @@ pub fn run(backend: Arc<dyn Backend>, started: impl FnOnce(Handle) + Send + 'sta
         }
     });
     application.run(move |cx: &mut App| {
-        // An agent app: no Dock icon, no menu bar.
+        // An agent app: no Dock icon and no app menu (the daemon adds the menu-bar icon).
         cx.set_activation_policy(gpui::ActivationPolicy::Accessory);
-        let launcher = match open(backend, cx) {
+        let launcher = match open(backend, Rc::clone(&windows), cx) {
             Ok(launcher) => launcher,
             Err(error) => {
                 let _ = writeln!(
@@ -218,6 +239,12 @@ pub fn run(backend: Arc<dyn Backend>, started: impl FnOnce(Handle) + Send + 'sta
 /// whose activation also makes it ask again.
 type OnboardingSlot = Rc<Cell<Option<WindowHandle<OnboardingView>>>>;
 
+/// The settings window while it is open.
+type SettingsSlot = Rc<Cell<Option<WindowHandle<SettingsView>>>>;
+
+/// The windows once the app runs, for the launcher to reach the others.
+type Windows = Rc<OnceCell<Opened>>;
+
 /// The windows and the views in them.
 #[derive(Clone)]
 struct Opened {
@@ -225,6 +252,7 @@ struct Opened {
     launcher: Entity<Launcher>,
     backend: Arc<dyn Backend>,
     onboarding: OnboardingSlot,
+    settings: SettingsSlot,
 }
 
 impl Opened {
@@ -245,6 +273,17 @@ impl Opened {
             Command::AppOpened if self.backend.may_paste() => true,
             Command::Onboarding | Command::AppOpened => {
                 self.show_onboarding(cx);
+                return self.snapshot(cx);
+            }
+            Command::Settings => {
+                // Off screen on its own: the settings come to the front alone.
+                let _ = self.window.update(cx, |launcher, window, _| {
+                    launcher.visible = false;
+                    if let Err(error) = quickhop_platform_macos::panel::order_out(window) {
+                        let _ = writeln!(std::io::stderr(), "quickhop: {error}");
+                    }
+                });
+                self.show_settings(cx);
                 return self.snapshot(cx);
             }
         };
@@ -287,9 +326,32 @@ impl Opened {
             }
         }
     }
+
+    /// Brings the settings window to the front, opening it unless it is open.
+    fn show_settings(&self, cx: &mut App) {
+        if let Some(handle) = self.settings.get()
+            && handle.update(cx, SettingsView::bring_to_front).is_ok()
+        {
+            return;
+        }
+        match settings_window::open(Arc::clone(&self.backend), cx) {
+            Ok(handle) => self.settings.set(Some(handle)),
+            Err(error) => {
+                self.settings.set(None);
+                let _ = writeln!(
+                    std::io::stderr(),
+                    "quickhop: cannot open the settings window: {error}"
+                );
+            }
+        }
+    }
 }
 
-fn open(backend: Arc<dyn Backend>, cx: &mut App) -> Result<Opened, Box<dyn std::error::Error>> {
+fn open(
+    backend: Arc<dyn Backend>,
+    windows: Windows,
+    cx: &mut App,
+) -> Result<Opened, Box<dyn std::error::Error>> {
     let bounds = Bounds::centered(None, size(px(WINDOW_WIDTH), px(WINDOW_HEIGHT)), cx);
     let options = WindowOptions {
         window_bounds: Some(WindowBounds::Windowed(bounds)),
@@ -307,7 +369,7 @@ fn open(backend: Arc<dyn Backend>, cx: &mut App) -> Result<Opened, Box<dyn std::
     let mut launcher = None;
     let onboarding = OnboardingSlot::default();
     let window = cx.open_window(options, |window, cx| {
-        let entity = cx.new(|cx| Launcher::new(Arc::clone(&backend), window, cx));
+        let entity = cx.new(|cx| Launcher::new(Arc::clone(&backend), windows, window, cx));
         // The launcher in front (the hotkey) means quickhop became the active app: the
         // onboarding window, when open, asks again whether quickhop may paste.
         let slot = Rc::clone(&onboarding);
@@ -330,6 +392,7 @@ fn open(backend: Arc<dyn Backend>, cx: &mut App) -> Result<Opened, Box<dyn std::
         launcher,
         backend,
         onboarding,
+        settings: SettingsSlot::default(),
     })
 }
 
@@ -342,13 +405,29 @@ struct Launcher {
     icons: HashMap<ItemId, Icon>,
     /// The HUD on screen, if any, and its message.
     hud: Option<(WindowHandle<Hud>, String)>,
+    /// Every window, to open the settings from a result.
+    windows: Windows,
 }
 
 impl Launcher {
-    fn new(backend: Arc<dyn Backend>, window: &mut Window, cx: &mut Context<Self>) -> Self {
-        // Hidden as soon as quickhop is no longer the app in front.
+    fn new(
+        backend: Arc<dyn Backend>,
+        windows: Windows,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        // Hidden as soon as quickhop is no longer the app in front; when another quickhop
+        // window (the settings) took the focus, only this one goes, so that one stays.
         cx.observe_window_activation(window, |launcher, window, cx| {
-            if launcher.visible && !window.is_window_active() {
+            if !launcher.visible || window.is_window_active() {
+                return;
+            }
+            if cx.active_window().is_some() {
+                launcher.visible = false;
+                if let Err(error) = quickhop_platform_macos::panel::order_out(window) {
+                    let _ = writeln!(std::io::stderr(), "quickhop: {error}");
+                }
+            } else {
                 launcher.hide(cx);
             }
         })
@@ -360,6 +439,7 @@ impl Launcher {
             visible: false,
             icons: HashMap::new(),
             hud: None,
+            windows,
         }
     }
 
@@ -411,11 +491,15 @@ impl Launcher {
             ..WindowOptions::default()
         };
         let message = SharedString::from(text.clone());
+        let palette = self.palette(cx);
         let opened = cx.open_window(options, |window, cx| {
             if let Err(error) = quickhop_platform_macos::panel::show_while_hidden(window) {
                 let _ = writeln!(std::io::stderr(), "quickhop: cannot show the HUD: {error}");
             }
-            cx.new(|_| Hud { text: message })
+            cx.new(|_| Hud {
+                text: message,
+                palette,
+            })
         });
         let handle = match opened {
             Ok(handle) => handle,
@@ -530,6 +614,20 @@ impl Launcher {
         query: Query,
         cx: &mut Context<Self>,
     ) {
+        if action
+            == (Action::Quickhop {
+                command: QuickhopCommand::Settings,
+            })
+        {
+            // After this update: the settings take the launcher off screen.
+            let windows = Rc::clone(&self.windows);
+            cx.defer(move |cx| {
+                if let Some(opened) = windows.get() {
+                    opened.carry_out(Command::Settings, cx);
+                }
+            });
+            return;
+        }
         if keeps_window(&action) {
             self.model.running(&item);
         } else {
@@ -610,11 +708,17 @@ impl Launcher {
         self.apply(effect, cx);
     }
 
+    /// The colours to draw with: the `theme` setting, `system` following the appearance.
+    fn palette(&self, cx: &App) -> &'static Palette {
+        theme::palette(self.backend.theme(), is_dark(cx.window_appearance()))
+    }
+
     fn render_row(
         index: usize,
         ranked: &Ranked,
         selected: bool,
         icon: Option<Arc<Image>>,
+        palette: &Palette,
     ) -> impl IntoElement + use<> {
         let title = ranked.item.title.clone();
         let highlights = highlight_ranges(&title, &ranked.positions)
@@ -623,7 +727,7 @@ impl Launcher {
                 (
                     range,
                     HighlightStyle {
-                        color: Some(rgb(0x00ff_ffff).into()),
+                        color: Some(rgb(palette.strong).into()),
                         font_weight: Some(FontWeight::BOLD),
                         ..HighlightStyle::default()
                     },
@@ -646,18 +750,23 @@ impl Launcher {
             .items_center()
             .gap_3()
             .rounded_md()
-            .when(selected, |row| row.bg(rgba(0xffff_ff1f)))
+            .when(selected, |row| row.bg(rgba(palette.selection)))
             .child(slot)
             .child(
                 div()
                     .flex_1()
-                    .text_color(rgb(0x00d8_dee9))
+                    .text_color(rgb(palette.text))
                     .child(StyledText::new(SharedString::from(title)).with_highlights(highlights)),
             )
-            .child(div().text_sm().text_color(rgb(0x008f_96a3)).child(subtitle))
+            .child(
+                div()
+                    .text_sm()
+                    .text_color(rgb(palette.muted))
+                    .child(subtitle),
+            )
     }
 
-    fn render_panel(&self) -> Option<impl IntoElement> {
+    fn render_panel(&self, palette: &Palette) -> Option<impl IntoElement + use<>> {
         let panel = self.model.panel()?;
         let selected = panel.selected();
         let rows = panel.entries().iter().enumerate().map(|(index, entry)| {
@@ -665,8 +774,10 @@ impl Launcher {
                 .px_3()
                 .py_1()
                 .rounded_md()
-                .text_color(rgb(0x00d8_dee9))
-                .when(selected == Some(index), |row| row.bg(rgba(0xffff_ff1f)))
+                .text_color(rgb(palette.text))
+                .when(selected == Some(index), |row| {
+                    row.bg(rgba(palette.selection))
+                })
                 .child(entry.title.clone())
         });
         Some(
@@ -677,27 +788,27 @@ impl Launcher {
                 .w(px(300.0))
                 .p_2()
                 .rounded_lg()
-                .bg(rgba(0x1e22_2af0))
+                .bg(rgba(palette.panel))
                 .border_1()
-                .border_color(rgba(0xffff_ff1a))
+                .border_color(rgba(palette.border))
                 .child(
                     div()
                         .px_3()
                         .pb_1()
                         .text_sm()
-                        .text_color(rgb(0x008f_96a3))
+                        .text_color(rgb(palette.muted))
                         .child(panel.item().title.clone()),
                 )
                 .children(rows),
         )
     }
 
-    fn render_toast(&self) -> Option<impl IntoElement> {
+    fn render_toast(&self, palette: &Palette) -> Option<impl IntoElement + use<>> {
         let toast = self.model.toast()?;
         let color = match toast.style {
-            ToastStyle::Success => rgb(0x00a3_be8c),
-            ToastStyle::Failure => rgb(0x00bf_616a),
-            ToastStyle::Progress => rgb(0x0088_c0d0),
+            ToastStyle::Success => rgb(palette.success),
+            ToastStyle::Failure => rgb(palette.failure),
+            ToastStyle::Progress => rgb(palette.progress),
         };
         Some(
             div()
@@ -706,7 +817,7 @@ impl Launcher {
                 .flex()
                 .items_center()
                 .border_t_1()
-                .border_color(rgba(0xffff_ff1a))
+                .border_color(rgba(palette.border))
                 .text_sm()
                 .text_color(color)
                 .child(toast.title.clone()),
@@ -716,7 +827,7 @@ impl Launcher {
     /// The search bar: the query (the panel's filter while it is open, the page's title on a
     /// detail page, or as the placeholder of a list), then a script's argument fields while it
     /// asks for them.
-    fn render_bar(&self) -> impl IntoElement + use<> {
+    fn render_bar(&self, palette: &Palette) -> impl IntoElement + use<> {
         let page = self.model.page();
         let (text, placeholder): (SharedString, bool) = if let Some(panel) = self.model.panel() {
             if panel.filter().is_empty() {
@@ -747,14 +858,14 @@ impl Launcher {
                         .min_w(px(90.0))
                         .rounded_md()
                         .text_base()
-                        .bg(rgba(0xffff_ff14))
+                        .bg(rgba(palette.field))
                         .border_1()
                         .border_color(if index == focused {
-                            rgba(0x88c0_d0ff)
+                            rgb(palette.accent)
                         } else {
-                            rgba(0xffff_ff1a)
+                            rgba(palette.border)
                         })
-                        .when(empty, |field| field.text_color(rgb(0x008f_96a3)))
+                        .when(empty, |field| field.text_color(rgb(palette.muted)))
                         .child(if empty {
                             argument.placeholder.clone()
                         } else {
@@ -771,17 +882,17 @@ impl Launcher {
             .gap_2()
             .text_xl()
             .border_b_1()
-            .border_color(rgba(0xffff_ff1a))
+            .border_color(rgba(palette.border))
             .child(
                 div()
-                    .when(placeholder, |field| field.text_color(rgb(0x008f_96a3)))
+                    .when(placeholder, |field| field.text_color(rgb(palette.muted)))
                     .child(text),
             )
             .children(fields)
     }
 
     /// A detail page's text, its ANSI colours drawn.
-    fn render_detail(text: &str) -> impl IntoElement + use<> {
+    fn render_detail(text: &str, palette: &Palette) -> impl IntoElement + use<> {
         let styled = crate::ansi::parse(text);
         let highlights = styled
             .spans
@@ -790,7 +901,7 @@ impl Launcher {
                 (
                     range,
                     HighlightStyle {
-                        color: Some(rgb(ANSI_COLOURS[usize::from(colour.0)]).into()),
+                        color: Some(rgb(palette.ansi[usize::from(colour.0)]).into()),
                         ..HighlightStyle::default()
                     },
                 )
@@ -803,7 +914,7 @@ impl Launcher {
             .px_4()
             .py_3()
             .text_base()
-            .text_color(rgb(0x00d8_dee9))
+            .text_color(rgb(palette.text))
             .child(StyledText::new(SharedString::from(styled.text)).with_highlights(highlights))
     }
 
@@ -819,6 +930,7 @@ impl Launcher {
                     .map(|ranked| ranked.item.clone())
                     .collect();
                 launcher.load_icons(missing, cx);
+                let palette = launcher.palette(cx);
                 let page = launcher.model.page();
                 let selected = page.selected();
                 page.results()[range.clone()]
@@ -829,7 +941,7 @@ impl Launcher {
                             Some(Icon::Ready(image)) => Some(Arc::clone(image)),
                             _ => None,
                         };
-                        Self::render_row(index, ranked, selected == Some(index), icon)
+                        Self::render_row(index, ranked, selected == Some(index), icon, palette)
                     })
                     .collect::<Vec<_>>()
             }),
@@ -841,8 +953,9 @@ impl Launcher {
 
 impl Render for Launcher {
     fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let palette = self.palette(cx);
         let body = match &self.model.page().kind {
-            PageKind::Detail { text } => Self::render_detail(text).into_any_element(),
+            PageKind::Detail { text } => Self::render_detail(text, palette).into_any_element(),
             PageKind::Root | PageKind::List { .. } => self.render_results(cx).into_any_element(),
         };
         div()
@@ -854,18 +967,19 @@ impl Render for Launcher {
             .flex_col()
             .rounded_xl()
             .overflow_hidden()
-            .bg(rgba(0x2e34_40b0))
-            .text_color(rgb(0x00ec_eff4))
-            .child(self.render_bar())
+            .bg(rgba(palette.background))
+            .text_color(rgb(palette.strong))
+            .child(self.render_bar(palette))
             .child(body)
-            .children(self.render_toast())
-            .children(self.render_panel())
+            .children(self.render_toast(palette))
+            .children(self.render_panel(palette))
     }
 }
 
 /// A short message on its own, low in the middle of the screen: see [`Launcher::show_hud`].
 struct Hud {
     text: SharedString,
+    palette: &'static Palette,
 }
 
 impl Render for Hud {
@@ -877,31 +991,12 @@ impl Render for Hud {
             .justify_center()
             .px_4()
             .rounded_xl()
-            .bg(rgba(0x2e34_40d0))
-            .text_color(rgb(0x00ec_eff4))
+            // More opaque than the launcher: it stands alone over another app.
+            .bg(rgba((self.palette.background & 0xffff_ff00) | 0xd0))
+            .text_color(rgb(self.palette.strong))
             .child(self.text.clone())
     }
 }
-
-/// The 16 ANSI colours as drawn on the window's dark background: normal, then bright.
-const ANSI_COLOURS: [u32; 16] = [
-    0x004c_566a,
-    0x00ff_5555,
-    0x00a3_be8c,
-    0x00eb_cb8b,
-    0x0081_a1c1,
-    0x00b4_8ead,
-    0x0088_c0d0,
-    0x00e5_e9f0,
-    0x0061_6e88,
-    0x00ff_7a7a,
-    0x00b9_d4a5,
-    0x00f0_d8a8,
-    0x009a_b5d1,
-    0x00c8_a6c3,
-    0x008f_bcbb,
-    0x00ec_eff4,
-];
 
 /// The item's icon when it is text to draw as is, such as a script command's `👋`: a few
 /// characters that are not a file path or a URL (those are images, loaded by the backend).

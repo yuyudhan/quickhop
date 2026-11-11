@@ -16,15 +16,19 @@ pub mod paste;
 pub mod placeholders;
 pub mod provider;
 pub mod search;
+pub mod settings;
 pub mod snippets;
 
 pub use clipboard::{ClipboardSource, Contents, Copied, Watcher};
 pub use config::{
     Apps, Clipboard, CommandSettings, Config, ConfigError, Files, Providers, Quicklink, Scripts,
+    Theme,
 };
 pub use flavour::Flavour;
 pub use fuzzy::{Match, Matcher, score};
 pub use hotkey::{Hotkey, HotkeyError};
-pub use item::{Action, Item, ItemId, ScriptArgument, ScriptArgumentKind, ScriptMode, View};
+pub use item::{
+    Action, Item, ItemId, QuickhopCommand, ScriptArgument, ScriptArgumentKind, ScriptMode, View,
+};
 pub use provider::{Cancel, Provider, ProviderError, Query};
 pub use search::{Boosts, Ranked, Search, SearchResults, Tier, rank};

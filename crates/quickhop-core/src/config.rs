@@ -21,6 +21,15 @@ pub enum ConfigError {
         #[source]
         source: std::io::Error,
     },
+    /// The file could not be written.
+    #[error("cannot write {path}: {source}")]
+    Write {
+        /// The file.
+        path: PathBuf,
+        /// Underlying error.
+        #[source]
+        source: std::io::Error,
+    },
     /// The file is not valid quickhop TOML.
     #[error("invalid config: {0}")]
     Parse(#[from] toml::de::Error),
@@ -185,6 +194,33 @@ fn is_one_word(text: &str) -> bool {
     !text.is_empty() && !text.contains(char::is_whitespace)
 }
 
+/// The colours of quickhop's windows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Theme {
+    /// Light or dark, as the system appearance is.
+    #[default]
+    System,
+    /// Dark windows.
+    Dark,
+    /// Light windows.
+    Light,
+}
+
+impl Theme {
+    /// Every theme, in the order the settings offer them.
+    pub const ALL: [Self; 3] = [Self::System, Self::Dark, Self::Light];
+
+    /// The theme as written in `config.toml`: `system`, `dark` or `light`.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::System => "system",
+            Self::Dark => "dark",
+            Self::Light => "light",
+        }
+    }
+}
+
 /// The whole configuration.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
@@ -193,6 +229,10 @@ pub struct Config {
     pub hotkey: String,
     /// Number of results shown, 1 to [`MAX_RESULTS_LIMIT`].
     pub max_results: usize,
+    /// The windows' colours.
+    pub theme: Theme,
+    /// Whether quickhop shows its icon in the menu bar (macOS) or the system tray (Linux).
+    pub menu_bar_icon: bool,
     /// Enabled providers.
     pub providers: Providers,
     /// Application sources.
@@ -224,6 +264,8 @@ impl Config {
         Self {
             hotkey: flavour.default_hotkey().into(),
             max_results: 8,
+            theme: Theme::System,
+            menu_bar_icon: true,
             providers: Providers::default(),
             apps: Apps::default(),
             scripts: Scripts::default(),

@@ -6,6 +6,22 @@ Every user-facing change is listed here. The format follows
 
 ## [Unreleased]
 
+### Added
+
+- **Settings, as in Raycast**: type `settings` in the launcher (or pick Settings… in the
+  menu-bar icon, or run `quickhop settings`) for a settings window on macOS: record a new
+  hotkey, launch at login, the menu-bar icon, the theme, results per search, each provider,
+  clipboard history, hidden files, and Open config file for the rest. Each change is written
+  into `config.toml` at once, keeping your comments and order; a change that would make the
+  file invalid is refused. On Linux `quickhop settings` opens `config.toml` in your editor.
+- **A menu-bar icon** (macOS: Open quickhop, Settings…, Quit quickhop) and **tray icon** (Linux:
+  Settings…, Reload quickhop config, Quit quickhop). `menu_bar_icon = false` hides it.
+- **quickhop's own commands in the search**: quickhop Settings, Reload quickhop config, About
+  quickhop (version, where the files live) and Quit quickhop.
+- **`theme = "system" | "dark" | "light"`** for every quickhop window.
+- **Reload on save**: the daemon reads `config.toml` and `snippets.toml` again whenever either
+  is saved; `quickhop reload` is no longer needed after an edit.
+
 ### Fixed
 
 - The search bar deletes words and lines like a native text field: `Option+Backspace`

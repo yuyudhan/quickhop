@@ -17,6 +17,7 @@ dev = ["quickhop-core/dev"]
 clap.workspace = true
 getrandom.workspace = true
 jiff.workspace = true
+notify.workspace = true
 quickhop-core.workspace = true
 quickhop-index.workspace = true
 quickhop-providers.workspace = true
@@ -27,6 +28,7 @@ serde_json.workspace = true
 thiserror.workspace = true
 
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+ksni.workspace = true
 quickhop-platform-linux.workspace = true
 
 [target.'cfg(target_os = "macos")'.dependencies]

@@ -2,9 +2,11 @@
 //! `daemon.lock`), reached over the Unix socket `daemon.sock`, both in
 //! [`runtime_dir`](quickhop_core::config::runtime_dir). It watches the clipboard, rebuilds the
 //! file index and keeps it current, and serves `status`, `open`, `toggle`, `show`, `hide`,
-//! `onboarding`, `app-opened`, `reload` and `stop` requests: one JSON line in, one JSON line
-//! out per connection. On macOS it owns the launcher window and the onboarding window: the
-//! main thread runs the windows, the requests are served on a thread of their own.
+//! `onboarding`, `settings`, `app-opened`, `reload` and `stop` requests: one JSON line in, one
+//! JSON line out per connection. On macOS it owns the launcher, onboarding and settings
+//! windows and the menu-bar icon: the main thread runs the windows, the requests are served on
+//! a thread of their own. On Linux it shows the tray icon. It reads the config again when
+//! `config.toml` or `snippets.toml` is saved ([`crate::config_watch`]).
 
 use std::fs::{File, OpenOptions};
 use std::io::{self, BufRead, BufReader, Read, Write};
@@ -16,7 +18,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use quickhop_core::config::runtime_dir;
-use quickhop_core::{Cancel, Config, Flavour};
+use quickhop_core::{Cancel, Config, Flavour, ItemId, QuickhopCommand};
 use quickhop_index::{Index, Watcher};
 use quickhop_providers::Env;
 use serde::{Deserialize, Serialize};
@@ -56,6 +58,8 @@ pub(crate) enum Request {
     Hide,
     /// Open the onboarding window: whether quickhop may paste, and how to allow it.
     Onboarding,
+    /// Open the settings: the settings window (macOS), else `config.toml` in the editor.
+    Settings,
     /// quickhop.app was opened again: show the launcher, or the onboarding window while
     /// quickhop may not paste.
     AppOpened,
@@ -298,6 +302,13 @@ struct State {
     /// The launcher hotkey as bound, or why it is not, for `status`.
     #[cfg(target_os = "macos")]
     hotkey: Arc<Mutex<String>>,
+    /// The menu-bar icon (macOS) or tray icon (Linux): `on`, or `off (why)`, for `status`.
+    menu_bar: Arc<Mutex<String>>,
+    /// The tray icon, while the daemon shows one.
+    #[cfg(not(target_os = "macos"))]
+    tray: Option<crate::tray::TraySlot>,
+    /// Reload on save, kept running while the daemon runs (`None` until [`serve`] starts it).
+    config_watch: Option<Result<crate::config_watch::ConfigWatch, String>>,
 }
 
 /// The file index being rebuilt, then watched, on its own thread.
@@ -407,6 +418,10 @@ impl State {
             ui: Ui::default(),
             #[cfg(target_os = "macos")]
             hotkey: Arc::new(Mutex::new(NO_WINDOW_HOTKEY.into())),
+            menu_bar: Arc::new(Mutex::new(NO_MENU_BAR.into())),
+            #[cfg(not(target_os = "macos"))]
+            tray: None,
+            config_watch: None,
         }
     }
 
@@ -435,13 +450,25 @@ impl State {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .clone();
+        let menu_bar = self
+            .menu_bar
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        let watch = match &self.config_watch {
+            Some(Ok(_)) => "on".to_owned(),
+            Some(Err(why)) => format!("off ({why})"),
+            None => "off".to_owned(),
+        };
         #[cfg(target_os = "macos")]
         return format!(
-            "clipboard: {clipboard}; file index: {index}; window: {window}; hotkey: {hotkey}"
+            "clipboard: {clipboard}; file index: {index}; reload on save: {watch}; window: \
+             {window}; menu bar: {menu_bar}; hotkey: {hotkey}"
         );
         #[cfg(not(target_os = "macos"))]
         format!(
-            "clipboard: {clipboard}; file index: {index}; window: not built for this system yet"
+            "clipboard: {clipboard}; file index: {index}; reload on save: {watch}; window: not \
+             built for this system yet; tray: {menu_bar}"
         )
     }
 
@@ -461,10 +488,17 @@ impl State {
             }
             self.clipboard = start_clipboard(&self.clipboard_settings);
         }
-        if let Ok(index) = std::mem::replace(&mut self.index, Err(String::new())) {
-            index.stop();
+        // The index restarts only when what it covers changed, or it is not running (an index
+        // built since, or one that failed): a settings switch must not rebuild it.
+        if config.files != self.config.files
+            || config.providers.files != self.config.providers.files
+            || self.index.is_err()
+        {
+            if let Ok(index) = std::mem::replace(&mut self.index, Err(String::new())) {
+                index.stop();
+            }
+            self.index = start_index(&config);
         }
-        self.index = start_index(&config);
         #[cfg(target_os = "macos")]
         if let Some(launcher) = &self.launcher {
             launcher.reload(&config);
@@ -475,6 +509,9 @@ impl State {
         {
             *self.hotkey.lock().unwrap_or_else(PoisonError::into_inner) =
                 bind_hotkey(ui, &config.hotkey);
+        }
+        if config.menu_bar_icon != self.config.menu_bar_icon {
+            self.show_menu_bar(config.menu_bar_icon);
         }
         self.config = config;
         Ok(format!("reloaded; {}", self.status()))
@@ -490,6 +527,12 @@ impl State {
     }
 
     fn handle(&mut self, request: Request) -> Response {
+        if let Request::Open { id, .. } = &request
+            && let Some(command) = own_command(id)
+        {
+            let (ok, message) = self.own(command);
+            return Response::new(ok, message, self.exe.as_deref());
+        }
         let (ok, message) = match request {
             Request::Status => {
                 let running = running_line(
@@ -534,6 +577,7 @@ impl State {
             Request::Hide => window(&self.ui, quickhop_ui::window::Command::Hide),
             #[cfg(target_os = "macos")]
             Request::Onboarding => window(&self.ui, quickhop_ui::window::Command::Onboarding),
+            Request::Settings => self.settings(),
             #[cfg(target_os = "macos")]
             Request::AppOpened => window(&self.ui, quickhop_ui::window::Command::AppOpened),
             #[cfg(not(target_os = "macos"))]
@@ -548,6 +592,76 @@ impl State {
             Request::Stop => (true, "stopping".into()),
         };
         Response::new(ok, message, self.exe.as_deref())
+    }
+
+    /// Opens the settings: the settings window while the launcher window runs, else
+    /// `config.toml` in the default editor, which this daemon reloads when it is saved.
+    fn settings(&self) -> (bool, String) {
+        #[cfg(target_os = "macos")]
+        if self.ui.get().is_some() {
+            return window(&self.ui, quickhop_ui::window::Command::Settings);
+        }
+        let opened = crate::settings::config_file()
+            .and_then(|path| crate::settings::open_in_editor(&path).map(|()| path));
+        let applies = if matches!(self.config_watch, Some(Ok(_))) {
+            "quickhop reads it again when you save"
+        } else {
+            "run `quickhop reload` after saving"
+        };
+        match opened {
+            Ok(path) => (
+                true,
+                format!("opened {} in the editor; {applies}", path.display()),
+            ),
+            Err(error) => (false, error),
+        }
+    }
+
+    /// Runs one of quickhop's own commands asked for by id (`quickhop open quickhop:reload`):
+    /// here, not through `launch`, which would ask this very daemon over its socket.
+    fn own(&mut self, command: QuickhopCommand) -> (bool, String) {
+        match command {
+            QuickhopCommand::Settings => self.settings(),
+            QuickhopCommand::Reload => match self.reload() {
+                Ok(message) => (true, message),
+                Err(message) => (false, message),
+            },
+            QuickhopCommand::About => (true, crate::settings::about().trim_end().to_owned()),
+            QuickhopCommand::Quit => (true, "stopping".into()),
+        }
+    }
+
+    /// Shows or removes the menu-bar icon (macOS, once the window runs) or the tray icon
+    /// (Linux, in a daemon with a display), recording the status line.
+    fn show_menu_bar(&mut self, on: bool) {
+        #[cfg(target_os = "macos")]
+        let status = match self.ui.get() {
+            Some(ui) => show_status_item(ui, on),
+            None => NO_MENU_BAR.to_owned(),
+        };
+        #[cfg(not(target_os = "macos"))]
+        let status = match &self.tray {
+            Some(tray) => tray.set(on),
+            None => NO_MENU_BAR.to_owned(),
+        };
+        *self.menu_bar.lock().unwrap_or_else(PoisonError::into_inner) = status;
+    }
+}
+
+/// The menu-bar status of a daemon without a window or display.
+const NO_MENU_BAR: &str = "off (no window)";
+
+/// quickhop's own command the item `id` names (`quickhop:settings`, …).
+fn own_command(id: &str) -> Option<QuickhopCommand> {
+    ItemId::parse(id).and_then(|id| quickhop_providers::quickhop::command(&id))
+}
+
+/// Whether the daemon stops after answering `request`: `stop`, or Quit quickhop by id.
+fn stops(request: &Request) -> bool {
+    match request {
+        Request::Stop => true,
+        Request::Open { id, .. } => own_command(id) == Some(QuickhopCommand::Quit),
+        _ => false,
     }
 }
 
@@ -569,6 +683,9 @@ fn window(ui: &Ui, command: quickhop_ui::window::Command) -> (bool, String) {
         Ok(snapshot) => snapshot,
         Err(gone) => return (false, gone.to_string()),
     };
+    if command == Command::Settings {
+        return (true, "settings shown".into());
+    }
     let onboarding =
         command == Command::Onboarding || (command == Command::AppOpened && !snapshot.visible);
     if !onboarding {
@@ -654,14 +771,32 @@ pub(crate) fn serve(
     }
     let listener = UnixListener::bind(&paths.socket).map_err(file_error(&paths.socket))?;
     let mut state = State::start(config);
+    state.config_watch = Some(crate::settings::config_file().and_then(|path| {
+        crate::config_watch::start(&path, || {
+            // Through the socket, as `quickhop reload`: the state lives on the request thread.
+            if let Err(error) = send(&Request::Reload).and_then(message) {
+                let _ = writeln!(io::stderr(), "quickhop daemon: reload on save: {error}");
+            }
+        })
+    }));
     #[cfg(target_os = "macos")]
     let launcher = options.window.then(|| {
         *state.hotkey.lock().unwrap_or_else(PoisonError::into_inner) = "starting".into();
+        *state
+            .menu_bar
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner) = "starting".into();
         state.launcher()
     });
     #[cfg(not(target_os = "macos"))]
     if options.window || options.test_socket.is_some() {
         crate::warn("the launcher window is not built for this system yet");
+    }
+    // The tray needs a desktop session, which a daemon without a window has none of.
+    #[cfg(not(target_os = "macos"))]
+    if options.window {
+        state.tray = Some(crate::tray::TraySlot::default());
+        state.show_menu_bar(state.config.menu_bar_icon);
     }
     writeln!(
         out,
@@ -675,6 +810,8 @@ pub(crate) fn serve(
     let ui = Arc::clone(&state.ui);
     #[cfg(target_os = "macos")]
     let (hotkey, hotkey_text) = (Arc::clone(&state.hotkey), state.config.hotkey.clone());
+    #[cfg(target_os = "macos")]
+    let (menu_bar, menu_bar_on) = (Arc::clone(&state.menu_bar), state.config.menu_bar_icon);
     // Whether this thread is in the window's run loop, which only the window can end.
     #[cfg(target_os = "macos")]
     let window_running = Arc::new(AtomicBool::new(launcher.is_some()));
@@ -713,6 +850,8 @@ pub(crate) fn serve(
             let _ = ui.set(handle.clone());
             *hotkey.lock().unwrap_or_else(PoisonError::into_inner) =
                 bind_hotkey(&handle, &hotkey_text);
+            *menu_bar.lock().unwrap_or_else(PoisonError::into_inner) =
+                show_status_item(&handle, menu_bar_on);
             crate::window::refresh_inline(Arc::clone(&launcher), handle.clone());
             if app {
                 let _ = handle.send(quickhop_ui::window::Command::AppOpened);
@@ -741,7 +880,7 @@ fn accept(listener: &UnixListener, state: &mut State) -> Result<(), DaemonError>
         };
         let (response, stop) = match read_request(&stream) {
             Ok(request) => {
-                let stop = matches!(request, Request::Stop);
+                let stop = stops(&request);
                 (state.handle(request), stop)
             }
             Err(message) => (Response::new(false, message, state.exe.as_deref()), false),
@@ -793,6 +932,81 @@ fn bind_hotkey(ui: &quickhop_ui::window::Handle, text: &str) -> String {
             Ok(registration) => {
                 HOTKEY.set(Some(registration));
                 hotkey.to_string()
+            }
+            Err(error) => format!("off ({error})"),
+        };
+        let _ = reply.send(status);
+    });
+    match sent {
+        Ok(()) => answer.recv().unwrap_or_else(|_| GONE.into()),
+        Err(_) => GONE.into(),
+    }
+}
+
+#[cfg(target_os = "macos")]
+thread_local! {
+    /// The menu-bar icon, kept by the main thread that owns it.
+    static STATUS_ITEM: std::cell::RefCell<Option<quickhop_platform_macos::status_item::StatusItem>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// Puts quickhop's icon in the menu bar when `on` (Open quickhop, Settings…, Quit quickhop),
+/// else removes it; returns the status line: `on`, or `off (why)`. Waits for the main
+/// thread, so it is called from another one.
+#[cfg(target_os = "macos")]
+fn show_status_item(ui: &quickhop_ui::window::Handle, on: bool) -> String {
+    use quickhop_platform_macos::status_item::{self, Entry};
+    use quickhop_ui::window::Command;
+
+    const GONE: &str = "off (the launcher window is gone)";
+    let (reply, answer) = std::sync::mpsc::channel();
+    let window = ui.clone();
+    let sent = ui.on_main_thread(move || {
+        if !on {
+            STATUS_ITEM.with_borrow_mut(Option::take);
+            let _ = reply.send("off (menu_bar_icon = false)".to_owned());
+            return;
+        }
+        if STATUS_ITEM.with_borrow(Option::is_some) {
+            let _ = reply.send("on".to_owned());
+            return;
+        }
+        // Menu choices arrive on the main thread, which `send` waits for: send from another.
+        let command = |command: Command| -> Box<dyn Fn()> {
+            let window = window.clone();
+            Box::new(move || {
+                let window = window.clone();
+                std::thread::spawn(move || window.send(command));
+            })
+        };
+        let entries = vec![
+            Entry::Command {
+                title: "Open quickhop".into(),
+                key: String::new(),
+                action: command(Command::Show),
+            },
+            Entry::Command {
+                title: "Settings…".into(),
+                key: ",".into(),
+                action: command(Command::Settings),
+            },
+            Entry::Separator,
+            Entry::Command {
+                title: "Quit quickhop".into(),
+                key: "q".into(),
+                action: Box::new(|| {
+                    std::thread::spawn(|| {
+                        if let Err(error) = send(&Request::Stop) {
+                            let _ = writeln!(io::stderr(), "quickhop daemon: quit: {error}");
+                        }
+                    });
+                }),
+            },
+        ];
+        let status = match status_item::install(Flavour::CURRENT.app_name(), entries) {
+            Ok(item) => {
+                STATUS_ITEM.set(Some(item));
+                "on".to_owned()
             }
             Err(error) => format!("off ({error})"),
         };

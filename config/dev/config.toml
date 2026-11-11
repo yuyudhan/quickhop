@@ -18,6 +18,14 @@ hotkey = "Ctrl+Alt+Shift+Space"
 # Reload: the window's next search.
 max_results = 10
 
+# The windows' colours: "system" (light or dark as macOS is), "dark" or "light". Default:
+# "system". Reload: the next time a window draws.
+theme = "system"
+
+# quickhop's icon in the menu bar (macOS) or the system tray (Linux), with Open, Settings and
+# Quit. Default: true. Reload: the icon appears or goes.
+menu_bar_icon = true
+
 # Turn each built-in source of results on or off. Default: all true. `quickhop doctor`
 # prints `provider <name>: disabled` for the ones turned off. Reload: the next search.
 [providers]

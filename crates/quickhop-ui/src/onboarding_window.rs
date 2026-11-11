@@ -18,6 +18,8 @@ use gpui::{
 };
 
 use crate::onboarding::{Onboarding, Press, Program, Status};
+use crate::settings_window::is_dark;
+use crate::theme;
 use crate::window::Backend;
 
 /// How often the window asks the system while the user is in System Settings.
@@ -288,10 +290,11 @@ impl OnboardingView {
 impl Render for OnboardingView {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         self.fit(window, cx);
+        let palette = theme::palette(self.backend.theme(), is_dark(window.appearance()));
         let dot = if self.model.granted() {
-            rgb(0x00a3_be8c)
+            rgb(palette.success)
         } else {
-            rgb(0x00eb_cb8b)
+            rgb(palette.warning)
         };
         // The sizes are the ones [`height`] measures with; the button row never shrinks, so
         // it stays whole even before a resize lands.
@@ -304,8 +307,8 @@ impl Render for OnboardingView {
             .gap(px(GAP))
             .p(px(PADDING))
             .line_height(relative(LINE_HEIGHT))
-            .bg(rgb(0x002e_3440))
-            .text_color(rgb(0x00ec_eff4))
+            .bg(rgb(palette.window))
+            .text_color(rgb(palette.strong))
             .child(
                 div()
                     .flex_none()
@@ -332,7 +335,7 @@ impl Render for OnboardingView {
                     .min_h_0()
                     .overflow_hidden()
                     .text_size(px(TEXT_SIZE))
-                    .text_color(rgb(0x00d8_dee9))
+                    .text_color(rgb(palette.text))
                     .child(self.model.message()),
             )
             .child(div().flex_1())
@@ -343,7 +346,8 @@ impl Render for OnboardingView {
                         .px_4()
                         .py(px(BUTTON_PADDING_Y))
                         .rounded_md()
-                        .bg(rgb(0x005e_81ac))
+                        .bg(rgb(palette.accent))
+                        .text_color(rgb(palette.on_accent))
                         .text_size(px(TEXT_SIZE))
                         .cursor_pointer()
                         .child(self.model.button())

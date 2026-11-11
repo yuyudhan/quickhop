@@ -144,6 +144,7 @@ answers `open` and `reload`, and on macOS owns the launcher window and its globa
     quickhop toggle                            # show the window, or hide it (macOS)
     quickhop show                              # also `quickhop hide`
     quickhop onboarding                        # may quickhop paste? (macOS Accessibility)
+    quickhop settings                          # the settings window (Linux: config.toml in the editor)
     quickhop reload                            # re-read the config without a restart
     quickhop daemon stop
 

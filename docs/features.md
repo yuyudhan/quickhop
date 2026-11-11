@@ -168,9 +168,9 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 | CFG-01 | `~/.config/quickhop/config.toml` (honours `XDG_CONFIG_HOME`), validated, `config default/path/check` | done | P0 | XDG on macOS too | XDG |
 | CFG-02 | One-time move from the 0.1 macOS location `~/Library/Application Support/quickhop` | done | P0 | config and frecency database | n/a |
 | CFG-03 | `quickhop doctor`: paths, session, helper tools, providers | done | P0 | shared | adds X11/Wayland session |
-| CFG-04 | Live reload when config, scripts or snippets change | planned | P1 | FSEvents (`notify`) | inotify (`notify`) |
-| CFG-05 | Settings window that writes `config.toml` (comments preserved with `toml_edit`) | planned | P1 | UI | same |
-| CFG-06 | Themes: light, dark, follow system; custom theme TOML in `~/.config/quickhop/themes/` | planned | P1 | `NSApp.effectiveAppearance` | `Settings` portal `color-scheme` (GNOME, KDE) |
+| CFG-04 | Live reload when config, scripts or snippets change | partial | P1 | built: the daemon watches `config.toml` and `snippets.toml` (`notify`, FSEvents) and reloads on save, an invalid file refused as by `quickhop reload`; next: script folders | same (inotify) |
+| CFG-05 | Settings window that writes `config.toml` (comments preserved with `toml_edit`) | partial | P1 | built: quickhop Settings in the search (`settings`, `preferences`, `config`), the menu-bar icon's menu and `quickhop settings` open a settings window: hotkey recorder, launch at login, menu-bar icon, theme, results per search, each provider, clipboard history, hidden files, open config file; each change is written at once keeping comments and order, an invalid result refused. Also in the search: Reload quickhop config, About quickhop, Quit quickhop. The menu-bar icon (`NSStatusItem`, template image, `menu_bar_icon`) offers Open quickhop, Settings…, Reload config, Quit | `quickhop settings` and the tray icon (`StatusNotifierItem`, `ksni`) open `config.toml` in the default editor until the Linux window lands |
+| CFG-06 | Themes: light, dark, follow system; custom theme TOML in `~/.config/quickhop/themes/` | partial | P1 | built: `theme = "system" \| "dark" \| "light"` for every window, following `NSApp.effectiveAppearance`; next: custom theme files | `Settings` portal `color-scheme` (GNOME, KDE) with the Linux window |
 | CFG-07 | Launch at login | partial | P0 | built: `quickhop autostart on\|off\|status` writes a LaunchAgent plist (`io.github.yuyudhan.quickhop`, `RunAtLoad`; `….dev` for a development build) that runs quickhop.app when installed, and `autostart on` starts the daemon at once (`launchctl bootstrap`), replacing one from another program or version; `SMAppService.mainApp` with the `.app` | done: `quickhop autostart on\|off\|status` writes `~/.config/autostart/quickhop.desktop` and starts the daemon at once; on sway, i3, Hyprland and river it prints the compositor's exec line instead; packages also ship a systemd user unit |
 | CFG-08 | Settings sync between machines | planned | P2 | plain files: the config dir is git/Syncthing friendly; `quickhop export/import` bundles config, snippets, quicklinks, encrypted with a passphrase (`age`) | same |
 | CFG-09 | Import a Raycast export (`.rayconfig`) | planned | P2 | decrypt with the user's export password, map snippets/quicklinks/aliases/hotkeys | same |
@@ -185,9 +185,9 @@ permission. "Portal" is an XDG Desktop Portal over D-Bus (`org.freedesktop.porta
 | Priority | Features | done | partial | planned |
 |----------|---------:|-----:|--------:|--------:|
 | P0 | 30 | 19 | 11 | 0 |
-| P1 | 36 | 1 | 9 | 26 |
+| P1 | 36 | 1 | 12 | 23 |
 | P2 | 29 | 0 | 0 | 29 |
-| All | 95 | 20 | 20 | 55 |
+| All | 95 | 20 | 23 | 52 |
 
 Counted from the tables above; recount when editing them.
 

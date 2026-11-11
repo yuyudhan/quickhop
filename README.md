@@ -102,12 +102,19 @@ clipboard and keeps the file index current. The full tour, with every command:
 [docs/usage.md](docs/usage.md).
 
 On macOS the daemon also shows the launcher window when you press the global hotkey
-(`Alt+Shift+Space`, so Raycast keeps its `Alt+Space`) or run `quickhop toggle`; opening
+(`Alt+Shift+Space`, so Raycast keeps its `Alt+Space`) or run `quickhop toggle`, and puts
+quickhop's icon in the menu bar (Open quickhop, Settings…, Quit quickhop). Opening
 `quickhop.app` starts it, and until quickhop may paste into other apps its onboarding window
 shows where to allow that: System Settings › Privacy & Security › Accessibility (Device
 Control and Data Access on macOS 27 and later).
-The Linux window is being built ([plan](docs/plan.md)). Everything else on this page works
-from the command line on both.
+
+**Settings** work as in Raycast: type `settings` in the launcher (or pick Settings… in the
+menu-bar icon, or run `quickhop settings`) for the settings window: hotkey, launch at login,
+menu-bar icon, theme, results per search, providers, clipboard history and hidden files. It
+writes `~/.config/quickhop/config.toml` for you, keeping your comments; the daemon also
+reloads that file whenever you save it by hand. On Linux `quickhop settings` and the tray
+icon open the file in your editor. The Linux window is being built ([plan](docs/plan.md)).
+Everything else on this page works from the command line on both.
 
 ## What works today
 
@@ -127,6 +134,7 @@ from the command line on both.
 | Aliases, ordering and on/off switches per result | ✅ | ✅ |
 | Background daemon and launch at login | ✅ | ✅ |
 | Launcher window with a global hotkey and an action panel | ✅ | next |
+| Settings window, menu-bar or tray icon, light and dark theme | ✅ | tray icon; settings in the editor |
 
 What each feature uses on each platform: [docs/platform-support.md](docs/platform-support.md).
 All 95 Raycast features and their status: [docs/features.md](docs/features.md).
@@ -164,7 +172,7 @@ Every field Raycast documents is supported: `title`, `mode` (`fullOutput`, `comp
 |---|---|---|
 | Platforms | macOS and Linux (X11 and Wayland) | macOS and Windows |
 | Source | Open source, MIT or Apache-2.0 | Proprietary |
-| Settings | Plain TOML in `~/.config/quickhop`, easy to keep in git | In-app settings; cloud sync with a Raycast account |
+| Settings | A settings window (type `settings`) that writes plain TOML in `~/.config/quickhop`, easy to keep in git | In-app settings; cloud sync with a Raycast account |
 | Account | None, and no telemetry | A Raycast account for sync and Pro features |
 | Script commands | Raycast's format, unchanged | Raycast's format |
 | AI (designed) | Local models through Ollama by default, or your own OpenAI, Anthropic or compatible keys ([docs/ai.md](docs/ai.md)) | Raycast AI, part of Raycast Pro |

@@ -21,6 +21,8 @@ pub mod layout;
 pub mod panel;
 #[cfg(target_os = "macos")]
 pub mod pasteboard;
+#[cfg(target_os = "macos")]
+pub mod status_item;
 
 /// The operation needs macOS.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

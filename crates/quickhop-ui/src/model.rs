@@ -8,7 +8,8 @@
 //! slow search can never overwrite the results of a later keystroke.
 
 use quickhop_core::{
-    Action, Item, ItemId, Matcher, Query, Ranked, ScriptArgument, ScriptArgumentKind, ScriptMode,
+    Action, Item, ItemId, Matcher, Query, QuickhopCommand, Ranked, ScriptArgument,
+    ScriptArgumentKind, ScriptMode,
 };
 
 /// A search the window must run; its results come back through [`Model::set_results`] with the
@@ -240,14 +241,17 @@ pub enum Outcome {
 }
 
 /// Whether the window stays shown while `action` runs, to show what comes of it: scripts in
-/// `fullOutput`, `compact` and `inline` mode. Every other action hides the window first, so it
-/// reaches the app the user came from.
+/// `fullOutput`, `compact` and `inline` mode, Reload quickhop config (a toast) and About
+/// quickhop (a page). Every other action hides the window first, so it reaches the app the
+/// user came from.
 pub fn keeps_window(action: &Action) -> bool {
     matches!(
         action,
         Action::Script {
             mode: ScriptMode::FullOutput | ScriptMode::Compact | ScriptMode::Inline,
             ..
+        } | Action::Quickhop {
+            command: QuickhopCommand::Reload | QuickhopCommand::About
         }
     )
 }
@@ -646,6 +650,18 @@ pub fn action_title(action: &Action) -> String {
             "Open in Browser"
         }
         Action::Open { .. } | Action::View { .. } => "Open",
+        Action::Quickhop {
+            command: QuickhopCommand::Settings,
+        } => "Open Settings",
+        Action::Quickhop {
+            command: QuickhopCommand::Reload,
+        } => "Reload",
+        Action::Quickhop {
+            command: QuickhopCommand::About,
+        } => "Show",
+        Action::Quickhop {
+            command: QuickhopCommand::Quit,
+        } => "Quit",
         Action::Copy { .. } => "Copy to Clipboard",
         Action::Paste { .. } => "Paste",
         Action::Run { program, .. } if program == "qlmanage" => "Quick Look",

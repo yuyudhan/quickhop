@@ -10,13 +10,14 @@ use std::time::{Duration, Instant};
 
 use quickhop_core::paste::Pasted;
 use quickhop_core::{
-    Action, Boosts, Cancel, Config, Hotkey, Item, ItemId, Query, Ranked, ScriptMode, Search, View,
-    rank,
+    Action, Boosts, Cancel, Config, Hotkey, Item, ItemId, Query, QuickhopCommand, Ranked,
+    ScriptMode, Search, Theme, View, rank,
 };
 use quickhop_platform_macos::icon::{IconRenderer as _, SystemIcons};
 use quickhop_platform_macos::keys;
 use quickhop_providers::{scripts, views};
 use quickhop_ui::model::Outcome;
+use quickhop_ui::settings::{Change, Values};
 use quickhop_ui::window::{Backend, Command, Handle, ICON_PIXELS};
 
 /// Most entries a list (clipboard history, snippets, files) shows.
@@ -44,6 +45,8 @@ pub(crate) struct Launcher {
     /// The answer the UI tests set for whether quickhop may paste (`permission` on the test
     /// socket); `None` asks the system.
     permission: Mutex<Option<bool>>,
+    /// The windows' theme, from the configuration.
+    theme: Mutex<Theme>,
 }
 
 /// An inline script command and its newest first line of output.
@@ -65,6 +68,7 @@ impl Launcher {
             ahead: Mutex::new(Duration::ZERO),
             hotkey,
             permission: Mutex::new(None),
+            theme: Mutex::new(config.theme),
         }
     }
 
@@ -74,6 +78,7 @@ impl Launcher {
         *self.search.lock().unwrap_or_else(PoisonError::into_inner) = search;
         *self.inline.lock().unwrap_or_else(PoisonError::into_inner) =
             inline_scripts(config, self.now());
+        *self.theme.lock().unwrap_or_else(PoisonError::into_inner) = config.theme;
     }
 
     /// Moves the refresh clock `by` ahead, for the UI tests.
@@ -308,6 +313,9 @@ impl Backend for Launcher {
                 item.title, item.id
             ));
         }
+        if let Action::Quickhop { command } = action {
+            return own(*command);
+        }
         let output = crate::launch::perform(action, args).map_err(|e| e.to_string())?;
         let outcome = match action {
             Action::Copy { .. } | Action::Snippet { .. } => {
@@ -335,11 +343,13 @@ impl Backend for Launcher {
                 }
             },
             Action::Trash { .. } => Outcome::Hud(output),
-            // The window opens lists itself (`launch::perform` refuses a view).
+            // The window opens lists itself (`launch::perform` refuses a view), and runs
+            // quickhop's own commands above.
             Action::Open { .. }
             | Action::Run { .. }
             | Action::Reveal { .. }
-            | Action::View { .. } => Outcome::Done,
+            | Action::View { .. }
+            | Action::Quickhop { .. } => Outcome::Done,
         };
         // Clipboard entries come and go; only lasting items are worth remembering.
         if item.id.provider != "clipboard" {
@@ -390,5 +400,42 @@ impl Backend for Launcher {
         // The status is the hotkey as bound, else `off (why)` or `starting`.
         let status = self.hotkey.lock().unwrap_or_else(PoisonError::into_inner);
         Hotkey::parse(&status).ok().map(|hotkey| hotkey.to_string())
+    }
+
+    fn settings(&self) -> Result<Values, String> {
+        crate::settings::values()
+    }
+
+    fn change_setting(&self, change: &Change) -> Result<Values, String> {
+        crate::settings::change(change)
+    }
+
+    fn theme(&self) -> Theme {
+        *self.theme.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
+/// Runs one of quickhop's own commands chosen in the window: About opens a page, Reload says
+/// it reloaded, Quit stops the daemon (and with it the window). The window opens the settings
+/// itself.
+fn own(command: QuickhopCommand) -> Result<Outcome, String> {
+    use crate::daemon::{self, Request};
+
+    match command {
+        QuickhopCommand::About => Ok(Outcome::Detail {
+            title: "About quickhop".into(),
+            text: crate::settings::about(),
+        }),
+        QuickhopCommand::Reload => {
+            daemon::send(&Request::Reload)
+                .and_then(daemon::message)
+                .map_err(|e| e.to_string())?;
+            Ok(Outcome::Toast("Reloaded quickhop config".into()))
+        }
+        QuickhopCommand::Quit => {
+            daemon::send(&Request::Stop).map_err(|e| e.to_string())?;
+            Ok(Outcome::Done)
+        }
+        QuickhopCommand::Settings => Ok(Outcome::Done),
     }
 }
