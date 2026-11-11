@@ -31,7 +31,8 @@ private = { ignore = true }
 # nucleo-matcher (Helix's fuzzy matcher, the ranking engine picked in the T90 design) is
 # MPL-2.0 only. MPL-2.0 is file-level copyleft: using it unmodified as a dependency puts no
 # obligation on quickhop's own files. notify (the file-index watcher: inotify, FSEvents) is
-# CC0-1.0, a public-domain dedication with no conditions. The others come with gpui, a normal
+# CC0-1.0, a public-domain dedication with no conditions; ksni (the Linux tray icon,
+# StatusNotifierItem) is The Unlicense, another one. The others come with gpui, a normal
 # dependency since the launcher window (ADR 0001), unmodified, on the same terms: cbindgen
 # (MPL-2.0) only runs in gpui_apple's build script; dwrote (MPL-2.0, DirectWrite) and
 # option-ext (MPL-2.0, through dirs) are font-kit's; tiny-keccak (CC0-1.0) runs inside the
@@ -43,6 +44,9 @@ exceptions = [
     ] },
     { crate = "notify", allow = [
         "CC0-1.0",
+    ] },
+    { crate = "ksni", allow = [
+        "Unlicense",
     ] },
     { crate = "cbindgen", allow = [
         "MPL-2.0",
