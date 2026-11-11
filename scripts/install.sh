@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Installs, updates or uninstalls quickhop on Linux and macOS, without sudo. Published with every
-# GitHub release as releases/latest/download/install.sh; docs/install.md has the one-line install
-# that downloads it into a fresh temporary folder, runs it from there and removes that folder.
+# GitHub release as releases/latest/download/install.sh; README.md and docs/install.md have the
+# one-line install that downloads it into a fresh `mktemp -d` folder, runs it from there only
+# when the download worked, and removes that folder however it ends.
 #
 # Every download goes into one private temporary folder (mktemp -d), removed when the script
-# exits for any reason: success, an error, Ctrl+C (INT) or TERM. Nothing is written to the
-# current folder. Piping is safe too: all work happens in main, called on the last line, so bash
-# has read the whole script before anything runs. Options go after `bash -s --`.
+# exits for any reason: success, an error, Ctrl+C (INT), HUP or TERM. Nothing is written to the
+# current folder. Every failure is one `quickhop: error: ...` line and a non-zero exit: a
+# release or asset that does not exist (HTTP 404), a network error, a bad checksum, an
+# unsupported OS or CPU. Running it again over the same version reinstalls it in place. Options
+# go after `bash "$d/install.sh"` in the one-liner.
 #
 # It fetches the release archive for this OS and CPU (scripts/dist.sh builds it), checks it
 # against the release's .sha256 and that its binary starts on this system, then:
@@ -44,9 +47,19 @@ source_url="https://github.com/${repo}/blob/nightly/docs/install.md#from-source"
 # How long a daemon may take to stop or to start, in tenths of a second.
 daemon_wait=150
 # Every request: retry transient failures, give up on a connection that never opens, and abort
-# a transfer that stalls (under 1 KB/s for 30 s) instead of hanging.
-net=(--fail --silent --show-error --location --connect-timeout 15 --retry 3 --retry-delay 2
+# a transfer that stalls (under 1 KB/s for 30 s) instead of hanging. --retry alone retries only
+# timeouts and HTTP 408/429/5xx; install_release adds --retry-all-errors where curl has it
+# (7.71+), so a network that cuts connections (`curl: (35) ...`) is retried too. No --fail:
+# fetch judges the HTTP status itself, so a 404 is reported at once instead of being retried.
+net=(--silent --show-error --location --connect-timeout 15 --retry 5 --retry-delay 2
     --speed-limit 1024 --speed-time 30)
+
+# The private temporary folder of this run (install_release creates it); removed on every exit.
+work=""
+
+remove_work() {
+    [ -z "$work" ] || rm -rf "$work"
+}
 
 say() {
     printf 'quickhop: %s\n' "$*"
@@ -61,8 +74,8 @@ usage() {
     cat <<'EOF'
 Install, update or uninstall quickhop (Linux and macOS, no sudo).
 
-Options (after "bash -s --" when piped):
-  --version X.Y.Z    install that release instead of the latest
+Options (after bash "$d/install.sh" in the one-line install, or "bash -s --" when piped):
+  --version X.Y.Z    install that release instead of the latest (vX.Y.Z works too)
   --from DIR         install from a local directory of release assets (no network)
   --uninstall        stop the daemon, remove quickhop, keep the config and data
   --purge            with --uninstall, also delete the config and data directories
@@ -168,22 +181,26 @@ sha256_of() {
 }
 
 # Copies or downloads one release asset from `base` (a URL, or a directory with --from), and
-# fails on anything but a non-empty file: a 404 (no such release asset), a network error, or an
-# empty body.
+# fails with one line on anything but a non-empty file: a 404 (no such release or asset), a
+# network error (curl's own reason), another HTTP status, or an empty body.
 fetch() {
-    local from="$1" base="$2" name="$3" to="$4" url code
+    local from="$1" base="$2" name="$3" to="$4" url code="" reason
     if [ -n "$from" ]; then
         [ -f "${base}/${name}" ] || fail "no ${name} in ${base}"
         cp "${base}/${name}" "$to"
     else
         url="${base}/${name}"
-        if ! code="$(curl "${net[@]}" --write-out '%{http_code}' --output "$to" "$url")"; then
-            case "$code" in
-                404) fail "${url} does not exist (HTTP 404): there is no such release asset. Check the version at https://github.com/${repo}/releases" ;;
-                000 | "") fail "could not download ${url} (no answer: check the network or proxy)" ;;
-                *) fail "could not download ${url} (HTTP ${code})" ;;
-            esac
+        if ! code="$(curl "${net[@]}" --stderr "${to}.err" --write-out '%{http_code}' --output "$to" "$url")"; then
+            reason="$(sed -n 's/^curl: ([0-9]*) //p' "${to}.err" | tail -n 1)"
+            fail "network error: could not download ${url} (${reason:-no answer}); check the network or proxy"
         fi
+        # A file:// base (a local mirror) has no HTTP status: curl reports 000.
+        case "${code}:${url%%://*}" in
+            200:* | 000:file) ;;
+            404:*) fail "release not found: ${url} (HTTP 404); the releases are at https://github.com/${repo}/releases" ;;
+            *) fail "could not download ${url} (HTTP ${code})" ;;
+        esac
+        rm -f "${to}.err"
     fi
     [ -s "$to" ] || fail "${name} from ${base} is empty"
 }
@@ -345,16 +362,23 @@ install_release() {
     fi
     archive="quickhop-${target}.tar.gz"
 
-    [ -n "$from" ] || command -v curl >/dev/null 2>&1 || fail "curl is required"
+    if [ -z "$from" ]; then
+        command -v curl >/dev/null 2>&1 || fail "curl is required"
+        if curl --retry-all-errors --version >/dev/null 2>&1; then
+            net+=(--retry-all-errors)
+        fi
+    fi
     command -v tar >/dev/null 2>&1 || fail "tar is required"
     # One private folder for every download and the unpacked archive, removed on every exit.
-    # INT and TERM exit through the EXIT trap, so Ctrl+C or a kill leaves nothing behind either.
-    tmp="$(mktemp -d "${TMPDIR:-/tmp}/quickhop-install.XXXXXX")" ||
-        fail "could not create a temporary folder in ${TMPDIR:-/tmp}"
-    # shellcheck disable=SC2064 # expand now: tmp is local and gone when the trap fires
-    trap "rm -rf '${tmp}'" EXIT
+    # The traps are set before the folder exists, and HUP, INT and TERM exit through the EXIT
+    # trap, so Ctrl+C, a closed terminal or a kill leaves nothing behind either.
+    trap remove_work EXIT
+    trap 'exit 129' HUP
     trap 'exit 130' INT
     trap 'exit 143' TERM
+    work="$(mktemp -d "${TMPDIR:-/tmp}/quickhop-install.XXXXXX")" ||
+        fail "could not create a temporary folder in ${TMPDIR:-/tmp} (set TMPDIR to a writable folder)"
+    tmp="$work"
 
     say "fetching ${archive} from ${base}"
     fetch "$from" "$base" "$archive" "${tmp}/${archive}"

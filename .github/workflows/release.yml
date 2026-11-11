@@ -258,7 +258,7 @@ jobs:
                   scripts/release-notes.sh "${{ needs.version.outputs.version }}" >"${RUNNER_TEMP}/notes.md"
                   gh release create "$GITHUB_REF_NAME" dist/* \
                       --title "quickhop ${GITHUB_REF_NAME}" --notes-file "${RUNNER_TEMP}/notes.md" \
-                      --generate-notes --verify-tag
+                      --generate-notes --verify-tag --latest
             # Needs a token that can push to yuyudhan/homebrew-tap (a fine-grained PAT with
             # contents: write on that repository); without it the formula and cask are only
             # release assets.

@@ -8,11 +8,11 @@
 #   quickhop reload         # a running daemon reads the files again
 # Every other command (query, launch, doctor, index, clipboard, run) reads them each time.
 
-# Global shortcut that shows and hides the launcher window. Default: "Alt+Shift+Space" in a
-# development build ("Alt+Space" in a release, so both daemons can hold theirs). Modifiers
+# Global shortcut that shows and hides the launcher window. Default: "Ctrl+Alt+Shift+Space" in
+# a development build ("Alt+Shift+Space" in a release, so both daemons can hold theirs). Modifiers
 # and one key joined by `+`, any order and case. `quickhop daemon status` shows the bound key.
 # Reload: re-registered.
-hotkey = "Alt+Shift+Space"
+hotkey = "Ctrl+Alt+Shift+Space"
 
 # Results per search, 1 to 100. Default: 8. `quickhop query --limit N` overrides it once.
 # Reload: the window's next search.

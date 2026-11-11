@@ -672,8 +672,8 @@ mod tests {
     #[test]
     fn defaults_differ_only_in_the_hotkey() {
         let (release, dev) = (Config::defaults(Release), Config::defaults(Dev));
-        assert_eq!(release.hotkey, "Alt+Space");
-        assert_eq!(dev.hotkey, "Alt+Shift+Space");
+        assert_eq!(release.hotkey, "Alt+Shift+Space");
+        assert_eq!(dev.hotkey, "Ctrl+Alt+Shift+Space");
         assert_eq!(
             Config {
                 hotkey: release.hotkey.clone(),

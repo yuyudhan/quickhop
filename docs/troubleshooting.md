@@ -26,7 +26,7 @@ its output right after `cargo install` in a fresh Ubuntu 22.04 container (hence 
     tool loginctl: found
     tool systemctl: found
     scripts: none (create /root/.config/quickhop/scripts)
-    hotkey: Alt+Space (not registered yet: the Linux window is still being built)
+    hotkey: Alt+Shift+Space (not registered yet: the Linux window is still being built)
     provider apps: enabled (1 items)
     provider calc: enabled (0 items)
     provider emoji: enabled (1923 items)
@@ -101,10 +101,15 @@ projects frees the most), then run the install again.
 **`curl … | bash` printed nothing and nothing was installed.** A failed download piped into
 bash runs an empty script and exits 0. Use the [one-line install](install.md#the-installer-script)
 instead: it downloads the installer into a temporary folder first, so a failed download stops
-with curl's error and a non-zero exit status, and it removes that folder afterwards.
+with one line and a non-zero exit status, and it removes that folder afterwards.
 
-**`install.sh`: `… does not exist (HTTP 404)`.** No release has that asset: check the version
-at <https://github.com/yuyudhan/quickhop/releases>.
+**`quickhop: release not found: <url>`.** GitHub has no release (or no such asset) at that
+address, from the one-line install or from `install.sh --version`: check the version at
+<https://github.com/yuyudhan/quickhop/releases>.
+
+**`quickhop: could not download <url> (HTTP 000, check the network)` or `quickhop: error:
+network error: …`.** Nothing answered: curl's own reason follows (no DNS, a refused or cut
+connection, a proxy). Fix the network and run the line again.
 
 **`install.sh`: `this system uses musl libc` or `needs glibc 2.31 or later`.** The Linux
 release is built for glibc 2.31 and later (Debian 11, Ubuntu 20.04, Fedora 32, RHEL 9 or
@@ -242,10 +247,10 @@ daemon, so every login logs `already running`. Keep one: `quickhop autostart off
 `daemon:` line says whether a daemon runs, which version and from where, and each `warn:` line
 gives a fix. With no daemon running there is no hotkey: `quickhop autostart on`, or run
 `quickhop toggle` once. `quickhop daemon status` ends with the hotkey the daemon holds, or
-`hotkey: off (...)` and why: `Alt+Space is taken by another app` means another app holds that
+`hotkey: off (...)` and why: `Alt+Shift+Space is taken by another app` means another app holds that
 combination for itself. macOS otherwise lets several apps register the same combination, so
 another launcher bound to it may open as well. Either way, set another `hotkey` in
-`config.toml` and run `quickhop reload`. A development build listens on `Alt+Shift+Space`
+`config.toml` and run `quickhop reload`. A development build listens on `Ctrl+Alt+Shift+Space`
 unless its own config says otherwise ([install.md](install.md#development-builds)).
 
 **quickhop.app does nothing when opened (macOS).** It shows an alert saying why (an invalid

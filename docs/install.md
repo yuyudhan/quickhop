@@ -54,13 +54,19 @@ Every release attaches `install.sh`. This one line downloads it into a new tempo
 runs it from there, and removes that folder when it ends, whether it worked, failed or you
 pressed Ctrl+C. Nothing is left in the folder you run it from:
 
-    (d="$(mktemp -d)" && trap 'rm -rf "$d"' EXIT INT TERM && curl -fsSL --retry 3 -o "$d/install.sh" https://github.com/yuyudhan/quickhop/releases/latest/download/install.sh && bash "$d/install.sh")
+    (d="$(mktemp -d)" && trap 'rm -rf "$d"' EXIT INT TERM && u=https://github.com/yuyudhan/quickhop/releases/latest/download/install.sh && { c="$(curl -sSL --retry 3 --retry-all-errors -w '%{http_code}' -o "$d/install.sh" "$u" 2>"$d/err")" && [ "$c" = 200 ] || { [ "$c" = 404 ] && echo "quickhop: release not found: $u" >&2 || echo "quickhop: could not download $u (HTTP ${c:-000}, check the network): $(tail -n 1 "$d/err")" >&2; exit 1; }; } && bash "$d/install.sh")
 
 It runs in bash and zsh (macOS's default shell); from fish, run `bash` first. The parentheses
 keep the temporary folder and its cleanup to that one command. The script is downloaded before
 anything runs rather than piped into `bash`: a failed download piped into bash runs nothing and
-exits 0, so it looks like success. Here a missing (HTTP 404) or interrupted download stops the
-command with curl's error and a non-zero exit status, and the installer never starts.
+exits 0, so it looks like success. Here the installer only starts after an HTTP 200; otherwise
+the command prints one line and exits 1, either `quickhop: release not found: <url>` (HTTP 404:
+no such release) or `quickhop: could not download <url> (HTTP <code>, check the network): <curl's
+reason>`. The same one-line, non-zero failures come from the installer itself for a missing
+release asset, a network error, a checksum mismatch and an unsupported OS or CPU.
+`--retry-all-errors` makes curl retry a connection the network cuts (a 404 is final and not
+retried); curl older than 7.71 (Ubuntu 20.04) does not know it, so the line stops with
+`option --retry-all-errors: is unknown`: drop that option there.
 
 It installs quickhop for one user, without `sudo`:
 
@@ -85,17 +91,18 @@ It installs quickhop for one user, without `sudo`:
 
 | Option | Does |
 |--------|------|
-| `--version X.Y.Z` | Install that release instead of the latest; refuses an archive holding another version. |
+| `--version X.Y.Z` | Install that release instead of the latest (`vX.Y.Z` works too); refuses an archive holding another version. |
 | `--from DIR` | Install from a local directory of release assets, with no network access. |
 | `--uninstall` | Stop the daemon, turn autostart off, and remove the binary, app and desktop files. Keeps your config and data. |
 | `--purge` | With `--uninstall`, also delete `~/.config/quickhop` and `~/.local/share/quickhop`, naming each before it goes. |
 | `-h`, `--help` | Show the options. |
 
 Options go after `bash "$d/install.sh"` inside the parentheses, for example
-`… && bash "$d/install.sh" --version 0.1.0)` or `… && bash "$d/install.sh" --uninstall)`.
-The installer itself downloads and unpacks the release into its own temporary folder
-(`mktemp -d`, under `TMPDIR`) and removes it on every exit, including a failed download or
-checksum, Ctrl+C and `kill`.
+`… && bash "$d/install.sh" --version v0.1.0)` or `… && bash "$d/install.sh" --uninstall)`.
+Running the line again updates, or reinstalls the same version in place. The installer itself
+downloads and unpacks the release into its own temporary folder (`mktemp -d`, under `TMPDIR`)
+and removes it on every exit, including a failed download or checksum, Ctrl+C, a closed
+terminal and `kill`.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
@@ -205,7 +212,7 @@ on macOS 14 or later with the Command Line Tools and [`just`](https://github.com
 
 `quickhop.app` holds the release binary as its executable, the icon and an ad-hoc signature
 (no Developer ID yet). Open it from Finder or Spotlight: it starts the daemon with the
-launcher window and the hotkey (`Alt+Space` unless `hotkey` in `config.toml` says otherwise)
+launcher window and the hotkey (`Alt+Shift+Space` unless `hotkey` in `config.toml` says otherwise)
 and shows the launcher, or the onboarding window while quickhop may not paste yet. It is an
 agent app, without a Dock icon or menu bar; `quickhop daemon stop` quits it.
 
@@ -228,7 +235,7 @@ Releases (`cargo install`, `just bundle-macos-release`, the release archives) ar
 | Config | `~/.config/quickhop/` | `~/.config/quickhop-dev/` |
 | Data | `~/.local/share/quickhop/` | `~/.local/share/quickhop-dev/` |
 | Daemon socket | `$XDG_RUNTIME_DIR/quickhop`, else `$TMPDIR/quickhop-$USER` | `…/quickhop-dev`, `$TMPDIR/quickhop-dev-$USER` |
-| Default hotkey | `Alt+Space` | `Alt+Shift+Space` |
+| Default hotkey | `Alt+Shift+Space` | `Ctrl+Alt+Shift+Space` |
 | macOS app | `quickhop.app`, `io.github.yuyudhan.quickhop` | `quickhop Dev.app`, `io.github.yuyudhan.quickhop.dev` |
 | Login entry | `io.github.yuyudhan.quickhop.plist`, `quickhop.desktop` | `io.github.yuyudhan.quickhop.dev.plist`, `quickhop-dev.desktop` (`quickhop Dev`) |
 | macOS app log | `~/Library/Logs/quickhop.log` | `~/Library/Logs/quickhop-dev.log` |

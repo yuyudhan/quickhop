@@ -71,11 +71,12 @@ impl Flavour {
 
     /// The launcher hotkey when the config sets none. The two differ: both daemons
     /// register theirs globally, and the second to ask for the same one would not get it.
+    /// Neither is `Alt+Space`, Raycast's (and Alfred's) default, so quickhop runs beside them.
     #[must_use]
     pub const fn default_hotkey(self) -> &'static str {
         match self {
-            Self::Release => "Alt+Space",
-            Self::Dev => "Alt+Shift+Space",
+            Self::Release => "Alt+Shift+Space",
+            Self::Dev => "Ctrl+Alt+Shift+Space",
         }
     }
 }
@@ -99,7 +100,32 @@ mod tests {
         assert_eq!(release.stem(), "quickhop");
         assert_eq!(release.bundle_id(), "io.github.yuyudhan.quickhop");
         assert_eq!(release.app_name(), "quickhop");
-        assert_eq!(release.default_hotkey(), "Alt+Space");
+        assert_eq!(release.default_hotkey(), "Alt+Shift+Space");
+    }
+
+    /// Shortcuts a Mac or a neighbour already holds: Raycast's and Alfred's default (Alt+Space),
+    /// Spotlight (Cmd+Space), the Finder search window (Cmd+Alt+Space), Emoji & Symbols
+    /// (Ctrl+Cmd+Space), input-source switching (Ctrl+Space, Ctrl+Alt+Space), macOS 27's
+    /// Cmd+Shift+Space, and nomouse's modes (Ctrl+Space, Ctrl+Shift+Space, Ctrl+Alt+Space,
+    /// Ctrl+Alt+/).
+    #[test]
+    fn default_hotkeys_avoid_the_ones_other_programs_hold() {
+        let taken = [
+            "Alt+Space",
+            "Cmd+Space",
+            "Cmd+Alt+Space",
+            "Cmd+Ctrl+Space",
+            "Ctrl+Space",
+            "Ctrl+Alt+Space",
+            "Cmd+Shift+Space",
+            "Ctrl+Shift+Space",
+            "Ctrl+Alt+/",
+        ]
+        .map(|text| Hotkey::parse(text).unwrap());
+        for flavour in BOTH {
+            let hotkey = Hotkey::parse(flavour.default_hotkey()).unwrap();
+            assert!(!taken.contains(&hotkey), "{flavour}: {hotkey} is taken");
+        }
     }
 
     #[test]

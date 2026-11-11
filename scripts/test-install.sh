@@ -357,8 +357,8 @@ fi
 tmp_left "a refused --version"
 if out="$(sandbox QUICKHOP_INSTALL_BASE="${base}/v0.0.0" bash "${installer[@]}" 2>&1)"; then
     fail "a 404 counted as an install"
-elif [[ "$out" == *"(HTTP 404): there is no such release asset"* ]]; then
-    pass "a missing release asset (404) fails with the reason"
+elif [[ "$out" == *"quickhop: error: release not found: ${base}/v0.0.0/quickhop-${target}.tar.gz (HTTP 404)"* ]]; then
+    pass "a missing release asset (404) fails with 'release not found'"
 else
     fail "404 message: ${out}"
 fi
@@ -375,16 +375,18 @@ tmp_left "an empty download"
 # 8b. The documented one-line install (docs/install.md, "The installer script"; README.md carries
 # the same line), with only the release URL pointed at the local server and the installer's
 # assets taken from it too. Run from a new scratch folder in bash (and zsh when the system has
-# it), it leaves nothing in that folder or in TMPDIR: after a success, after install.sh answers
-# 404 (non-zero exit with curl's error, nothing run) and after the installer fails on a missing
-# asset.
+# it), every path ends as the docs say and leaves nothing in that folder or in TMPDIR: an
+# install, a second run over it, --version vX.Y.Z, install.sh not found (404), no answer from
+# the server, a missing release asset, a network error and a bad checksum in the installer,
+# and an unsupported OS or CPU. Every failure exits non-zero with exactly one error line.
 release="https://github.com/yuyudhan/quickhop/releases/latest/download"
 one_line="$(awk '
     /^## The installer script$/ { section = 1; next }
     section && /^## / { exit }
     section && /^    \(d="\$\(mktemp -d\)"/ { sub(/^    /, ""); print; exit }
 ' "${root}/docs/install.md")"
-if [[ "$one_line" == *"${release}/install.sh"* ]]; then
+# shellcheck disable=SC2016 # the literal text of the line's end
+if [[ "$one_line" == *"${release}/install.sh"* ]] && [[ "$one_line" == *' bash "$d/install.sh")' ]]; then
     pass "docs/install.md has the one-line install"
 else
     fail "no one-line install under \"## The installer script\" in docs/install.md: ${one_line}"
@@ -395,9 +397,14 @@ else
     fail "README.md does not carry docs/install.md's install line"
 fi
 # Runs the one-line install in shell $2 from scratch folder $1, with the release URL replaced by
-# $3 and the installer's assets from $4.
+# $3, the installer's assets from $4, the installer options $5 (as the docs place them, after
+# `bash "$d/install.sh"`) and extra environment assignments after that (PATH=..., say).
 one_line_run() {
-    (cd "$1" && sandbox QUICKHOP_INSTALL_BASE="$4" "$2" -c "${one_line//"$release"/$3}")
+    local dir="$1" shell="$2" url="$3" assets="$4" options="$5" line
+    shift 5
+    line="${one_line//"$release"/$url}"
+    line="${line%)}${options:+ ${options}})"
+    (cd "$dir" && sandbox QUICKHOP_INSTALL_BASE="$assets" "$@" "$shell" -c "$line")
 }
 # Fails the test when a one-line run ($1 names it) left anything in scratch folder $2 or TMPDIR.
 scratch_left() {
@@ -408,6 +415,32 @@ scratch_left() {
     fi
     tmp_left "$1"
 }
+# The error lines (stderr) of a failed run: exactly one, holding $2; $1 names the case.
+one_error() {
+    local name="$1" want="$2" errors
+    errors="$(cat "${work}/stderr")"
+    if [ "$(printf '%s\n' "$errors" | wc -l | tr -d ' ')" = 1 ] && [[ "$errors" == *"$want"* ]]; then
+        pass "${name}: one error line: ${errors}"
+    else
+        fail "${name}: want one error line holding '${want}', got: ${errors}"
+    fi
+}
+# A port nothing listens on: opened, then closed again.
+closed_port="$(python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1]); s.close()')"
+nowhere="http://127.0.0.1:${closed_port}"
+# A release whose .sha256 does not match its archive.
+mkdir -p "${dist}/badsum"
+cp "${dist}/quickhop-${target}.tar.gz" "${dist}/badsum/"
+printf '%064d  %s\n' 0 "quickhop-${target}.tar.gz" >"${dist}/badsum/quickhop-${target}.tar.gz.sha256"
+# Stand-in uname for systems the release has no build for.
+for system in "FreeBSD amd64" "Linux riscv64"; do
+    dir="${work}/uname-${system%% *}"
+    mkdir -p "$dir"
+    # shellcheck disable=SC2016 # the stand-in's own script, expanded when it runs
+    printf '#!/bin/sh\ncase "$1" in -m) echo %s ;; *) echo %s ;; esac\n' \
+        "${system#* }" "${system%% *}" >"${dir}/uname"
+    chmod 755 "${dir}/uname"
+done
 shells=(bash)
 if sandbox sh -c 'command -v zsh' >/dev/null 2>&1; then
     shells+=(zsh)
@@ -415,63 +448,94 @@ fi
 for shell in "${shells[@]}"; do
     rm -f "$bin"
     scratch="$(mktemp -d "${work}/scratch.XXXXXX")"
-    if out="$(one_line_run "$scratch" "$shell" "$base" "$base" 2>&1)" && [ -x "$bin" ] &&
-        [[ "$out" == *"checksum ok"* ]]; then
-        pass "${shell}: the one-line install installs quickhop"
+    if out="$(one_line_run "$scratch" "$shell" "$base" "$base" "" 2>&1)" && [ -x "$bin" ] &&
+        [[ "$out" == *"checksum ok"* ]] && [ "$(sandbox "$bin" --version 2>&1)" = "quickhop 9.8.7" ]; then
+        pass "${shell}: the one-line install installs quickhop 9.8.7"
     else
         fail "${shell}: one-line install: ${out}"
     fi
     scratch_left "${shell}: a one-line install" "$scratch"
 
-    rm -f "$bin"
-    scratch="$(mktemp -d "${work}/scratch.XXXXXX")"
-    if out="$(one_line_run "$scratch" "$shell" "${base}/missing" "$base" 2>&1)"; then
-        fail "${shell}: the one-line install exited 0 on a 404: ${out}"
-    elif [[ "$out" != *"404"* ]] || [[ "$out" == *"quickhop:"* ]] || [ -e "$bin" ]; then
-        fail "${shell}: a 404 for install.sh did not stop with curl's error before running it: ${out}"
+    if out="$(one_line_run "$scratch" "$shell" "$base" "$base" "" 2>&1)" && [ -x "$bin" ] &&
+        [[ "$out" == *"checksum ok"* ]] && [ "$(sandbox "$bin" --version 2>&1)" = "quickhop 9.8.7" ]; then
+        pass "${shell}: running the one-line install again reinstalls 9.8.7 in place"
     else
-        pass "${shell}: a 404 for install.sh exits non-zero with curl's error and runs nothing"
+        fail "${shell}: second one-line install: ${out}"
     fi
-    scratch_left "${shell}: a one-line install answered 404" "$scratch"
+    scratch_left "${shell}: a second one-line install" "$scratch"
 
-    scratch="$(mktemp -d "${work}/scratch.XXXXXX")"
-    if out="$(one_line_run "$scratch" "$shell" "$base" "${base}/v0.0.0" 2>&1)"; then
-        fail "${shell}: the one-line install exited 0 on a missing release asset: ${out}"
-    elif [[ "$out" == *"(HTTP 404): there is no such release asset"* ]] && [ ! -e "$bin" ]; then
-        pass "${shell}: a missing release asset fails the one-line install with the reason"
+    rm -f "$bin"
+    if out="$(one_line_run "$scratch" "$shell" "$base" "$base" "--version v9.8.7" 2>&1)" && [ -x "$bin" ] &&
+        [ "$(sandbox "$bin" --version 2>&1)" = "quickhop 9.8.7" ]; then
+        pass "${shell}: the one-line install with --version v9.8.7 installs that version"
     else
-        fail "${shell}: one-line install, missing asset: ${out}"
+        fail "${shell}: one-line install --version v9.8.7: ${out}"
     fi
-    scratch_left "${shell}: a one-line install whose asset is missing" "$scratch"
+    scratch_left "${shell}: a one-line install with --version" "$scratch"
+
+    # case|release URL|assets|options|extra environment|the one error line holds
+    for spec in \
+        "install.sh not found|${base}/missing|${base}|||quickhop: release not found: ${base}/missing/install.sh" \
+        "no answer for install.sh|${nowhere}|${base}|||quickhop: could not download ${nowhere}/install.sh (HTTP 000, check the network): curl: (7)" \
+        "missing release asset|${base}|${base}/v0.0.0|--version v0.0.0||quickhop: error: release not found: ${base}/v0.0.0/quickhop-${target}.tar.gz (HTTP 404)" \
+        "network error in the installer|${base}|${nowhere}|||quickhop: error: network error: could not download ${nowhere}/quickhop-${target}.tar.gz" \
+        "bad checksum|${base}|${base}/badsum|||quickhop: error: checksum mismatch for quickhop-${target}.tar.gz" \
+        "unsupported OS|${base}|${base}||PATH=${work}/uname-FreeBSD:/usr/bin:/bin|quickhop: error: unsupported OS FreeBSD" \
+        "unsupported CPU|${base}|${base}||PATH=${work}/uname-Linux:/usr/bin:/bin|quickhop: error: no Linux build for riscv64"; do
+        IFS='|' read -r name url assets options extra want <<<"$spec"
+        rm -f "$bin"
+        env_args=()
+        [ -z "$extra" ] || env_args=("$extra")
+        if one_line_run "$scratch" "$shell" "$url" "$assets" "$options" ${env_args[@]+"${env_args[@]}"} \
+            >"${work}/stdout" 2>"${work}/stderr"; then
+            fail "${shell}: ${name}: the one-line install exited 0: $(cat "${work}/stdout" "${work}/stderr")"
+        elif [ -e "$bin" ]; then
+            fail "${shell}: ${name}: installed something"
+        else
+            pass "${shell}: ${name}: exits non-zero and installs nothing"
+        fi
+        one_error "${shell}: ${name}" "$want"
+        scratch_left "${shell}: ${name}" "$scratch"
+    done
 done
 
-# 8c. TERM or Ctrl+C (INT) while the installer downloads ends it with that signal's status and
-# leaves nothing in TMPDIR. A stand-in curl first on the PATH records its pid and hangs.
+# 8c. TERM, Ctrl+C (INT) or a closed terminal (HUP) while the installer downloads ends it with
+# that signal's status and leaves nothing in TMPDIR. A stand-in curl first on the PATH answers
+# the installer's `--version` probe, and for a download records its pid and hangs.
 slow="${work}/slow-curl"
 mkdir -p "$slow"
-printf '#!/bin/sh\necho $$ >"%s/curl.pid"\nexec sleep 30\n' "$work" >"${slow}/curl"
+printf '#!/bin/sh\ncase "$*" in *--version*) echo "curl 8.0.0"; exit 0 ;; esac\necho $$ >"%s/curl.pid"\nexec sleep 30\n' \
+    "$work" >"${slow}/curl"
 chmod 755 "${slow}/curl"
-for signal in TERM INT; do
-    rm -f "${work}/curl.pid"
-    # The subshell restores INT, which bash ignores in background jobs it starts.
-    (
-        trap - INT
-        exec env -i HOME="$home" PATH="${slow}:/usr/bin:/bin" TERM=dumb TMPDIR="$sbtmp" \
-            QUICKHOP_APP_DIR="${home}/Applications" QUICKHOP_INSTALL_BASE="$base" \
-            bash "${installer[@]}" >/dev/null 2>&1
-    ) &
+for signal in TERM INT HUP; do
+    rm -f "${work}/curl.pid" "${work}/group.pid"
+    # The installer runs in its own process group, started through Python so that, though run
+    # in the background, it does not inherit an ignored INT; the signal goes to the whole
+    # group, as Ctrl+C or a closed terminal does, so the hanging download ends with it.
+    python3 -c 'import os, signal, sys
+os.setsid()
+signal.signal(signal.SIGINT, signal.SIG_DFL)
+with open(sys.argv[1], "w") as out:
+    out.write(str(os.getpid()))
+os.execvp(sys.argv[2], sys.argv[2:])' "${work}/group.pid" env -i HOME="$home" \
+        PATH="${slow}:/usr/bin:/bin" TERM=dumb TMPDIR="$sbtmp" \
+        QUICKHOP_APP_DIR="${home}/Applications" QUICKHOP_INSTALL_BASE="$base" \
+        bash "${installer[@]}" >/dev/null 2>&1 &
     pid=$!
     for _ in $(seq 100); do
         [ -s "${work}/curl.pid" ] && break
         sleep 0.1
     done
-    kill -s "$signal" "$pid"
+    kill -s "$signal" -- "-$(cat "${work}/group.pid")" 2>/dev/null || true
     status=0
     wait "$pid" || status=$?
     curl_pid="$(cat "${work}/curl.pid" 2>/dev/null || true)"
     [ -z "$curl_pid" ] || kill "$curl_pid" 2>/dev/null || true
-    want=143
-    [ "$signal" = TERM ] || want=130
+    case "$signal" in
+        TERM) want=143 ;;
+        INT) want=130 ;;
+        HUP) want=129 ;;
+    esac
     if [ -n "$curl_pid" ] && [ "$status" -eq "$want" ]; then
         pass "${signal} during a download ends the installer (status ${status})"
     else

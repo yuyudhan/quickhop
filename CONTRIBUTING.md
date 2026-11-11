@@ -93,7 +93,7 @@ Debug builds and `--features dev` are the development flavour
 (`crates/quickhop-core/src/flavour.rs`): `cargo run`, `cargo test`, `just test`, `just ui-test`
 and `just bundle-macos` (quickhop Dev.app) use `~/.config/quickhop-dev`,
 `~/.local/share/quickhop-dev`, their own daemon socket, login entry, log, bundle identifier
-(`io.github.yuyudhan.quickhop.dev`) and `Alt+Shift+Space`, so they run beside an installed
+(`io.github.yuyudhan.quickhop.dev`) and `Ctrl+Alt+Shift+Space`, so they run beside an installed
 release. `just dev-config` installs `config/dev/` (every option set and commented) into
 `~/.config/quickhop-dev`. Never point a development build at `~/.config/quickhop`.
 

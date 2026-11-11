@@ -29,7 +29,8 @@ Every user-facing change is listed here. The format follows
   path|default|check` and `quickhop reload`.
 - **The daemon**, one per user: clipboard watcher, live file index, `open`, `reload`,
   `daemon status|stop`; `quickhop autostart on|off|status` for launch at login.
-- **The macOS launcher window** on the global hotkey (`Alt+Space`) or `quickhop toggle`, with an
+- **The macOS launcher window** on the global hotkey (`Alt+Shift+Space`, so it runs beside
+  Raycast's and Alfred's `Alt+Space`, Spotlight and nomouse) or `quickhop toggle`, with an
   action panel, script-command fields, output pages, toasts and HUDs, and the Clipboard
   History, Search Snippets and Search Files views.
 - **quickhop.app** for macOS, an agent app that runs the daemon and the window, with an
@@ -54,7 +55,7 @@ Every user-facing change is listed here. The format follows
 - **Development builds** (debug builds, `just bundle-macos`) run beside an installed release:
   `~/.config/quickhop-dev`, `~/.local/share/quickhop-dev`, their own daemon, quickhop Dev.app
   (`io.github.yuyudhan.quickhop.dev`) with its own Accessibility entry, login item and log,
-  and the `Alt+Shift+Space` hotkey. `just bundle-macos-release` builds quickhop.app.
+  and the `Ctrl+Alt+Shift+Space` hotkey. `just bundle-macos-release` builds quickhop.app.
 - **`just dev-config`** installs a config with every option set and commented into
   `~/.config/quickhop-dev`.
 
@@ -64,9 +65,16 @@ Every user-facing change is listed here. The format follows
   declares it, so an older Rust stops at once with `requires rustc 1.98 or newer`: run
   `rustup update stable`. CI builds with exactly 1.98.
 - The docs install with **one line that downloads `install.sh` into a new temporary folder,
-  runs it from there and removes the folder** when it ends (success, failure or Ctrl+C),
-  instead of piping `curl` into `bash`, where a failed download exits 0 and looks like
-  success. Nothing is left in the folder you run it from, and a failed download exits non-zero.
+  runs it from there only after an HTTP 200, and removes the folder** when it ends (success,
+  failure or Ctrl+C), instead of piping `curl` into `bash`, where a failed download exits 0
+  and looks like success. Nothing is left in the folder you run it from. A missing release
+  prints `quickhop: release not found: <url>`, a network failure `quickhop: could not download
+  <url> (HTTP 000, check the network): <curl's reason>`, both one line with exit status 1.
+- `install.sh` reports every failure as one `quickhop: error:` line with a non-zero exit:
+  `release not found` (HTTP 404) for a missing release or asset, at once rather than after
+  retries, `network error` with curl's reason, a checksum mismatch, or an unsupported OS or
+  CPU. Downloads retry cut connections where curl has `--retry-all-errors` (7.71+), and its
+  temporary folder is also removed when the terminal closes (HUP).
 - On macOS, config and data moved to `~/.config/quickhop` and `~/.local/share/quickhop`; the
   first run moves them from `~/Library/Application Support/quickhop` and says so.
 - `quickhop autostart on` starts the daemon at once (on macOS through `launchctl bootstrap`),
@@ -83,6 +91,8 @@ Every user-facing change is listed here. The format follows
 
 ### Fixed
 
+- `quickhop reload` with `[clipboard] enabled = false` kept reporting why the watcher had not
+  started (such as no graphical session) instead of the config turning it off.
 - A stale Accessibility grant after a rebuild or update: the onboarding button clears
   quickhop.app's old entry before macOS adds this build.
 - quickhop.app failing silently: failures show an alert and go to `~/Library/Logs/quickhop.log`.

@@ -41,7 +41,7 @@ of a newer version moves those files to the locations above and says so.
 **Development builds** (`cargo run`, any debug build, `just bundle-macos`) use
 `~/.config/quickhop-dev/` and `~/.local/share/quickhop-dev/` instead
 (`$XDG_CONFIG_HOME/quickhop-dev`, `$XDG_DATA_HOME/quickhop-dev`), their own daemon socket, and
-default the `hotkey` to `Alt+Shift+Space`, so they can run beside an installed release
+default the `hotkey` to `Ctrl+Alt+Shift+Space`, so they can run beside an installed release
 ([install.md](install.md#development-builds)). `quickhop doctor` says which flavour runs
 (`flavour: dev …` or `flavour: release …`) and its config folder. In a clone, `just dev-config`
 installs a config there with every option set and commented (from `config/dev/`); it keeps
@@ -56,7 +56,7 @@ such as `[[quicklinks]]` repeat once per entry; their keys are written `quicklin
 
 | Key | Default | Meaning |
 |-----|---------|---------|
-| `hotkey` | `"Alt+Space"` | Global shortcut that shows and hides the launcher window: modifiers and one key joined by `+`, in any order and case, e.g. `"Ctrl+Space"`, `"cmd+shift+k"`, `"F13"`. `Cmd`, `Command`, `Super` and `Meta` are one modifier, `Alt`, `Option` and `Opt` another; a key that types a character needs a modifier, function keys may stand alone. A development build defaults to `"Alt+Shift+Space"`. The macOS daemon registers it (`quickhop daemon status` says whether it holds it, or why not, such as another app holding it) and binds the new one on `quickhop reload`; a reload with an invalid key is refused and the old one kept. On Linux the window, and so the hotkey, is still being built. |
+| `hotkey` | `"Alt+Shift+Space"` | Global shortcut that shows and hides the launcher window: modifiers and one key joined by `+`, in any order and case, e.g. `"Ctrl+Space"`, `"cmd+shift+k"`, `"F13"`. `Cmd`, `Command`, `Super` and `Meta` are one modifier, `Alt`, `Option` and `Opt` another; a key that types a character needs a modifier, function keys may stand alone. The default is not `Alt+Space`, Raycast's and Alfred's, so quickhop runs beside them, and avoids Spotlight (`Cmd+Space`), input-source switching (`Ctrl+Space`, `Ctrl+Alt+Space`) and nomouse's hotkeys. A development build defaults to `"Ctrl+Alt+Shift+Space"`. The macOS daemon registers it (`quickhop daemon status` says whether it holds it, or why not, such as another app holding it) and binds the new one on `quickhop reload`; a reload with an invalid key is refused and the old one kept. On Linux the window, and so the hotkey, is still being built. |
 | `max_results` | `8` | Results shown per search, 1 to 100. `quickhop query --limit N` overrides it once; the window uses the new value from its next search. |
 
 ### `[providers]`
@@ -204,7 +204,7 @@ valid placeholder (an unknown keyword, attribute or modifier) stays in the text 
 
 ```toml
 # ~/.config/quickhop/config.toml
-hotkey = "Alt+Space"
+hotkey = "Alt+Shift+Space"
 max_results = 8
 
 [providers]

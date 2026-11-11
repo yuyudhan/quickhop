@@ -2,7 +2,7 @@
 
 Everything quickhop does is available from the `quickhop` command: search, run results, script
 commands, clipboard history, snippets, file search and the background daemon. On macOS the
-daemon also shows the launcher window, opened by the global `hotkey` (`Alt+Space` unless you
+daemon also shows the launcher window, opened by the global `hotkey` (`Alt+Shift+Space` unless you
 set another); on Linux the window is still being built (see [plan.md](plan.md)).
 
 ![quickhop in a terminal: a unit conversion, the lock-screen command, a GitHub quicklink, a script command, clipboard history and a snippet](media/quickhop-cli.gif)

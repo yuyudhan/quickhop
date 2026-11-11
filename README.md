@@ -24,15 +24,16 @@ and Linux on x86_64 or aarch64 with glibc 2.31 or later (Debian 11, Ubuntu 20.04
 RHEL 9 or newer; not musl/Alpine). In bash or zsh (from fish, run `bash` first):
 
 ```sh
-(d="$(mktemp -d)" && trap 'rm -rf "$d"' EXIT INT TERM && curl -fsSL --retry 3 -o "$d/install.sh" https://github.com/yuyudhan/quickhop/releases/latest/download/install.sh && bash "$d/install.sh")
+(d="$(mktemp -d)" && trap 'rm -rf "$d"' EXIT INT TERM && u=https://github.com/yuyudhan/quickhop/releases/latest/download/install.sh && { c="$(curl -sSL --retry 3 --retry-all-errors -w '%{http_code}' -o "$d/install.sh" "$u" 2>"$d/err")" && [ "$c" = 200 ] || { [ "$c" = 404 ] && echo "quickhop: release not found: $u" >&2 || echo "quickhop: could not download $u (HTTP ${c:-000}, check the network): $(tail -n 1 "$d/err")" >&2; exit 1; }; } && bash "$d/install.sh")
 ```
 
 It downloads the installer into a new temporary folder, runs it from there and removes the
-folder when it ends, so nothing is left where you ran it. The installer checks your system
-before downloading anything and says what to do when quickhop's build cannot run there,
-verifies every download's SHA-256, and installs `quickhop` into `~/.local/bin` without `sudo`
-(on macOS also `quickhop.app`). A failed download stops with its reason and a non-zero exit
-status instead of running nothing and looking like success.
+folder when it ends (success, failure or Ctrl+C), so nothing is left where you ran it. The
+installer checks your system before downloading anything and says what to do when quickhop's
+build cannot run there, verifies every download's SHA-256, and installs `quickhop` into
+`~/.local/bin` without `sudo` (on macOS also `quickhop.app`). Run it again to update or
+reinstall. Every failure is one line and a non-zero exit: `release not found` for a release
+or asset that does not exist, the network error, a checksum mismatch, or an unsupported system.
 
 **From source**: Rust 1.98 or newer from [rustup](https://rustup.rs), a C compiler and about
 3 GB of free disk; the first build takes several minutes. Already have Rust? Run
@@ -95,9 +96,10 @@ clipboard and keeps the file index current. The full tour, with every command:
 [docs/usage.md](docs/usage.md).
 
 On macOS the daemon also shows the launcher window when you press the global hotkey
-(`Alt+Space`) or run `quickhop toggle`; opening `quickhop.app` starts it, and until quickhop may
-paste into other apps its onboarding window shows where to allow that: System Settings ›
-Privacy & Security › Accessibility (Device Control and Data Access on macOS 27 and later).
+(`Alt+Shift+Space`, so Raycast keeps its `Alt+Space`) or run `quickhop toggle`; opening
+`quickhop.app` starts it, and until quickhop may paste into other apps its onboarding window
+shows where to allow that: System Settings › Privacy & Security › Accessibility (Device
+Control and Data Access on macOS 27 and later).
 The Linux window is being built ([plan](docs/plan.md)). Everything else on this page works
 from the command line on both.
 
