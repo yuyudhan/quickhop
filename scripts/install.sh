@@ -67,6 +67,8 @@ daemon_wait=150
 work=""
 # Whether curl knows --retry-all-errors (7.71+); install_release finds out.
 retry_all=false
+# The exit status of the HUP, INT or TERM that ended this run (the traps set it).
+signalled=""
 # Escape sequences, set by setup_colour when the stream is a colour terminal.
 bold=""
 green=""
@@ -289,7 +291,19 @@ url_host() {
 # another HTTP status, or an empty body.
 fetch() {
     d_url="${1}/${2}"
-    if ! d_code="$(net --stderr "${3}.err" --write-out '%{http_code}' --output "$3" "$d_url")"; then
+    d_status=0
+    d_code="$(net --stderr "${3}.err" --write-out '%{http_code}' --output "$3" "$d_url")" || d_status=$?
+    # A download ended by a signal (Ctrl+C, a closed terminal, a kill) exits with that
+    # signal's status, as the HUP, INT and TERM traps do. zsh 5.8 runs the TERM and INT traps
+    # only after the command that waited on curl, and returns from the HUP trap's exit into
+    # it, so the cut download would otherwise be reported as a network error.
+    if [ "$d_status" -gt 128 ]; then
+        exit "$d_status"
+    fi
+    if [ -n "$signalled" ]; then
+        exit "$signalled"
+    fi
+    if [ "$d_status" -ne 0 ]; then
         d_reason="$(sed -n 's/^curl: ([0-9]*) //p' "${3}.err" | tail -n 1)"
         case "$d_url" in
             file:*) fail "could not read ${d_url} (${d_reason:-no reason given}); check QUICKHOP_INSTALL_BASE" ;;
@@ -388,7 +402,7 @@ start_method() {
     elif [ -r "/proc/${1}/cgroup" ]; then
         # "0::/user.slice/user-1000.slice/user@1000.service/app.slice/quickhop.service"; only a
         # unit of quickhop's own is restarted, never the terminal or session it runs in.
-        s_unit="$(sed -n 's,^0::.*/user@[0-9]*\.service/\(.*/\)\{0,1\}\([^/]*\)$,\2,p' "/proc/${1}/cgroup")"
+        s_unit="$(sed -n 's|^0::.*/user@[0-9]*\.service/\(.*/\)\{0,1\}\([^/]*\)$|\2|p' "/proc/${1}/cgroup")"
         case "$s_unit" in
             quickhop*.service | app-quickhop*.service)
                 echo "systemd ${s_unit}"
@@ -539,11 +553,12 @@ install_release() {
     command -v tar >/dev/null 2>&1 || fail "tar is required; install tar and run the command again"
     # One private folder for every download and the unpacked archive, removed on every exit.
     # The traps are set before the folder exists, and HUP, INT and TERM exit through the EXIT
-    # trap, so Ctrl+C, a closed terminal or a kill leaves nothing behind either.
+    # trap, so Ctrl+C, a closed terminal or a kill leaves nothing behind either. Each records
+    # its status for fetch.
     trap remove_work EXIT
-    trap 'exit 129' HUP
-    trap 'exit 130' INT
-    trap 'exit 143' TERM
+    trap 'signalled=129; exit 129' HUP
+    trap 'signalled=130; exit 130' INT
+    trap 'signalled=143; exit 143' TERM
     work="$(mktemp -d "${TMPDIR:-/tmp}/quickhop-install.XXXXXX")" ||
         fail "could not create a temporary folder in ${TMPDIR:-/tmp}; set TMPDIR to a writable folder"
 

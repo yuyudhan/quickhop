@@ -28,6 +28,11 @@ Every user-facing change is listed here. The format follows
   deletes the word before the caret (spaces and punctuation end words) and `Cmd+Backspace`
   everything before it. Before, `Option+Backspace` deleted one character and `Cmd+Backspace`
   nothing. The Linux window will use `Ctrl+Backspace` for the word.
+- On Linux, `install.sh` over a running daemon failed with a `sed` error instead of stopping
+  the daemon, updating and starting it again.
+- `install.sh` run by zsh 5.8 (Ubuntu 22.04) and stopped during a download (Ctrl+C, a closed
+  terminal, a kill) reported a network error with status 1 instead of exiting with the
+  signal's status (130, 129, 143).
 
 ## [0.1.1] - 2026-11-11
 
