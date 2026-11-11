@@ -1085,7 +1085,7 @@ mod tests {
         let off = report(Release, "linux", &session, &here)?;
         assert!(!off.on && off.summary.starts_with("off: "), "{off:?}");
 
-        let entry = config.join("autostart/quickhop.desktop");
+        let entry = config.join("autostart").join("quickhop.desktop");
         std::fs::create_dir_all(entry.parent().ok_or("no parent")?)?;
         let gone = dir.path().join("gone/quickhop");
         std::fs::write(&entry, entry_text(Release, "linux", &gone))?;

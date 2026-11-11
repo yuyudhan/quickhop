@@ -271,6 +271,12 @@ fn missing_configured_directories_do_not_fail() {
 #[test]
 fn config_icon_theme_picks_the_theme() -> TestResult {
     let root = common::fixtures();
+    // XDG_DATA_DIRS is a colon-separated list, so a Windows drive prefix (`D:`) would split
+    // it; without the prefix the path still names the fixtures on the current drive.
+    let data_dir: PathBuf = root
+        .components()
+        .skip_while(|part| matches!(part, std::path::Component::Prefix(_)))
+        .collect();
     let gtk = tempfile::tempdir()?;
     let firefox_icon =
         |theme: &str, gtk_config: &Path| -> Result<PathBuf, Box<dyn std::error::Error>> {
@@ -284,7 +290,7 @@ fn config_icon_theme_picks_the_theme() -> TestResult {
                 "linux",
                 [
                     ("HOME", "/nonexistent-home".to_owned()),
-                    ("XDG_DATA_DIRS", root.to_string_lossy().into_owned()),
+                    ("XDG_DATA_DIRS", data_dir.to_string_lossy().into_owned()),
                     ("XDG_CONFIG_HOME", gtk_config.to_string_lossy().into_owned()),
                     ("LANG", "en_US.UTF-8".to_owned()),
                 ],
@@ -293,7 +299,7 @@ fn config_icon_theme_picks_the_theme() -> TestResult {
             let (apps, _) = AppsProvider::load(&sources, &env);
             Ok(icon_of(find(apps.all(), "Firefox Web Browser")?))
         };
-    let icons = root.join("icons");
+    let icons = data_dir.join("icons");
     assert_eq!(
         firefox_icon("Fixture", gtk.path())?,
         icons.join("Fixture").join("48x48/apps/firefox.png")

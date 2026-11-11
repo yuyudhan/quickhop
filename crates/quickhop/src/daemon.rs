@@ -451,7 +451,11 @@ impl State {
             .clipboard_settings
             .lock()
             .unwrap_or_else(PoisonError::into_inner) = config.clipboard.clone();
-        if config.clipboard.enabled != self.clipboard.is_ok() {
+        // Restart when the setting changed, too: a watcher that could not start (no graphical
+        // session) must report "[clipboard] enabled = false" once the config turns it off.
+        if config.clipboard.enabled != self.config.clipboard.enabled
+            || config.clipboard.enabled != self.clipboard.is_ok()
+        {
             if let Ok(watching) = &mut self.clipboard {
                 watching.stop();
             }
