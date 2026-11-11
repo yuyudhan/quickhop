@@ -28,10 +28,10 @@ app="$1"
 bin="$2"
 : "${GITHUB_OUTPUT:?sign-macos.sh runs in GitHub Actions}"
 : "${RUNNER_TEMP:?sign-macos.sh runs in GitHub Actions}"
-[ -d "$app" ] && [ -f "$bin" ] || {
+if [ ! -d "$app" ] || [ ! -f "$bin" ]; then
     echo "sign-macos: ${app} or ${bin} is missing" >&2
     exit 2
-}
+fi
 
 if [ -z "${MACOS_CERTIFICATE:-}" ]; then
     if [ -n "${NOTARY_KEY:-}" ]; then

@@ -17,10 +17,10 @@
 set -euo pipefail
 
 target="${1:-}"
-[ "$#" -eq 1 ] && [ -n "$target" ] || {
+if [ "$#" -ne 1 ] || [ -z "$target" ]; then
     echo "usage: $0 TARGET" >&2
     exit 2
-}
+fi
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
 glibc_floor="${QUICKHOP_GLIBC_FLOOR:-2.31}"

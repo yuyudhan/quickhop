@@ -64,10 +64,10 @@ macos_depends() {
 plist="${root}/packaging/macos/Info.plist.in"
 bundle_id="$(sed -n '/<key>CFBundleIdentifier<\/key>/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' "$plist")"
 minimum="$(sed -n '/<key>LSMinimumSystemVersion<\/key>/{n;s/.*<string>\(.*\)<\/string>.*/\1/p;}' "$plist")"
-[ -n "$bundle_id" ] && [ -n "$minimum" ] || {
+if [ -z "$bundle_id" ] || [ -z "$minimum" ]; then
     echo "homebrew: no CFBundleIdentifier or LSMinimumSystemVersion in ${plist}" >&2
     exit 1
-}
+fi
 depends="$(macos_depends "$minimum")"
 
 formula="$(<"${root}/packaging/homebrew/quickhop.rb.in")"
