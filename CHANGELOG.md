@@ -6,6 +6,8 @@ Every user-facing change is listed here. The format follows
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-11-11
+
 ### Changed
 
 - **Install with one short line**, from any shell:
@@ -119,4 +121,5 @@ Every user-facing change is listed here. The format follows
 - `quickhop daemon stop` left a daemon running whose launcher window was still starting.
 - The `.deb` description no longer mentions Windows.
 
+[0.1.1]: https://github.com/yuyudhan/quickhop/releases/tag/v0.1.1
 [0.1.0]: https://github.com/yuyudhan/quickhop/releases/tag/v0.1.0

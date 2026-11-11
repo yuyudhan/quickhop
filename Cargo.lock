@@ -4307,7 +4307,7 @@ dependencies = [
 
 [[package]]
 name = "quickhop"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "assert_cmd",
  "clap",
@@ -4329,7 +4329,7 @@ dependencies = [
 
 [[package]]
 name = "quickhop-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "jiff",
  "nucleo-matcher",
@@ -4343,7 +4343,7 @@ dependencies = [
 
 [[package]]
 name = "quickhop-index"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "ignore",
  "notify",
@@ -4356,7 +4356,7 @@ dependencies = [
 
 [[package]]
 name = "quickhop-platform-linux"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "quickhop-core",
  "thiserror 2.0.21",
@@ -4365,7 +4365,7 @@ dependencies = [
 
 [[package]]
 name = "quickhop-platform-macos"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",
@@ -4382,7 +4382,7 @@ dependencies = [
 
 [[package]]
 name = "quickhop-providers"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "emojis",
  "fend-core",
@@ -4402,7 +4402,7 @@ dependencies = [
 
 [[package]]
 name = "quickhop-store"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "proptest",
  "quickhop-core",
@@ -4414,7 +4414,7 @@ dependencies = [
 
 [[package]]
 name = "quickhop-ui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "async-channel",
  "gpui",
@@ -4428,7 +4428,7 @@ dependencies = [
 
 [[package]]
 name = "quickhop-uitest"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "png 0.18.1",
  "quickhop-core",
