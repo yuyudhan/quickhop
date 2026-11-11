@@ -193,7 +193,8 @@ permission.
 
 In the window, type to search, `↑`/`↓` to move, `Return` to run the selected result, `⌘K` to
 list all its actions (type to filter them) and `Esc` to close the panel, then the window. It
-also hides when another app takes the focus.
+also hides when another app takes the focus. `⌥⌫` deletes the word before the caret and `⌘⌫`
+the whole query.
 
 Script commands run from the window as their mode says: `fullOutput` opens the output (with
 its colours) and `Esc` goes back, `compact` shows the last line as a toast, `silent` hides the

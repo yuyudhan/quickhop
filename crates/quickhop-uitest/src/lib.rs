@@ -411,6 +411,18 @@ pub mod ax {
             Ok(())
         }
 
+        /// Presses the key with modifiers `text` names (`Alt+Backspace`, as a hotkey is
+        /// written) in the window.
+        ///
+        /// # Errors
+        /// When `text` is not a key with modifiers, or as [`Self::press`].
+        pub fn press_shortcut(&self, text: &str) -> Fallible {
+            let shortcut = Hotkey::parse(text)?;
+            self.ensure_focused()?;
+            input::press_hotkey(&shortcut)?;
+            Ok(())
+        }
+
         /// Presses the global hotkey `text`, wherever the focus is, once `quickhop daemon
         /// status` says the daemon holds it: otherwise the keys would reach another app.
         ///

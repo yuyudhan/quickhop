@@ -149,6 +149,20 @@ fn typing_searches_and_arrows_move_the_selection() -> Fallible {
 
 #[test]
 #[ignore = "drives the real window: run with `just ui-test` in a GUI session"]
+fn option_and_command_backspace_delete_a_word_and_the_query() -> Fallible {
+    let _screen = ax::take_over()?;
+    let daemon = shown()?;
+    daemon.type_text("hello world foo")?;
+    daemon.wait_for("the typed query", |s| s["query"] == "hello world foo")?;
+    daemon.press_shortcut("Alt+Backspace")?;
+    daemon.wait_for("the last word deleted", |s| s["query"] == "hello world ")?;
+    daemon.press_shortcut("Cmd+Backspace")?;
+    daemon.wait_for("the query deleted", |s| s["query"] == "")?;
+    Ok(())
+}
+
+#[test]
+#[ignore = "drives the real window: run with `just ui-test` in a GUI session"]
 fn command_k_opens_the_action_panel_and_escape_closes_it() -> Fallible {
     let _screen = ax::take_over()?;
     let daemon = shown()?;

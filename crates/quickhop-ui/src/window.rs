@@ -21,6 +21,7 @@ use gpui::{
 };
 use quickhop_core::{Action, Flavour, Item, ItemId, Query, Ranked};
 
+use crate::edit::{self, Keymap};
 use crate::model::{
     Effect, Model, Outcome, PageKind, SearchRequest, Snapshot, ToastStyle, highlight_ranges,
     keeps_window,
@@ -567,6 +568,20 @@ impl Launcher {
                 self.model.toggle_actions();
                 Effect::None
             }
+            "backspace" => {
+                let held = edit::Modifiers {
+                    alt: modifiers.alt,
+                    control: modifiers.control,
+                    platform: modifiers.platform,
+                };
+                let Some(deletion) = edit::backspace(Keymap::CURRENT, held) else {
+                    return;
+                };
+                let mut text = self.model.bar_text().to_owned();
+                let caret = text.len();
+                edit::delete_before(&mut text, caret, deletion);
+                self.model.set_query(text)
+            }
             _ if modifiers.platform || modifiers.control => return,
             "escape" => self.model.escape(),
             "tab" => {
@@ -583,11 +598,6 @@ impl Launcher {
             "up" => {
                 self.model.select_previous();
                 Effect::None
-            }
-            "backspace" => {
-                let mut text = self.model.bar_text().to_owned();
-                text.pop();
-                self.model.set_query(text)
             }
             _ => match &keystroke.key_char {
                 Some(typed) => {

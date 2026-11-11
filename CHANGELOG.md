@@ -6,6 +6,13 @@ Every user-facing change is listed here. The format follows
 
 ## [Unreleased]
 
+### Fixed
+
+- The search bar deletes words and lines like a native text field: `Option+Backspace`
+  deletes the word before the caret (spaces and punctuation end words) and `Cmd+Backspace`
+  everything before it. Before, `Option+Backspace` deleted one character and `Cmd+Backspace`
+  nothing. The Linux window will use `Ctrl+Backspace` for the word.
+
 ## [0.1.1] - 2026-11-11
 
 ### Changed
