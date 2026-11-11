@@ -81,10 +81,13 @@ pub(crate) fn start(
         .watch(&dir, RecursiveMode::NonRecursive)
         .map_err(|e| format!("{}: {e}", dir.display()))?;
     let config = config.to_path_buf();
+    // Read here, once the folder is watched, not on the thread: a save right after `start`
+    // returned would otherwise be in the baseline whenever the thread runs late, and reload
+    // nothing.
+    let mut last = contents(&config);
     std::thread::Builder::new()
         .name("quickhop-config-watch".into())
         .spawn(move || {
-            let mut last = contents(&config);
             // Ends when the watcher, and with it the sender, is dropped.
             while changes.recv().is_ok() {
                 while changes.recv_timeout(QUIET).is_ok() {}
@@ -101,19 +104,41 @@ pub(crate) fn start(
 
 #[cfg(test)]
 mod tests {
-    use std::sync::{Arc, Mutex};
     use std::time::Instant;
 
     use super::*;
 
-    fn wait_for(count: &Mutex<usize>, at_least: usize) -> usize {
-        let deadline = Instant::now() + Duration::from_secs(10);
-        loop {
-            let seen = *count.lock().unwrap();
-            if seen >= at_least || Instant::now() > deadline {
-                return seen;
+    /// The reloads of a watch, counted as they arrive.
+    struct Reloads {
+        arrived: mpsc::Receiver<()>,
+        seen: usize,
+    }
+
+    impl Reloads {
+        fn watch(config: &Path) -> (ConfigWatch, Self) {
+            let (reloaded, arrived) = mpsc::channel();
+            let watch = start(config, move || {
+                let _ = reloaded.send(());
+            })
+            .unwrap();
+            (watch, Self { arrived, seen: 0 })
+        }
+
+        /// Waits until `at_least` reloads arrived (10 s at most), then counts those already
+        /// queued too, and returns how many arrived in all.
+        fn wait_for(&mut self, at_least: usize) -> usize {
+            let deadline = Instant::now() + Duration::from_secs(10);
+            while self.seen < at_least {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if self.arrived.recv_timeout(left).is_err() {
+                    break;
+                }
+                self.seen += 1;
             }
-            std::thread::sleep(Duration::from_millis(20));
+            while self.arrived.try_recv().is_ok() {
+                self.seen += 1;
+            }
+            self.seen
         }
     }
 
@@ -122,22 +147,20 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join("config.toml");
         std::fs::write(&config, "max_results = 8\n").unwrap();
-        let count = Arc::new(Mutex::new(0));
-        let counted = Arc::clone(&count);
-        let watch = start(&config, move || *counted.lock().unwrap() += 1).unwrap();
+        let (watch, mut reloads) = Reloads::watch(&config);
 
         std::fs::write(dir.path().join("notes.txt"), "unrelated").unwrap();
         std::fs::write(&config, "max_results = 9\n").unwrap();
-        assert_eq!(wait_for(&count, 1), 1);
+        assert_eq!(reloads.wait_for(1), 1);
         // The same text again changes nothing.
         std::fs::write(&config, "max_results = 9\n").unwrap();
         std::fs::write(dir.path().join("snippets.toml"), "").unwrap();
-        assert_eq!(wait_for(&count, 2), 2, "a new snippets.toml reloads");
+        assert_eq!(reloads.wait_for(2), 2, "a new snippets.toml reloads");
         // Replaced by rename, as editors save.
         let temporary = dir.path().join(".config.toml.swp");
         std::fs::write(&temporary, "max_results = 10\n").unwrap();
         std::fs::rename(&temporary, &config).unwrap();
-        assert_eq!(wait_for(&count, 3), 3);
+        assert_eq!(reloads.wait_for(3), 3);
         drop(watch);
     }
 
@@ -145,10 +168,28 @@ mod tests {
     fn a_missing_folder_is_created_and_watched() {
         let dir = tempfile::tempdir().unwrap();
         let config = dir.path().join("quickhop/config.toml");
-        let count = Arc::new(Mutex::new(0));
-        let counted = Arc::clone(&count);
-        let _watch = start(&config, move || *counted.lock().unwrap() += 1).unwrap();
+        let (_watch, mut reloads) = Reloads::watch(&config);
         std::fs::write(&config, "theme = \"dark\"\n").unwrap();
-        assert_eq!(wait_for(&count, 1), 1);
+        assert_eq!(reloads.wait_for(1), 1);
+    }
+
+    #[test]
+    fn a_save_right_after_start_reloads() {
+        // A change is measured against the files as they were when `start` returned, however
+        // late its thread runs. Many watches at once, so a save lost to that race shows.
+        let dirs: Vec<_> = (0..16).map(|_| tempfile::tempdir().unwrap()).collect();
+        let mut watches: Vec<_> = dirs
+            .iter()
+            .map(|dir| {
+                let config = dir.path().join("config.toml");
+                std::fs::write(&config, "max_results = 8\n").unwrap();
+                let watch = Reloads::watch(&config);
+                std::fs::write(&config, "max_results = 9\n").unwrap();
+                watch
+            })
+            .collect();
+        for (_, reloads) in &mut watches {
+            assert_eq!(reloads.wait_for(1), 1);
+        }
     }
 }
