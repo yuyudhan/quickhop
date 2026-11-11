@@ -49,6 +49,7 @@ jobs:
               run: |
                   command -v shellcheck >/dev/null || brew install shellcheck
                   shellcheck scripts/*.sh .githooks/*
+                  shellcheck --shell=sh scripts/install.sh
                   scripts/test-install.sh
                   scripts/test-install-from-source.sh
                   scripts/test-bundle-macos.sh

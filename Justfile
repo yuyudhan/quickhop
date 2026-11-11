@@ -41,6 +41,7 @@ shell:
     set -euo pipefail
     case "$(uname -s)" in MINGW* | MSYS* | CYGWIN*) echo "shell: skipped on Windows"; exit 0 ;; esac
     shellcheck scripts/*.sh .githooks/*
+    shellcheck --shell=sh scripts/install.sh
     scripts/test-install.sh
     scripts/test-install-from-source.sh
     scripts/test-dev-config.sh

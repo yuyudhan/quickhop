@@ -6,6 +6,22 @@ Every user-facing change is listed here. The format follows
 
 ## [Unreleased]
 
+### Changed
+
+- **Install with one short line**, from any shell:
+  `curl -fsSL https://yuyudhan.github.io/quickhop/install | sh` (options after `sh -s --`,
+  as in `… | sh -s -- --uninstall`). The address serves the latest release's `install.sh`;
+  `curl -fsSLO …/releases/latest/download/install.sh && sh install.sh` still works, and the
+  README opens with the line.
+- **`install.sh` is a POSIX sh script** that runs piped to sh, dash, bash and zsh, and runs
+  nothing until the whole file has arrived. It prints a few checked steps, the version now
+  installed and `Next:` (the `Alt+Shift+Space` hotkey, `quickhop autostart on`), in colour only
+  on a terminal without `NO_COLOR`; every failure is one `quickhop: error: <what happened>;
+  <what to do>` line with exit status 1.
+- `install.sh` verifies a download against the release's `SHA256SUMS` (a `--from` folder's
+  `SHA256SUMS`, else the archive's `.sha256`), and takes the release from `QUICKHOP_VERSION`
+  as well as `--version`.
+
 ## [0.1.0] - 2026-11-11
 
 ### Added

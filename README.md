@@ -4,6 +4,13 @@
 
 **Press a key. Type a few letters. Be there.**
 
+```sh
+curl -fsSL https://yuyudhan.github.io/quickhop/install | sh
+```
+
+Installs quickhop (and quickhop.app on macOS) for your user on macOS or Linux, verifies its
+SHA-256, no sudo. [Other ways to install](docs/install.md)
+
 A fast, open-source, keyboard-first launcher for **macOS and Linux**, written in Rust.<br>
 Apps, files, calculations, clipboard history, snippets and scripts, all from one place.<br>
 A free alternative to Raycast that runs your Raycast script commands unchanged.
@@ -21,19 +28,18 @@ newer ([details](docs/install.md#requirements)).
 
 **Prebuilt** (releases from v0.1.0): macOS on Apple silicon or Intel (one universal build),
 and Linux on x86_64 or aarch64 with glibc 2.31 or later (Debian 11, Ubuntu 20.04, Fedora 32,
-RHEL 9 or newer; not musl/Alpine). In bash or zsh (from fish, run `bash` first):
+RHEL 9 or newer; not musl/Alpine), in any shell:
 
 ```sh
-(d="$(mktemp -d)" && trap 'rm -rf "$d"' EXIT INT TERM && u=https://github.com/yuyudhan/quickhop/releases/latest/download/install.sh && { c="$(curl -sSL --retry 3 --retry-all-errors -w '%{http_code}' -o "$d/install.sh" "$u" 2>"$d/err")" && [ "$c" = 200 ] || { [ "$c" = 404 ] && echo "quickhop: release not found: $u" >&2 || echo "quickhop: could not download $u (HTTP ${c:-000}, check the network): $(tail -n 1 "$d/err")" >&2; exit 1; }; } && bash "$d/install.sh")
+curl -fsSL https://yuyudhan.github.io/quickhop/install | sh
 ```
 
-It downloads the installer into a new temporary folder, runs it from there and removes the
-folder when it ends (success, failure or Ctrl+C), so nothing is left where you ran it. The
-installer checks your system before downloading anything and says what to do when quickhop's
-build cannot run there, verifies every download's SHA-256, and installs `quickhop` into
-`~/.local/bin` without `sudo` (on macOS also `quickhop.app`). Run it again to update or
-reinstall. Every failure is one line and a non-zero exit: `release not found` for a release
-or asset that does not exist, the network error, a checksum mismatch, or an unsupported system.
+The installer checks your system before downloading anything and says what to do when
+quickhop's build cannot run there, verifies the download's SHA-256 against the release's
+`SHA256SUMS`, and installs `quickhop` into `~/.local/bin` without `sudo` (on macOS also
+`quickhop.app`), working in a temporary folder it always removes. Run it again to update or
+reinstall; options go after `sh -s --`, as in `… | sh -s -- --version 0.1.0`. Every failure
+is one `quickhop: error:` line saying what happened and what to do.
 
 **From source**: Rust 1.98 or newer from [rustup](https://rustup.rs), a C compiler and about
 3 GB of free disk; the first build takes several minutes. Already have Rust? Run
@@ -209,7 +215,7 @@ validates your file. Every key, every placeholder: [docs/configuration.md](docs/
 ```sh
 quickhop autostart off          # first, so no login entry is left behind
 quickhop daemon stop
-cargo uninstall quickhop        # or the install line ending in: bash "$d/install.sh" --uninstall)
+cargo uninstall quickhop        # or: curl -fsSL https://yuyudhan.github.io/quickhop/install | sh -s -- --uninstall
 tccutil reset Accessibility io.github.yuyudhan.quickhop   # macOS
 ```
 

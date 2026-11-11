@@ -23,10 +23,10 @@ version="$1"
 install="$(awk '
     /^## The installer script$/ { section = 1; next }
     section && /^## / { exit }
-    section && /^    \(d="\$\(mktemp -d\)"/ { sub(/^    /, ""); print; exit }
+    section && /^    curl / { sub(/^    /, ""); print; exit }
 ' "${root}/docs/install.md")"
-[[ "$install" == *"releases/latest/download/install.sh"* ]] ||
-    fail "no one-line install under \"## The installer script\" in docs/install.md"
+[ "$install" = "curl -fsSL https://yuyudhan.github.io/quickhop/install | sh" ] ||
+    fail "no one-line install (curl -fsSL https://yuyudhan.github.io/quickhop/install | sh) under \"## The installer script\" in docs/install.md"
 
 # The body of "## [X.Y.Z] - date", up to the next version heading or the link definitions.
 changes="$(awk -v heading="## [${version}]" '
@@ -42,13 +42,13 @@ fence='```'
 printf '%s\n' \
     '## Install' \
     '' \
-    'macOS (Apple silicon and Intel) and Linux (x86_64 and aarch64, glibc 2.31 or later), in bash or zsh:' \
+    'macOS (Apple silicon and Intel) and Linux (x86_64 and aarch64, glibc 2.31 or later), in any shell:' \
     '' \
     "${fence}sh" \
     "$install" \
     "$fence" \
     '' \
-    'It downloads install.sh into a new temporary folder, runs it from there and removes the folder when it ends. Every asset below has a .sha256, and SHA256SUMS lists them all.' \
+    "It installs quickhop for your user without sudo and checks the download's SHA-256 against SHA256SUMS; options go after \`sh -s --\`, as in \`sh -s -- --version ${version}\`. The same script is this release's install.sh. Every asset below has a .sha256, and SHA256SUMS lists them all." \
     "Other ways to install (the .deb, offline, from source): [docs/install.md](${docs}/install.md); problems: [docs/troubleshooting.md](${docs}/troubleshooting.md)." \
     '' \
     '## Changes' \

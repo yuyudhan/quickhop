@@ -144,7 +144,7 @@ jobs:
               run: |
                   cp scripts/install.sh dist/
                   home="$(mktemp -d)"
-                  env -i HOME="$home" PATH=/usr/bin:/bin bash dist/install.sh --from dist --version "$VERSION"
+                  env -i HOME="$home" PATH=/usr/bin:/bin sh dist/install.sh --from dist --version "$VERSION"
                   [ "$(env -i HOME="$home" "${home}/.local/bin/quickhop" --version)" = "quickhop ${VERSION}" ]
 
     macos:
@@ -217,7 +217,7 @@ jobs:
                   cp scripts/install.sh "${RUNNER_TEMP}/install.sh"
                   home="$(mktemp -d)"
                   env -i HOME="$home" PATH=/usr/bin:/bin QUICKHOP_APP_DIR="${home}/Applications" \
-                      bash "${RUNNER_TEMP}/install.sh" --from dist --version "$VERSION"
+                      sh "${RUNNER_TEMP}/install.sh" --from dist --version "$VERSION"
                   [ "$(readlink "${home}/.local/bin/quickhop")" = "${home}/Applications/quickhop.app/Contents/MacOS/quickhop" ]
                   codesign -dv "${home}/.local/bin/quickhop" 2>&1 | grep -x 'Identifier=io.github.yuyudhan.quickhop'
             - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4

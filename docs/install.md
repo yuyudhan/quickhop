@@ -50,23 +50,23 @@ clone: `scripts/install-from-source.sh` (`--check` only checks; `--tag`, `--bran
 
 ## The installer script
 
-Every release attaches `install.sh`. This one line downloads it into a new temporary folder,
-runs it from there, and removes that folder when it ends, whether it worked, failed or you
-pressed Ctrl+C. Nothing is left in the folder you run it from:
+One line, in any shell (bash, zsh, fish, dash):
 
-    (d="$(mktemp -d)" && trap 'rm -rf "$d"' EXIT INT TERM && u=https://github.com/yuyudhan/quickhop/releases/latest/download/install.sh && { c="$(curl -sSL --retry 3 --retry-all-errors -w '%{http_code}' -o "$d/install.sh" "$u" 2>"$d/err")" && [ "$c" = 200 ] || { [ "$c" = 404 ] && echo "quickhop: release not found: $u" >&2 || echo "quickhop: could not download $u (HTTP ${c:-000}, check the network): $(tail -n 1 "$d/err")" >&2; exit 1; }; } && bash "$d/install.sh")
+    curl -fsSL https://yuyudhan.github.io/quickhop/install | sh
 
-It runs in bash and zsh (macOS's default shell); from fish, run `bash` first. The parentheses
-keep the temporary folder and its cleanup to that one command. The script is downloaded before
-anything runs rather than piped into `bash`: a failed download piped into bash runs nothing and
-exits 0, so it looks like success. Here the installer only starts after an HTTP 200; otherwise
-the command prints one line and exits 1, either `quickhop: release not found: <url>` (HTTP 404:
-no such release) or `quickhop: could not download <url> (HTTP <code>, check the network): <curl's
-reason>`. The same one-line, non-zero failures come from the installer itself for a missing
-release asset, a network error, a checksum mismatch and an unsupported OS or CPU.
-`--retry-all-errors` makes curl retry a connection the network cuts (a 404 is final and not
-retried); curl older than 7.71 (Ubuntu 20.04) does not know it, so the line stops with
-`option --retry-all-errors: is unknown`: drop that option there.
+That address serves the latest release's `install.sh`, byte for byte (checked against that
+release's `SHA256SUMS`). To read it before it runs, download it from the release and run it
+yourself; the options are the same:
+
+    curl -fsSLO https://github.com/yuyudhan/quickhop/releases/latest/download/install.sh && sh install.sh
+
+It is a POSIX sh script that runs nothing until the whole file has arrived, so a download cut
+short does nothing. It prints a few checked steps, the version now installed and what to do
+next; off a terminal, or with `NO_COLOR` set, without colour. Every failure is one line on
+stderr and exit status 1, `quickhop: error: <what happened>; <what to do>`: `release v0.9.9
+not found (HTTP 404)`, `could not reach github.com (<curl's reason>)`, `checksum mismatch for
+<asset>`, `no quickhop build for <OS> <CPU>`. When curl itself cannot fetch the script, its
+own `curl: (22) …` or `curl: (7) …` line says so and `sh` runs nothing.
 
 It installs quickhop for one user, without `sudo`:
 
@@ -74,7 +74,7 @@ It installs quickhop for one user, without `sudo`:
   2.31 or later and not musl, and it names the from-source instructions instead;
 - picks the archive for your OS and CPU (`x86_64` or `aarch64` Linux; one universal macOS
   build) and fails with the reason when a download is missing (HTTP 404), empty or interrupted;
-- checks its SHA-256 against the `.sha256` published beside it and stops on a mismatch;
+- checks its SHA-256 against the release's `SHA256SUMS` and stops on a mismatch;
 - runs the downloaded `quickhop --version` before replacing anything, so a build this system
   cannot start fails the install with the loader's message and leaves an installed copy as it
   was;
@@ -97,20 +97,23 @@ It installs quickhop for one user, without `sudo`:
 | `--purge` | With `--uninstall`, also delete `~/.config/quickhop` and `~/.local/share/quickhop`, naming each before it goes. |
 | `-h`, `--help` | Show the options. |
 
-Options go after `bash "$d/install.sh"` inside the parentheses, for example
-`… && bash "$d/install.sh" --version v0.1.0)` or `… && bash "$d/install.sh" --uninstall)`.
-Running the line again updates, or reinstalls the same version in place. The installer itself
-downloads and unpacks the release into its own temporary folder (`mktemp -d`, under `TMPDIR`)
-and removes it on every exit, including a failed download or checksum, Ctrl+C, a closed
-terminal and `kill`.
+Options go after `sh -s --`, for example
+`curl -fsSL https://yuyudhan.github.io/quickhop/install | sh -s -- --version 0.1.0` or
+`… | sh -s -- --uninstall` (with `sh install.sh`, straight after it). Running the line again
+updates, or reinstalls the same version in place. The installer downloads and unpacks the
+release into its own temporary folder (`mktemp -d`, under `TMPDIR`) and removes it on every
+exit, including a failed download or checksum, Ctrl+C, a closed terminal and `kill`; nothing
+is written to the folder you run it from.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
+| `QUICKHOP_VERSION` | the latest | The release to install, as `--version` (the option wins). |
 | `QUICKHOP_INSTALL_DIR` | `~/.local/bin` | Where the binary goes. |
 | `QUICKHOP_APP_DIR` | `/Applications` | Where the macOS app goes; `~/Applications` when `/Applications` is not writable. |
 | `QUICKHOP_INSTALL_BASE` | GitHub releases | URL of a directory holding the release assets (a mirror). |
 
-If `~/.local/bin` is not on your `PATH`, the installer prints the line to add to `~/.profile`.
+If `~/.local/bin` is not on your `PATH`, the installer's `Next:` lines say what to add to
+`~/.profile`.
 
 ## Release assets
 
@@ -125,8 +128,8 @@ Each release on <https://github.com/yuyudhan/quickhop/releases> carries:
 | `install.sh` | the installer above |
 
 Every asset has a `.sha256` beside it, and `SHA256SUMS` lists them all. Offline: download the
-archive for your system, its `.sha256` and `install.sh` into one folder, then run
-`bash install.sh --from FOLDER`.
+archive for your system, `SHA256SUMS` (or the archive's `.sha256`) and `install.sh` into one
+folder, then run `sh install.sh --from FOLDER`.
 
 The macOS build is signed ad hoc, not notarized, until quickhop has a Developer ID; the
 installer clears the quarantine flag that would make Gatekeeper refuse it. For a copy you
@@ -281,7 +284,7 @@ it.
 
 | Installed with | Remove with |
 |----------------|-------------|
-| `install.sh` | the [one-line install](#the-installer-script) ending in `bash "$d/install.sh" --uninstall)` (add `--purge` to delete config and data) |
+| `install.sh` | `curl -fsSL https://yuyudhan.github.io/quickhop/install \| sh -s -- --uninstall` (add `--purge` to delete config and data) |
 | `cargo install` | `quickhop autostart off; quickhop daemon stop; cargo uninstall quickhop` |
 | the `.deb` | `quickhop autostart off; sudo apt remove quickhop` |
 | `quickhop.app` copied by hand | `quickhop autostart off; quickhop daemon stop; rm -rf /Applications/quickhop.app` |

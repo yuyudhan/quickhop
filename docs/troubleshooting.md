@@ -98,18 +98,18 @@ https://github.com/yuyudhan/quickhop quickhop`, which fetches with git and its p
 memory or disk. Close other apps and free space (about 3 GB; `cargo clean` in old Rust
 projects frees the most), then run the install again.
 
-**`curl … | bash` printed nothing and nothing was installed.** A failed download piped into
-bash runs an empty script and exits 0. Use the [one-line install](install.md#the-installer-script)
-instead: it downloads the installer into a temporary folder first, so a failed download stops
-with one line and a non-zero exit status, and it removes that folder afterwards.
+**The one-line install printed a `curl: (22)` or `curl: (7)` line and installed nothing.**
+curl could not fetch the installer (HTTP 404, or no answer), so `sh` ran nothing; check the
+network and run the line again. `-f` in `curl -fsSL` makes curl report a failed download
+instead of handing an error page to `sh`.
 
-**`quickhop: release not found: <url>`.** GitHub has no release (or no such asset) at that
-address, from the one-line install or from `install.sh --version`: check the version at
-<https://github.com/yuyudhan/quickhop/releases>.
+**`quickhop: error: release v<version> not found (HTTP 404)` or `release not found: <url>`.**
+GitHub has no such release (or no such asset in it), from `--version`, `QUICKHOP_VERSION` or
+the latest release: check the version at <https://github.com/yuyudhan/quickhop/releases>.
 
-**`quickhop: could not download <url> (HTTP 000, check the network)` or `quickhop: error:
-network error: …`.** Nothing answered: curl's own reason follows (no DNS, a refused or cut
-connection, a proxy). Fix the network and run the line again.
+**`quickhop: error: could not reach github.com (…)`.** Nothing answered: curl's own reason
+follows in the parentheses (no DNS, a refused or cut connection, a proxy). Fix the network
+and run the line again.
 
 **`install.sh`: `this system uses musl libc` or `needs glibc 2.31 or later`.** The Linux
 release is built for glibc 2.31 and later (Debian 11, Ubuntu 20.04, Fedora 32, RHEL 9 or

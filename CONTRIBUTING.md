@@ -143,7 +143,7 @@ To try the installer against a local build before tagging (macOS shown; on Linux
     scripts/dist.sh --target universal-apple-darwin --bin target/universal-apple-darwin/quickhop --app "$app"
     home="$(mktemp -d)"   # throwaway home and runtime dir: your install and daemon stay untouched
     HOME="$home" TMPDIR="$home/" XDG_RUNTIME_DIR="$home/run" QUICKHOP_APP_DIR="$home/Applications" \
-        bash target/dist/install.sh --from target/dist
+        sh target/dist/install.sh --from target/dist
 
 `scripts/dist.sh` refuses a macOS binary or app executable that is not universal. Every
 user-facing change gets a line in [CHANGELOG.md](CHANGELOG.md) under `[Unreleased]`; at a
