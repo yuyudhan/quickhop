@@ -106,7 +106,8 @@ const STEM: &str = if DEV { "quickhop-dev" } else { "quickhop" };
 #[test]
 fn version() -> TestResult {
     let version = stdout(quickhop()?.arg("--version"))?;
-    assert!(version.starts_with("quickhop 0.1.0"), "{version}");
+    let expected = concat!("quickhop ", env!("CARGO_PKG_VERSION"));
+    assert!(version.starts_with(expected), "{version}");
     // A development build says so; a release prints the bare version.
     assert_eq!(version.ends_with(" (dev)\n"), DEV, "{version}");
     Ok(())
