@@ -4,18 +4,22 @@
 # it over a running daemon, uninstalls and purges, all inside a throwaway HOME. It also checks
 # that dist.sh refuses a single-architecture "universal" macOS binary, and that the installer
 # fails loudly on a 404, an empty download, a bad checksum, a binary this system cannot start
-# and a daemon that does not stop. A stub keeps the test fast and lets it record what the
-# installer runs; the release workflow covers the real binary.
+# and a daemon that does not stop. It runs the documented one-line install from a scratch folder
+# against the local HTTP server, and checks that neither the one-line install nor the installer
+# (after a success, a 404, a bad checksum, TERM or INT) leaves anything in the folder it ran
+# from or in TMPDIR. A stub keeps the test fast and lets it record what the installer runs; the
+# release workflow covers the real binary.
 #
 # On macOS the stub is a tiny universal (arm64 + x86_64) C program that runs a shell script, so
 # dist.sh's lipo check accepts it, wrapped in a quickhop.app signed ad hoc with the app's
 # identifier, as scripts/bundle-macos.sh signs the real one.
 #
 # Every installer run goes through `sandbox`, which starts from an empty environment (env -i)
-# with only HOME (the temp dir), a minimal PATH, TERM=dumb and QUICKHOP_APP_DIR inside HOME, so
-# nothing the caller has set - XDG_CONFIG_HOME, QUICKHOP_*, a real HOME, a writable
-# /Applications - can point the installer at real files. The harness proves that about itself:
-# it plants decoy directories in its own environment and fails if anything touches them.
+# with only HOME (the temp dir), a minimal PATH, TERM=dumb, an empty TMPDIR of its own and
+# QUICKHOP_APP_DIR inside HOME, so nothing the caller has set - XDG_CONFIG_HOME, QUICKHOP_*, a
+# real HOME, a writable /Applications - can point the installer at real files. The harness
+# proves that about itself: it plants decoy directories in its own environment and fails if
+# anything touches them.
 #
 # Usage: scripts/test-install.sh
 set -euo pipefail
@@ -168,8 +172,29 @@ old="${work}/dist-old"
 make_dist 9.8.7 "$dist"
 make_dist 9.8.6 "$old"
 
+# The installer's TMPDIR: every run must leave it empty, whatever the outcome.
+sbtmp="${work}/tmp"
+mkdir -p "$sbtmp"
 sandbox() {
-    env -i HOME="$home" PATH=/usr/bin:/bin TERM=dumb QUICKHOP_APP_DIR="${home}/Applications" "$@"
+    env -i HOME="$home" PATH=/usr/bin:/bin TERM=dumb TMPDIR="$sbtmp" \
+        QUICKHOP_APP_DIR="${home}/Applications" "$@"
+}
+# The entries of directory $1 (dotfiles included), one per line.
+entries() {
+    find "$1" -mindepth 1 -maxdepth 1 -exec basename {} \;
+}
+# True when directory $1 holds nothing at all.
+empty_dir() {
+    [ -d "$1" ] && [ -z "$(entries "$1")" ]
+}
+# Fails the test when an installer run ($1 names it) left anything in its TMPDIR.
+tmp_left() {
+    if empty_dir "$sbtmp"; then
+        pass "${1}: nothing left in TMPDIR"
+    else
+        fail "${1}: left in TMPDIR: $(entries "$sbtmp" | tr '\n' ' ')"
+        find "$sbtmp" -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+    fi
 }
 installer=("${dist}/install.sh")
 bin="${home}/.local/bin/quickhop"
@@ -190,10 +215,10 @@ desktop_files() {
     return 1
 }
 
-# 1. The sandbox environment is exactly HOME, PATH, TERM and QUICKHOP_APP_DIR.
+# 1. The sandbox environment is exactly HOME, PATH, TERM, TMPDIR and QUICKHOP_APP_DIR.
 seen="$(sandbox env | cut -d = -f 1 | sort | tr '\n' ' ')"
-if [ "$seen" = "HOME PATH QUICKHOP_APP_DIR TERM " ]; then
-    pass "sandbox sees only HOME, PATH, QUICKHOP_APP_DIR and TERM"
+if [ "$seen" = "HOME PATH QUICKHOP_APP_DIR TERM TMPDIR " ]; then
+    pass "sandbox sees only HOME, PATH, QUICKHOP_APP_DIR, TERM and TMPDIR"
 else
     fail "sandbox leaks variables: ${seen}"
 fi
@@ -321,6 +346,7 @@ if out="$(sandbox QUICKHOP_INSTALL_BASE="$base" bash "${installer[@]}" --version
 else
     fail "HTTP install: ${out}"
 fi
+tmp_left "an HTTP install"
 if out="$(sandbox QUICKHOP_INSTALL_BASE="$base" bash "${installer[@]}" --version 1.2.3 2>&1)"; then
     fail "a --version the archive does not hold was accepted"
 elif [[ "$out" == *"not quickhop 1.2.3"* ]]; then
@@ -328,6 +354,7 @@ elif [[ "$out" == *"not quickhop 1.2.3"* ]]; then
 else
     fail "wrong --version refusal message: ${out}"
 fi
+tmp_left "a refused --version"
 if out="$(sandbox QUICKHOP_INSTALL_BASE="${base}/v0.0.0" bash "${installer[@]}" 2>&1)"; then
     fail "a 404 counted as an install"
 elif [[ "$out" == *"(HTTP 404): there is no such release asset"* ]]; then
@@ -335,12 +362,126 @@ elif [[ "$out" == *"(HTTP 404): there is no such release asset"* ]]; then
 else
     fail "404 message: ${out}"
 fi
+tmp_left "a missing release asset"
 if out="$(sandbox QUICKHOP_INSTALL_BASE="${base}/empty" bash "${installer[@]}" 2>&1)"; then
     fail "an empty download counted as an install"
 elif [[ "$out" == *"quickhop-${target}.tar.gz from ${base}/empty is empty"* ]]; then
     pass "an empty download fails with the reason"
 else
     fail "empty download message: ${out}"
+fi
+tmp_left "an empty download"
+
+# 8b. The documented one-line install (docs/install.md, "The installer script"; README.md carries
+# the same line), with only the release URL pointed at the local server and the installer's
+# assets taken from it too. Run from a new scratch folder in bash (and zsh when the system has
+# it), it leaves nothing in that folder or in TMPDIR: after a success, after install.sh answers
+# 404 (non-zero exit with curl's error, nothing run) and after the installer fails on a missing
+# asset.
+release="https://github.com/yuyudhan/quickhop/releases/latest/download"
+one_line="$(awk '
+    /^## The installer script$/ { section = 1; next }
+    section && /^## / { exit }
+    section && /^    \(d="\$\(mktemp -d\)"/ { sub(/^    /, ""); print; exit }
+' "${root}/docs/install.md")"
+if [[ "$one_line" == *"${release}/install.sh"* ]]; then
+    pass "docs/install.md has the one-line install"
+else
+    fail "no one-line install under \"## The installer script\" in docs/install.md: ${one_line}"
+fi
+if grep -qxF -- "$one_line" "${root}/README.md"; then
+    pass "README.md's install line is docs/install.md's"
+else
+    fail "README.md does not carry docs/install.md's install line"
+fi
+# Runs the one-line install in shell $2 from scratch folder $1, with the release URL replaced by
+# $3 and the installer's assets from $4.
+one_line_run() {
+    (cd "$1" && sandbox QUICKHOP_INSTALL_BASE="$4" "$2" -c "${one_line//"$release"/$3}")
+}
+# Fails the test when a one-line run ($1 names it) left anything in scratch folder $2 or TMPDIR.
+scratch_left() {
+    if empty_dir "$2"; then
+        pass "${1}: nothing left in the folder it ran from"
+    else
+        fail "${1}: left in the folder it ran from: $(entries "$2" | tr '\n' ' ')"
+    fi
+    tmp_left "$1"
+}
+shells=(bash)
+if sandbox sh -c 'command -v zsh' >/dev/null 2>&1; then
+    shells+=(zsh)
+fi
+for shell in "${shells[@]}"; do
+    rm -f "$bin"
+    scratch="$(mktemp -d "${work}/scratch.XXXXXX")"
+    if out="$(one_line_run "$scratch" "$shell" "$base" "$base" 2>&1)" && [ -x "$bin" ] &&
+        [[ "$out" == *"checksum ok"* ]]; then
+        pass "${shell}: the one-line install installs quickhop"
+    else
+        fail "${shell}: one-line install: ${out}"
+    fi
+    scratch_left "${shell}: a one-line install" "$scratch"
+
+    rm -f "$bin"
+    scratch="$(mktemp -d "${work}/scratch.XXXXXX")"
+    if out="$(one_line_run "$scratch" "$shell" "${base}/missing" "$base" 2>&1)"; then
+        fail "${shell}: the one-line install exited 0 on a 404: ${out}"
+    elif [[ "$out" != *"404"* ]] || [[ "$out" == *"quickhop:"* ]] || [ -e "$bin" ]; then
+        fail "${shell}: a 404 for install.sh did not stop with curl's error before running it: ${out}"
+    else
+        pass "${shell}: a 404 for install.sh exits non-zero with curl's error and runs nothing"
+    fi
+    scratch_left "${shell}: a one-line install answered 404" "$scratch"
+
+    scratch="$(mktemp -d "${work}/scratch.XXXXXX")"
+    if out="$(one_line_run "$scratch" "$shell" "$base" "${base}/v0.0.0" 2>&1)"; then
+        fail "${shell}: the one-line install exited 0 on a missing release asset: ${out}"
+    elif [[ "$out" == *"(HTTP 404): there is no such release asset"* ]] && [ ! -e "$bin" ]; then
+        pass "${shell}: a missing release asset fails the one-line install with the reason"
+    else
+        fail "${shell}: one-line install, missing asset: ${out}"
+    fi
+    scratch_left "${shell}: a one-line install whose asset is missing" "$scratch"
+done
+
+# 8c. TERM or Ctrl+C (INT) while the installer downloads ends it with that signal's status and
+# leaves nothing in TMPDIR. A stand-in curl first on the PATH records its pid and hangs.
+slow="${work}/slow-curl"
+mkdir -p "$slow"
+printf '#!/bin/sh\necho $$ >"%s/curl.pid"\nexec sleep 30\n' "$work" >"${slow}/curl"
+chmod 755 "${slow}/curl"
+for signal in TERM INT; do
+    rm -f "${work}/curl.pid"
+    # The subshell restores INT, which bash ignores in background jobs it starts.
+    (
+        trap - INT
+        exec env -i HOME="$home" PATH="${slow}:/usr/bin:/bin" TERM=dumb TMPDIR="$sbtmp" \
+            QUICKHOP_APP_DIR="${home}/Applications" QUICKHOP_INSTALL_BASE="$base" \
+            bash "${installer[@]}" >/dev/null 2>&1
+    ) &
+    pid=$!
+    for _ in $(seq 100); do
+        [ -s "${work}/curl.pid" ] && break
+        sleep 0.1
+    done
+    kill -s "$signal" "$pid"
+    status=0
+    wait "$pid" || status=$?
+    curl_pid="$(cat "${work}/curl.pid" 2>/dev/null || true)"
+    [ -z "$curl_pid" ] || kill "$curl_pid" 2>/dev/null || true
+    want=143
+    [ "$signal" = TERM ] || want=130
+    if [ -n "$curl_pid" ] && [ "$status" -eq "$want" ]; then
+        pass "${signal} during a download ends the installer (status ${status})"
+    else
+        fail "${signal} during a download: status ${status} (want ${want}), curl pid '${curl_pid}'"
+    fi
+    tmp_left "${signal} during a download"
+done
+# The checks below start from 9.8.7 installed, as section 8 left it.
+if ! out="$(sandbox QUICKHOP_INSTALL_BASE="$base" bash "${installer[@]}" 2>&1)" || [ ! -x "$bin" ]; then
+    fail "reinstalling 9.8.7 over HTTP: ${out}"
 fi
 
 # 9. A binary this system cannot start (a newer glibc's loader error) fails the install before
@@ -430,6 +571,7 @@ elif [[ "$out" == *"checksum mismatch"* ]] && [ ! -e "$bin" ]; then
 else
     fail "wrong checksum: ${out}"
 fi
+tmp_left "a wrong checksum"
 
 # 13. Bad options are refused with a reason.
 for args in "--purge" "--version 1.2" "--from" "--uninstall --from ${dist}" "--bogus"; do

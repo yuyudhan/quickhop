@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 # Installs, updates or uninstalls quickhop on Linux and macOS, without sudo. Published with every
-# GitHub release as releases/latest/download/install.sh; docs/install.md has the command that
-# downloads and runs it.
+# GitHub release as releases/latest/download/install.sh; docs/install.md has the one-line install
+# that downloads it into a fresh temporary folder, runs it from there and removes that folder.
 #
-# Piping is safe: all work happens in main, called on the last line, so bash has read the whole
-# script before anything runs. Options go after `bash -s --`.
+# Every download goes into one private temporary folder (mktemp -d), removed when the script
+# exits for any reason: success, an error, Ctrl+C (INT) or TERM. Nothing is written to the
+# current folder. Piping is safe too: all work happens in main, called on the last line, so bash
+# has read the whole script before anything runs. Options go after `bash -s --`.
 #
 # It fetches the release archive for this OS and CPU (scripts/dist.sh builds it), checks it
 # against the release's .sha256 and that its binary starts on this system, then:
@@ -166,8 +168,8 @@ sha256_of() {
 }
 
 # Copies or downloads one release asset from `base` (a URL, or a directory with --from), and
-# fails on anything but a non-empty file: a 404 (no such release, or a private repository), a
-# network error, or an empty body.
+# fails on anything but a non-empty file: a 404 (no such release asset), a network error, or an
+# empty body.
 fetch() {
     local from="$1" base="$2" name="$3" to="$4" url code
     if [ -n "$from" ]; then
@@ -177,7 +179,7 @@ fetch() {
         url="${base}/${name}"
         if ! code="$(curl "${net[@]}" --write-out '%{http_code}' --output "$to" "$url")"; then
             case "$code" in
-                404) fail "${url} does not exist (HTTP 404): there is no such release asset. Check the version at https://github.com/${repo}/releases (a private repository answers 404 too)" ;;
+                404) fail "${url} does not exist (HTTP 404): there is no such release asset. Check the version at https://github.com/${repo}/releases" ;;
                 000 | "") fail "could not download ${url} (no answer: check the network or proxy)" ;;
                 *) fail "could not download ${url} (HTTP ${code})" ;;
             esac
@@ -345,9 +347,14 @@ install_release() {
 
     [ -n "$from" ] || command -v curl >/dev/null 2>&1 || fail "curl is required"
     command -v tar >/dev/null 2>&1 || fail "tar is required"
-    tmp="$(mktemp -d)"
+    # One private folder for every download and the unpacked archive, removed on every exit.
+    # INT and TERM exit through the EXIT trap, so Ctrl+C or a kill leaves nothing behind either.
+    tmp="$(mktemp -d "${TMPDIR:-/tmp}/quickhop-install.XXXXXX")" ||
+        fail "could not create a temporary folder in ${TMPDIR:-/tmp}"
     # shellcheck disable=SC2064 # expand now: tmp is local and gone when the trap fires
     trap "rm -rf '${tmp}'" EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
 
     say "fetching ${archive} from ${base}"
     fetch "$from" "$base" "$archive" "${tmp}/${archive}"

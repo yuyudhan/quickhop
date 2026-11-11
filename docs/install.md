@@ -22,8 +22,6 @@ For a prebuilt release:
 - **Linux** on x86_64 or aarch64 with **glibc 2.31 or later**: Debian 11, Ubuntu 20.04,
   Fedora 32, RHEL 9 or newer. musl systems (Alpine, Void musl) cannot run it; build from source
   there, as on older glibc systems.
-- **Access to the repository.** It is private for now: every download answers HTTP 404 to an
-  account without access, and the installer says so.
 
 To build from source:
 
@@ -42,9 +40,8 @@ To build from source:
   (measured on Apple silicon); have about 3 GB free. The first build takes several minutes,
   longer on small machines; with less than 8 GB of memory, close other apps (an out-of-memory
   build ends in `signal: 9, SIGKILL`).
-- **Access to the repository**, as above. With the GitHub CLI, `gh auth login` and
-  `gh auth setup-git`, then run cargo with `CARGO_NET_GIT_FETCH_WITH_CLI=true` so it uses
-  git's credentials (this also helps behind proxies).
+- **Network access to github.com**, for cargo to fetch the repository. Behind a proxy, run
+  cargo with `CARGO_NET_GIT_FETCH_WITH_CLI=true` so it uses git and git's proxy settings.
 
 `scripts/install-from-source.sh` checks every one of these first and stops with the command
 that fixes the first one missing, before cargo starts; then it runs the install below. From a
@@ -53,14 +50,17 @@ clone: `scripts/install-from-source.sh` (`--check` only checks; `--tag`, `--bran
 
 ## The installer script
 
-Every release attaches `install.sh`. Download it, then run it:
+Every release attaches `install.sh`. This one line downloads it into a new temporary folder,
+runs it from there, and removes that folder when it ends, whether it worked, failed or you
+pressed Ctrl+C. Nothing is left in the folder you run it from:
 
-    curl -fsSLO https://github.com/yuyudhan/quickhop/releases/latest/download/install.sh
-    bash install.sh
+    (d="$(mktemp -d)" && trap 'rm -rf "$d"' EXIT INT TERM && curl -fsSL --retry 3 -o "$d/install.sh" https://github.com/yuyudhan/quickhop/releases/latest/download/install.sh && bash "$d/install.sh")
 
-Download first rather than piping `curl` into `bash`: a failed download piped into bash runs
-nothing and exits 0, so it looks like success. Saved to a file, a missing or empty download
-fails where you can see it, and you can read the script before you run it.
+It runs in bash and zsh (macOS's default shell); from fish, run `bash` first. The parentheses
+keep the temporary folder and its cleanup to that one command. The script is downloaded before
+anything runs rather than piped into `bash`: a failed download piped into bash runs nothing and
+exits 0, so it looks like success. Here a missing (HTTP 404) or interrupted download stops the
+command with curl's error and a non-zero exit status, and the installer never starts.
 
 It installs quickhop for one user, without `sudo`:
 
@@ -91,7 +91,11 @@ It installs quickhop for one user, without `sudo`:
 | `--purge` | With `--uninstall`, also delete `~/.config/quickhop` and `~/.local/share/quickhop`, naming each before it goes. |
 | `-h`, `--help` | Show the options. |
 
-Options go after the script: `bash install.sh --version 0.1.0`, `bash install.sh --uninstall`.
+Options go after `bash "$d/install.sh"` inside the parentheses, for example
+`… && bash "$d/install.sh" --version 0.1.0)` or `… && bash "$d/install.sh" --uninstall)`.
+The installer itself downloads and unpacks the release into its own temporary folder
+(`mktemp -d`, under `TMPDIR`) and removes it on every exit, including a failed download or
+checksum, Ctrl+C and `kill`.
 
 | Variable | Default | Meaning |
 |----------|---------|---------|
@@ -252,8 +256,8 @@ Then follow the [30-second tour](usage.md#a-30-second-tour).
 
 ## Update
 
-- **`install.sh`**: run it again (`bash install.sh`). It stops a running daemon first and
-  starts the new one; there is nothing to restart.
+- **`install.sh`**: run the [one-line install](#the-installer-script) again. It stops a
+  running daemon first and starts the new one; there is nothing to restart.
 - **`cargo install`**: `rustup update stable` (a newer quickhop may need a newer Rust), then
   `cargo install --locked --git https://github.com/yuyudhan/quickhop quickhop --force`.
 - **The `.deb`**: `sudo apt install ./quickhop_<version>_<arch>.deb` with the newer file.
@@ -270,7 +274,7 @@ it.
 
 | Installed with | Remove with |
 |----------------|-------------|
-| `install.sh` | `bash install.sh --uninstall` (add `--purge` to delete config and data) |
+| `install.sh` | the [one-line install](#the-installer-script) ending in `bash "$d/install.sh" --uninstall)` (add `--purge` to delete config and data) |
 | `cargo install` | `quickhop autostart off; quickhop daemon stop; cargo uninstall quickhop` |
 | the `.deb` | `quickhop autostart off; sudo apt remove quickhop` |
 | `quickhop.app` copied by hand | `quickhop autostart off; quickhop daemon stop; rm -rf /Applications/quickhop.app` |

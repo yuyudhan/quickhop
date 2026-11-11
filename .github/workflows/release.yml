@@ -11,8 +11,8 @@ name: Release
 # yuyudhan/homebrew-tap. Running it by hand (workflow_dispatch) is a dry run: it builds, packs
 # and tests everything and uploads the assets as a workflow artifact, but creates no release.
 #
-# Strangers can download the assets (and run install.sh) only once the repository is public:
-# a private repository answers 404 to anyone without access, and install.sh says so.
+# The release notes (scripts/release-notes.sh) carry the one-line install from docs/install.md
+# and the version's CHANGELOG.md section; GitHub's generated notes follow them.
 on:
     push:
         tags: ["v[0-9]+.[0-9]+.[0-9]+"]
@@ -46,6 +46,9 @@ jobs:
                       exit 1
                   fi
                   echo "version=${version}" >>"$GITHUB_OUTPUT"
+            - name: Release notes (the one-line install and the CHANGELOG section)
+              if: github.ref_type == 'tag'
+              run: scripts/release-notes.sh "${{ steps.version.outputs.version }}"
 
     linux:
         name: Linux ${{ matrix.target }}
@@ -252,8 +255,10 @@ jobs:
               env:
                   GH_TOKEN: ${{ github.token }}
               run: |
+                  scripts/release-notes.sh "${{ needs.version.outputs.version }}" >"${RUNNER_TEMP}/notes.md"
                   gh release create "$GITHUB_REF_NAME" dist/* \
-                      --title "quickhop ${GITHUB_REF_NAME}" --generate-notes --verify-tag
+                      --title "quickhop ${GITHUB_REF_NAME}" --notes-file "${RUNNER_TEMP}/notes.md" \
+                      --generate-notes --verify-tag
             # Needs a token that can push to yuyudhan/homebrew-tap (a fine-grained PAT with
             # contents: write on that repository); without it the formula and cask are only
             # release assets.

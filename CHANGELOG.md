@@ -2,10 +2,11 @@
 
 Every user-facing change is listed here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and versions follow
-[Semantic Versioning](https://semver.org/spec/v2.0.0.html). Nothing has been released yet:
-everything below goes into v0.1.0.
+[Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
+
+## [0.1.0] - 2026-11-11
 
 ### Added
 
@@ -41,9 +42,11 @@ everything below goes into v0.1.0.
   (musl, glibc older than 2.31) before downloading, fails with the reason on a missing (HTTP
   404), empty or corrupt download and on a binary this system cannot run, links
   `~/.local/bin/quickhop` into quickhop.app on macOS (one program, one Accessibility grant),
-  and stops a running daemon before an update and starts the new one the same way.
+  and stops a running daemon before an update and starts the new one the same way. It works in
+  one private temporary folder (`mktemp -d`) that it removes on every exit, including a failed
+  download or checksum, Ctrl+C and `kill`, and writes nothing to the current folder.
 - **`scripts/install-from-source.sh`** checks Rust, the C compiler, disk space and access to
-  the repository before cargo starts, and prints the command that fixes the first one missing.
+  GitHub before cargo starts, and prints the command that fixes the first one missing.
 - **`quickhop doctor`** names the running binary and its other copies, the daemon's pid,
   version and executable, Accessibility and which program to switch on, the program the login
   entry runs, and this session's clipboard tool with your distribution's install command;
@@ -60,8 +63,10 @@ everything below goes into v0.1.0.
 - quickhop needs **Rust 1.98 or newer** to build (its window toolkit, gpui). The workspace
   declares it, so an older Rust stops at once with `requires rustc 1.98 or newer`: run
   `rustup update stable`. CI builds with exactly 1.98.
-- The docs install by **downloading `install.sh`, then running it**, instead of piping `curl`
-  into `bash`, where a failed download exits 0 and looks like success.
+- The docs install with **one line that downloads `install.sh` into a new temporary folder,
+  runs it from there and removes the folder** when it ends (success, failure or Ctrl+C),
+  instead of piping `curl` into `bash`, where a failed download exits 0 and looks like
+  success. Nothing is left in the folder you run it from, and a failed download exits non-zero.
 - On macOS, config and data moved to `~/.config/quickhop` and `~/.local/share/quickhop`; the
   first run moves them from `~/Library/Application Support/quickhop` and says so.
 - `quickhop autostart on` starts the daemon at once (on macOS through `launchctl bootstrap`),
@@ -87,3 +92,5 @@ everything below goes into v0.1.0.
 - `quickhop config check` passed with a broken `snippets.toml`.
 - `quickhop daemon stop` left a daemon running whose launcher window was still starting.
 - The `.deb` description no longer mentions Windows.
+
+[0.1.0]: https://github.com/yuyudhan/quickhop/releases/tag/v0.1.0

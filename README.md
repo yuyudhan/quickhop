@@ -17,23 +17,22 @@ A free alternative to Raycast that runs your Raycast script commands unchanged.
 ## Install
 
 Two ways in: a prebuilt release, which needs no Rust, or a build from source with Rust 1.98 or
-newer. The repository is private for now: both need a GitHub account with access
-([details](docs/install.md#requirements)).
+newer ([details](docs/install.md#requirements)).
 
 **Prebuilt** (releases from v0.1.0): macOS on Apple silicon or Intel (one universal build),
 and Linux on x86_64 or aarch64 with glibc 2.31 or later (Debian 11, Ubuntu 20.04, Fedora 32,
-RHEL 9 or newer; not musl/Alpine). Download the installer, then run it:
+RHEL 9 or newer; not musl/Alpine). In bash or zsh (from fish, run `bash` first):
 
 ```sh
-curl -fsSLO https://github.com/yuyudhan/quickhop/releases/latest/download/install.sh
-bash install.sh
+(d="$(mktemp -d)" && trap 'rm -rf "$d"' EXIT INT TERM && curl -fsSL --retry 3 -o "$d/install.sh" https://github.com/yuyudhan/quickhop/releases/latest/download/install.sh && bash "$d/install.sh")
 ```
 
-It checks your system before downloading anything and says what to do when quickhop's build
-cannot run there, verifies every download's SHA-256, and installs `quickhop` into
-`~/.local/bin` without `sudo` (on macOS also `quickhop.app`). Downloading first, instead of
-piping `curl` into `bash`, means a failed download stops with its reason instead of running
-nothing and looking like success.
+It downloads the installer into a new temporary folder, runs it from there and removes the
+folder when it ends, so nothing is left where you ran it. The installer checks your system
+before downloading anything and says what to do when quickhop's build cannot run there,
+verifies every download's SHA-256, and installs `quickhop` into `~/.local/bin` without `sudo`
+(on macOS also `quickhop.app`). A failed download stops with its reason and a non-zero exit
+status instead of running nothing and looking like success.
 
 **From source**: Rust 1.98 or newer from [rustup](https://rustup.rs), a C compiler and about
 3 GB of free disk; the first build takes several minutes. Already have Rust? Run
@@ -208,7 +207,7 @@ validates your file. Every key, every placeholder: [docs/configuration.md](docs/
 ```sh
 quickhop autostart off          # first, so no login entry is left behind
 quickhop daemon stop
-cargo uninstall quickhop        # or: bash install.sh --uninstall
+cargo uninstall quickhop        # or the install line ending in: bash "$d/install.sh" --uninstall)
 tccutil reset Accessibility io.github.yuyudhan.quickhop   # macOS
 ```
 

@@ -89,27 +89,22 @@ until its installer finishes; `xcode-select -p` then prints a path), `sudo apt i
 build-essential` on Debian and Ubuntu, `sudo dnf install gcc` on Fedora, `sudo pacman -S
 base-devel` on Arch.
 
-**`failed to authenticate when downloading repository` or `failed to fetch into ...`.** The
-repository is private for now, or a proxy is in the way. With a GitHub account that has
-access: `gh auth login`, `gh auth setup-git`, then run the install as
+**`failed to authenticate when downloading repository` or `failed to fetch into ...`.** A proxy
+or a git credential helper is in the way. Run the install as
 `CARGO_NET_GIT_FETCH_WITH_CLI=true cargo install --locked --git
-https://github.com/yuyudhan/quickhop quickhop`, which fetches with git and its credentials and
-proxy settings.
+https://github.com/yuyudhan/quickhop quickhop`, which fetches with git and its proxy settings.
 
 **The build stops with `signal: 9, SIGKILL` or `No space left on device`.** It ran out of
 memory or disk. Close other apps and free space (about 3 GB; `cargo clean` in old Rust
 projects frees the most), then run the install again.
 
 **`curl … | bash` printed nothing and nothing was installed.** A failed download piped into
-bash runs an empty script and exits 0. Download the installer first, then run it, so a
-failure shows: `curl -fsSLO
-https://github.com/yuyudhan/quickhop/releases/latest/download/install.sh`, then
-`bash install.sh`.
+bash runs an empty script and exits 0. Use the [one-line install](install.md#the-installer-script)
+instead: it downloads the installer into a temporary folder first, so a failed download stops
+with curl's error and a non-zero exit status, and it removes that folder afterwards.
 
 **`install.sh`: `… does not exist (HTTP 404)`.** No release has that asset: check the version
-at <https://github.com/yuyudhan/quickhop/releases>. While the repository is private, every
-download answers 404 to accounts without access; [build from source](install.md#from-source)
-with an account that has access instead.
+at <https://github.com/yuyudhan/quickhop/releases>.
 
 **`install.sh`: `this system uses musl libc` or `needs glibc 2.31 or later`.** The Linux
 release is built for glibc 2.31 and later (Debian 11, Ubuntu 20.04, Fedora 32, RHEL 9 or

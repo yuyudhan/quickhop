@@ -110,10 +110,14 @@ A pushed tag `vX.Y.Z` runs `.github/workflows/release.yml`; the tag must equal
 `[workspace.package] version` in `Cargo.toml`, or the run fails. It builds the universal macOS
 archive with quickhop.app, the Linux x86_64 and aarch64 archives and `.deb`s (in
 `debian:bullseye`: glibc 2.31 floor), `install.sh`, a Homebrew formula (Linux) and cask
-(macOS), a `.sha256` per asset and `SHA256SUMS`, and publishes the GitHub release. Running the
+(macOS), a `.sha256` per asset and `SHA256SUMS`, and publishes the GitHub release, whose notes
+(`scripts/release-notes.sh`) carry the one-line install from docs/install.md and the version's
+CHANGELOG.md section; a tag run fails early when that section is missing. Running the
 workflow by hand (`workflow_dispatch`) is a dry run: everything is built and tested and
-uploaded as a workflow artifact, with no release. Strangers can download the assets only once
-the repository is public.
+uploaded as a workflow artifact, with no release.
+
+To release: rename `[Unreleased]` in CHANGELOG.md to `[X.Y.Z] - YYYY-MM-DD` (with its link at the
+bottom), push that to `nightly`, then push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
 
 Optional repository secrets:
 
