@@ -93,12 +93,13 @@ container_check() {
         fail "install.sh did not install quickhop ${version}"
 }
 
-# docker run for one Linux architecture, with its toolchain, cargo cache and target directory
-# kept in named volumes between releases.
+# docker run for one Linux architecture in /src (release-linux-deps.sh runs rustc there, where
+# rust-toolchain.toml picks it), with its toolchain, cargo cache and target directory kept in
+# named volumes between releases.
 linux_run() {
     local platform="$1" deb_arch="$2"
     shift 2
-    docker run --rm --platform "$platform" \
+    docker run --rm --platform "$platform" -w /src \
         -v "${src}:/src:ro" -v "${dist}:/dist" \
         -v "quickhop-release-${deb_arch}-cargo:/root/.cargo" \
         -v "quickhop-release-${deb_arch}-rustup:/root/.rustup" \
@@ -194,7 +195,7 @@ release() {
         say "Linux ${target} in ${image}"
         linux_run "$platform" "$deb_arch" /src/scripts/release-local.sh container-build "$target" /dist
         say "check on Debian 11 (${target})"
-        docker run --rm --platform "$platform" -v "${src}:/src:ro" -v "${dist}:/dist:ro" \
+        docker run --rm --platform "$platform" -w /src -v "${src}:/src:ro" -v "${dist}:/dist:ro" \
             "$image" /src/scripts/release-local.sh container-check "$deb_arch" "$version" /dist
     done
 
