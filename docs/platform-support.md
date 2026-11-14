@@ -7,10 +7,10 @@ exactly what works where today, and which system tool or API each feature uses.
 
 | System | CPU | Status |
 |--------|-----|--------|
-| macOS | Apple silicon, Intel | Supported. Built and tested in CI and on Apple-silicon Macs. |
+| macOS | Apple silicon, Intel | Supported. Built and tested on Apple-silicon Macs; the release's x86_64 slice runs under Rosetta. |
 | Linux, X11 | x86_64, aarch64 | Supported. Tested on Ubuntu 22.04 and under Xvfb. Release binaries need glibc 2.31 or later (Debian 11, Ubuntu 20.04, Fedora 32, RHEL 9 or newer) and not musl; build from source elsewhere. |
 | Linux, Wayland | x86_64, aarch64 | Supported; clipboard watching needs the data-control protocol (below). |
-| Windows | x86_64 | The search, launch and script-command CLI builds and passes CI. The daemon, autostart and the installer are Unix-only. |
+| Windows | x86_64 | The search, launch and script-command CLI builds: `just verify` cross-checks it with clippy from macOS and Linux; its tests do not run on Windows (no Windows machine, GitHub Actions disabled). The daemon, autostart and the installer are Unix-only. |
 
 ## Features by platform
 

@@ -10,9 +10,9 @@
 #   - Linux from another OS: deferred. gpui's font libraries (fontconfig, freetype) need a Linux
 #     sysroot, which macOS does not have;
 #   - macOS from another OS: deferred. gpui's Metal shaders are built with the macOS SDK.
-# `just verify` on a Mac and on Linux together check every target before a push, and CI lints
-# every OS natively on every push. A target this script knows no way to check, or a missing
-# tool for one it can, fails the run: nothing is skipped without saying so.
+# `just verify` on a Mac and on Linux together check every target before a push (GitHub
+# Actions is disabled, so nothing lints them after it). A target this script knows no way to
+# check, or a missing tool for one it can, fails the run: nothing is skipped without saying so.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -92,5 +92,5 @@ for target in "$@"; do
 done
 echo "clippy-all: checked here (${host_os}): ${checked[*]:-none}" >&2
 if ((${#deferred[@]} > 0)); then
-    echo "clippy-all: deferred to their own OS (just verify there; CI lints them natively): ${deferred[*]}" >&2
+    echo "clippy-all: deferred to their own OS (run just verify there): ${deferred[*]}" >&2
 fi

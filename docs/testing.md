@@ -1,7 +1,8 @@
 # Testing
 
 `just test` runs everything below on the host; `just check` runs it after the format, guard,
-spelling and clippy gates. CI runs `just check`'s steps on Ubuntu, macOS and Windows.
+spelling and clippy gates. GitHub Actions is disabled (2026-11-14): these gates run locally,
+in the git hooks (below), on macOS and Linux.
 
 ## Layout
 
@@ -16,7 +17,7 @@ spelling and clippy gates. CI runs `just check`'s steps on Ubuntu, macOS and Win
 | `crates/quickhop-index/tests/watch_prop.rs` | proptest: with the watcher running, every created file (any names, one or two new folder levels) is indexed once it settles, and deleted ones disappear while the rest stay. Walk, gitignore, search ranking and subtree removal are unit tests in `lib.rs`. |
 | `crates/quickhop-index/tests/scale.rs` | Ignored by default: a 200,000-file tree must index in under 30 s and answer queries in under 20 ms. Run it on the Linux machine with `cargo test -p quickhop-index --release --test scale -- --ignored --nocapture`. |
 | `scripts/bundle-linux-test.sh` | `just bundle-linux-test`: builds the `.deb` and installs it in a clean `debian:bookworm-slim` container (`QUICKHOP_TEST_IMAGE` picks another), then runs `quickhop doctor`, a query, and checks the desktop entry, icon and systemd user unit are in place. Needs docker. |
-| `scripts/test-bundle-macos.sh` | Run by `just check` (the `shell` step) and CI on macOS, skipped elsewhere: builds `quickhop.app` around a stub binary with `scripts/bundle-macos.sh` and checks the `Info.plist` (identifier, executable, the binary's version, `LSUIElement`, icon file, minimum macOS), that the bundle runs the binary, that `AppIcon.icns` holds every size from 16 to 1024 px, the ad-hoc signature and its identifier, that a rebuild replaces the old bundle and that a missing `--bin` is refused, and that a development build (`--version` ending ` (dev)`) becomes quickhop Dev.app with the identifier `io.github.yuyudhan.quickhop.dev`, beside the release's app. |
+| `scripts/test-bundle-macos.sh` | Run by `just check` (the `shell` step) on macOS, skipped elsewhere: builds `quickhop.app` around a stub binary with `scripts/bundle-macos.sh` and checks the `Info.plist` (identifier, executable, the binary's version, `LSUIElement`, icon file, minimum macOS), that the bundle runs the binary, that `AppIcon.icns` holds every size from 16 to 1024 px, the ad-hoc signature and its identifier, that a rebuild replaces the old bundle and that a missing `--bin` is refused, and that a development build (`--version` ending ` (dev)`) becomes quickhop Dev.app with the identifier `io.github.yuyudhan.quickhop.dev`, beside the release's app. |
 | `scripts/test-install.sh` | Run by `just shell`: packages a stub binary with `scripts/dist.sh` and installs, runs, updates, uninstalls and purges it in a throwaway HOME, from a directory and over HTTP on 127.0.0.1; checks the refusals (musl, glibc older than 2.31, an HTTP 404, an empty download, a bad checksum, a binary this system cannot start, a non-universal macOS build), `--version` and `QUICKHOP_VERSION`, the macOS symlink into quickhop.app, and that a running daemon is stopped before an update and started again. It runs the documented one-line install (`curl -fsSL … \| sh`, taken from docs/install.md, the first code block of README.md) piped to sh, dash, bash and zsh (those present) from an empty scratch folder against the local server, and checks that nothing is left in that folder or in TMPDIR after a success, a 404 for `install.sh`, a missing release asset, a bad checksum, and TERM, INT or HUP during a download, that every failure is one error line, and that output has colour only on a terminal without `NO_COLOR`. |
 | `scripts/test-install-from-source.sh` | Run by `just shell`: `scripts/install-from-source.sh` against stub tools (rustc, cargo, rustup, the Command Line Tools, a C compiler, git, df) in an empty environment, checking each refusal, its message and whether cargo started, and that the script's minimum Rust equals the workspace `rust-version`. |
 | `scripts/test-dev-config.sh` | Run by `just shell`: `just dev-config` into a fresh folder, a second run keeping the files, `--force` making exactly one backup per file, `XDG_CONFIG_HOME` followed, the release's `~/.config/quickhop` never written, bad arguments refused. |
@@ -102,6 +103,8 @@ mismatch fails the run.
   [configuration.md](configuration.md) misses a config or snippet key, lists one that does not
   exist, or shows a wrong default.
 - pre-push: `just verify` (check, clippy for this OS's targets and Windows, deny) on every
-  commit being pushed; it prints which targets it deferred to the other OS.
+  commit being pushed; it prints which targets it deferred to the other OS. `just release`
+  runs `just verify` and `just msrv` (the declared `rust-version` builds and is not below the
+  pinned zed's toolchain) on the tagged commit before it builds anything.
 - Both export the tree into `target/hook-tree/` (`scripts/hook-tree.sh`) and run there, so
   other people's uncommitted files in a shared clone never affect them.

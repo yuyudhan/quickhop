@@ -10,7 +10,8 @@
 # nor the installer (after a success, a 404, a bad checksum, TERM, INT or HUP) leaves anything in
 # the folder it ran from or in TMPDIR, that output off a terminal (or with NO_COLOR) has no
 # escape codes, and that every failure is exactly one error line. A stub keeps the test fast and
-# lets it record what the installer runs; the release workflow covers the real binary.
+# lets it record what the installer runs; the release (scripts/release-local.sh) covers the
+# real binary.
 #
 # On macOS the stub is a tiny universal (arm64 + x86_64) C program that runs a shell script, so
 # dist.sh's lipo check accepts it, wrapped in a quickhop.app signed ad hoc with the app's

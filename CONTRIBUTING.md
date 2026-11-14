@@ -1,7 +1,8 @@
 # Contributing
 
-Work lands on `nightly` (the default branch). CI runs on Ubuntu, macOS and Windows for every push
-and pull request to it.
+Work lands on `nightly` (the default branch). GitHub Actions is disabled for this repository
+(2026-11-14: the account does not pay for Actions minutes), so the git hooks are the CI: every
+commit and push is gated locally, and releases are built and published from a Mac.
 
 ## Setup
 
@@ -17,7 +18,7 @@ and pull request to it.
 - Linux checks `x86_64-unknown-linux-gnu` and cross-checks `x86_64-pc-windows-gnu`;
   `aarch64-apple-darwin` is deferred, since gpui's Metal shaders need the macOS SDK.
 
-Run `just verify` on both before a push; CI lints every OS natively on every push. The Windows
+Run `just verify` on both before a push; nothing lints the other OS after you push. The Windows
 cross-check needs [zig](https://ziglang.org/download/) on `PATH` (the bundled SQLite is C;
 `scripts/zig-tool.sh` wraps `zig cc`) and mingw-w64's `windres` (`brew install mingw-w64`,
 `apt install mingw-w64`). A missing tool fails the gate instead of skipping the target.
@@ -33,6 +34,8 @@ cross-check needs [zig](https://ziglang.org/download/) on `PATH` (the bundled SQ
 | `just test` | all unit, integration, property, golden, snapshot and CLI e2e tests ([docs/testing.md](docs/testing.md)) |
 | `just deny` | cargo-deny: advisories, licences, duplicate versions, sources |
 | `just verify` | check, clippy-all, deny (pre-push) |
+| `just msrv` | the declared `rust-version` builds the workspace and is not below the pinned zed's toolchain |
+| `just release` | build, check and publish the release for the pushed tag from a Mac; `--dry-run` builds and checks HEAD only |
 | `just ui-test` | the launcher window driven by real key events (macOS, idle Mac, Accessibility and Screen Recording granted) |
 | `just bundle-macos-release` | `target/bundle/quickhop.app`, the release flavour |
 | `just bundle-macos` | `target/bundle/quickhop Dev.app`, the development flavour |
@@ -83,9 +86,9 @@ stop with `requires rustc 1.98 or newer` instead of failing deep inside gpui. Th
 - every "Rust 1.98" and `requires rustc 1.98` in README.md, docs/install.md and
   docs/troubleshooting.md.
 
-CI's MSRV job builds the workspace with exactly `rust-version` and fails when it is below the
-toolchain of the pinned zed revision. `rust-toolchain.toml` pins the newer toolchain quickhop is
-developed with; it is not the minimum.
+`just msrv` (run by `just release`) builds the workspace with exactly `rust-version` and fails
+when it is below the toolchain of the pinned zed revision. `rust-toolchain.toml` pins the newer
+toolchain quickhop is developed with; it is not the minimum.
 
 ## Development builds
 
@@ -106,26 +109,31 @@ flavour's paths.
 
 ## Releases
 
-A pushed tag `vX.Y.Z` runs `.github/workflows/release.yml`; the tag must equal
-`[workspace.package] version` in `Cargo.toml`, or the run fails. It builds the universal macOS
-archive with quickhop.app, the Linux x86_64 and aarch64 archives and `.deb`s (in
-`debian:bullseye`: glibc 2.31 floor), `install.sh`, a Homebrew formula (Linux) and cask
-(macOS), a `.sha256` per asset and `SHA256SUMS`, and publishes the GitHub release, whose notes
-(`scripts/release-notes.sh`) carry the one-line install from docs/install.md and the version's
-CHANGELOG.md section; a tag run fails early when that section is missing. Running the
-workflow by hand (`workflow_dispatch`) is a dry run: everything is built and tested and
-uploaded as a workflow artifact, with no release.
+`just release` (`scripts/release-local.sh`) on a Mac with docker running releases the tag
+`vX.Y.Z`, which must equal `[workspace.package] version` in `Cargo.toml` and be pushed. It
+exports the tagged commit, runs `just verify` and `just msrv` on it, builds the universal macOS
+archive with quickhop.app (and tests `install.sh` on it), builds the Linux x86_64 and aarch64
+archives and `.deb`s in `debian:bullseye` containers (glibc 2.31 floor; x86_64 runs emulated, so
+expect a long first build) and installs each in a clean `debian:bullseye`, adds `install.sh`, a
+Homebrew formula (Linux) and cask (macOS), a `.sha256` per asset and `SHA256SUMS`, then
+publishes the GitHub release, whose notes (`scripts/release-notes.sh`) carry the one-line
+install from docs/install.md and the version's CHANGELOG.md section (it stops before building
+when that section is missing), and starts yuyudhan.github.io's installer sync
+(`sync-installers.yml`). The assets stay in `target/release-local/dist/`. `just release
+--dry-run` builds and checks HEAD and publishes nothing.
 
-To release: rename `[Unreleased]` in CHANGELOG.md to `[X.Y.Z] - YYYY-MM-DD` (with its link at the
-bottom), push that to `nightly`, then push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`.
+To release: bump `[workspace.package] version` (and `cargo update --workspace`), rename
+`[Unreleased]` in CHANGELOG.md to `[X.Y.Z] - YYYY-MM-DD` (with its link at the bottom), push
+that to `nightly`, push the tag (`git tag -a vX.Y.Z -m vX.Y.Z && git push origin vX.Y.Z`), then
+run `just release`.
 
-Optional repository secrets:
+Optional environment for `just release`:
 
-| Secret | For |
-|--------|-----|
+| Variable | For |
+|----------|-----|
 | `MACOS_CERTIFICATE`, `MACOS_CERTIFICATE_PASSWORD`, `MACOS_SIGN_IDENTITY` | Developer ID signing of quickhop.app and the binary (hardened runtime). Without them both stay ad hoc; a partial set is an error. |
 | `NOTARY_KEY`, `NOTARY_KEY_ID`, `NOTARY_ISSUER` | Notarization and stapling after signing (App Store Connect API key). |
-| `HOMEBREW_TAP_TOKEN` | Fine-grained token with contents: write on `yuyudhan/homebrew-tap`; the tag run pushes `Formula/quickhop.rb` and `Casks/quickhop.rb` there. |
+| `HOMEBREW_TAP_TOKEN` | Token with contents: write on `yuyudhan/homebrew-tap`; the release pushes `Formula/quickhop.rb` and `Casks/quickhop.rb` there. |
 
 Homebrew stays out of the user docs until the tap is published. Once it is:
 

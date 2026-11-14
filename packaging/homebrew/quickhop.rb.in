@@ -1,6 +1,6 @@
 # Homebrew formula for quickhop on Linux, rendered by scripts/homebrew.sh for every release and
-# attached to it as quickhop.rb; the release workflow also publishes it to yuyudhan/homebrew-tap
-# as Formula/quickhop.rb when the repository has the HOMEBREW_TAP_TOKEN secret. Then:
+# attached to it as quickhop.rb; `just release` also publishes it to yuyudhan/homebrew-tap
+# as Formula/quickhop.rb when HOMEBREW_TAP_TOKEN is set. Then:
 #   brew install yuyudhan/tap/quickhop
 # On macOS quickhop is an app, one program for the app and the command line so that it keeps one
 # Accessibility grant: the cask installs both, brew install --cask yuyudhan/tap/quickhop. The

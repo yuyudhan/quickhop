@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Installs what the Linux release build needs on a Debian or Ubuntu system (as root, as in the
-# release workflow's debian:bullseye container): a C toolchain, the libraries gpui links
-# (fontconfig, freetype, wayland, xkbcommon/X11), dpkg-dev for the .deb, and rustup with the
-# toolchain rust-toolchain.toml pins. Safe to run again.
+# release's debian:bullseye containers, scripts/release-local.sh): a C toolchain, the libraries
+# gpui links (fontconfig, freetype, wayland, xkbcommon/X11), dpkg-dev for the .deb, and rustup
+# with the toolchain rust-toolchain.toml pins. Safe to run again.
 #
 # Debian 11 (bullseye) is past its end of life, and its packages are leaving deb.debian.org
 # (security updates already 404 there), so on bullseye apt is pointed at archive.debian.org,

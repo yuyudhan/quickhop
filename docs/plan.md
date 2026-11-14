@@ -32,9 +32,9 @@ two drivers, in slice U1:
   with `wtype`, screenshots with `grim`; and `mutter --headless --wayland --virtual-monitor
   1920x1080` for the GNOME path (no layer-shell, portals via `xdg-desktop-portal-gnome`).
   Vulkan comes from Mesa lavapipe, so no GPU is needed.
-- **CI.** The Linux UI jobs run the same harness on `ubuntu-latest` (Xvfb, sway headless).
-  macOS UI tests run on m4 before merge (hosted runners cannot be granted Accessibility
-  permission non-interactively); `just ui-test` runs whichever drivers the host supports.
+- **Gate.** GitHub Actions is disabled (2026-11-14), so the Linux UI drivers run on lx3 and
+  macOS UI tests run on a Mac before merge (Accessibility permission cannot be granted
+  non-interactively); `just ui-test` runs whichever drivers the host supports.
 
 Every UI acceptance test below names its driver: **[ax]**, **[x11]**, **[sway]**, **[gnome]**.
 
@@ -56,7 +56,7 @@ Every UI acceptance test below names its driver: **[ax]**, **[x11]**, **[sway]**
 - Features: PLT-01.
 - Work: `quickhop daemon` (single instance via lock file, Unix socket), `quickhop toggle`,
   `open <id>`, `reload`; the `--test-socket` snapshot; `quickhop-uitest` with the ax, x11,
-  sway and gnome drivers; `just ui-test`; a Linux UI job in CI.
+  sway and gnome drivers; `just ui-test`; the Linux UI drivers run on lx3.
 - Accept: a second `quickhop daemon` exits with "already running"; `toggle` with no daemon
   starts one; killing the daemon removes the socket on next start; harness smoke test opens and
   closes an empty window under **[ax] [x11] [sway] [gnome]**.

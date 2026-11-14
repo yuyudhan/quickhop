@@ -2,7 +2,8 @@
 
 quickhop is one Rust workspace producing one binary, `quickhop`: a CLI today, and the
 launcher daemon and window once the UI lands. Everything below the window is toolkit-free and
-runs headless, so it is tested on every OS in CI. Decisions with lasting weight are recorded
+runs headless, so the local gate (`just verify`, docs/testing.md) tests it on macOS and Linux
+and cross-checks Windows. Decisions with lasting weight are recorded
 as ADRs in [adr/](adr/); the feature inventory is [features.md](features.md) and the build
 order [plan.md](plan.md).
 
@@ -200,10 +201,11 @@ runs any of an item's actions by kind.
 
 | OS | Artefacts | Notes |
 |----|-----------|-------|
-| macOS | built: `quickhop.app` from `just bundle-macos-release` (`scripts/bundle-macos.sh`): an `LSUIElement` agent app whose executable is the CLI (`Contents/MacOS/quickhop`; opened without arguments it is the app, `crates/quickhop/src/app.rs`), `packaging/macos/Info.plist.in`, `AppIcon.icns` rendered from `packaging/macos/quickhop.svg` by AppKit (`scripts/render-icon.swift`, `iconutil`), signed ad hoc; `just bundle-macos` builds the development flavour as quickhop Dev.app (`io.github.yuyudhan.quickhop.dev`, named from the binary's `--version`); the release archive carries a universal binary (`aarch64` + `x86_64`, `lipo`); later a DMG; `cargo install` for the CLI | opened, the app runs the daemon in its own process, so its window, hotkey and Accessibility permission belong to quickhop.app, and shows the launcher, or the onboarding window while it may not paste; opened again, it shows them again (`applicationShouldHandleReopen`, or a second process that asks the running daemon). Later: signed with a Developer ID and notarized in CI (`scripts/sign-macos.sh` is wired, waiting for a certificate); `quickhop://` URL scheme in Info.plist (LCH-13) |
+| macOS | built: `quickhop.app` from `just bundle-macos-release` (`scripts/bundle-macos.sh`): an `LSUIElement` agent app whose executable is the CLI (`Contents/MacOS/quickhop`; opened without arguments it is the app, `crates/quickhop/src/app.rs`), `packaging/macos/Info.plist.in`, `AppIcon.icns` rendered from `packaging/macos/quickhop.svg` by AppKit (`scripts/render-icon.swift`, `iconutil`), signed ad hoc; `just bundle-macos` builds the development flavour as quickhop Dev.app (`io.github.yuyudhan.quickhop.dev`, named from the binary's `--version`); the release archive carries a universal binary (`aarch64` + `x86_64`, `lipo`); later a DMG; `cargo install` for the CLI | opened, the app runs the daemon in its own process, so its window, hotkey and Accessibility permission belong to quickhop.app, and shows the launcher, or the onboarding window while it may not paste; opened again, it shows them again (`applicationShouldHandleReopen`, or a second process that asks the running daemon). Later: signed with a Developer ID and notarized by `just release` (`scripts/sign-macos.sh` is wired, waiting for a certificate); `quickhop://` URL scheme in Info.plist (LCH-13) |
 | Linux | built: `.deb` (`dpkg-deb`, dependencies from `dpkg-shlibdeps`) and tarball from `just bundle-linux`; later `.rpm`, AUR `PKGBUILD`; `cargo install` | ships `quickhop.desktop` (later with `x-scheme-handler/quickhop`), a hicolor SVG icon and a systemd user unit (`systemctl --user enable --now quickhop`); `quickhop autostart on` writes an XDG autostart entry instead (GNOME and KDE turn it into a unit with `systemd-xdg-autostart-generator`). `just bundle-linux-test` installs the `.deb` in `debian:bookworm-slim` and runs `doctor` and a query. Flatpak later, since launching host apps needs `flatpak-spawn --host` |
 
-Release builds run on GitHub Actions from a `vX.Y.Z` tag (`.github/workflows/release.yml`).
+Releases are built and published from a Mac with `just release` (`scripts/release-local.sh`)
+for a pushed `vX.Y.Z` tag; the Linux builds run there in docker. GitHub Actions is disabled.
 Each release attaches, per target (`x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu`,
 `universal-apple-darwin`), `quickhop-<target>.tar.gz` from `scripts/dist.sh`, the
 `quickhop_<version>_{amd64,arm64}.deb`s, and `scripts/install.sh`, the no-sudo per-user

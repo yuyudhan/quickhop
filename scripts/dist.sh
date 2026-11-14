@@ -12,8 +12,8 @@
 # universal-apple-darwin is the one archive install.sh gives every Mac, Apple silicon and Intel,
 # so its binary (and the app's executable) must be a universal Mach-O holding arm64 and x86_64:
 # dist.sh refuses anything else (`lipo -archs`, macOS only), as a single-architecture build
-# would fail on the other kind of Mac with "Bad CPU type in executable". The release workflow
-# builds both and joins them with `lipo -create`.
+# would fail on the other kind of Mac with "Bad CPU type in executable". The release
+# (scripts/release-local.sh) builds both and joins them with `lipo -create`.
 set -euo pipefail
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

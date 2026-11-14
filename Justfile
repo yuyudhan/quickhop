@@ -47,7 +47,7 @@ shell:
     scripts/test-dev-config.sh
     scripts/test-bundle-macos.sh
 
-# The everyday gate (pre-commit, CI): format, guards, spelling, shell, host clippy, tests.
+# The everyday gate (pre-commit): format, guards, spelling, shell, host clippy, tests.
 check: fmt-check guards typos shell clippy test
 
 # Unit, integration, property, snapshot and CLI end-to-end tests.
@@ -64,8 +64,18 @@ ui-test *args:
 deny:
     cargo deny check
 
-# The full local gate (pre-push): check, clippy-all (needs zig and mingw-w64), deny.
+# GitHub Actions is disabled (2026-11-14); this is the only CI.
+# The full local gate (pre-push, and `just release` first): check, clippy-all, deny.
 verify: check clippy-all deny
+
+# The declared rust-version builds the workspace and is not below the pinned zed's toolchain.
+msrv:
+    scripts/msrv.sh
+
+# scripts/release-local.sh, from a Mac with docker running; --dry-run builds and checks HEAD.
+# Build, check and publish the release for the pushed tag vX.Y.Z.
+release *args:
+    scripts/release-local.sh {{args}}
 
 # Linux .deb and tarball in target/bundle/ (needs dpkg-dev).
 bundle-linux:

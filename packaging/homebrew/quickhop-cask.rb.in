@@ -1,6 +1,6 @@
 # Homebrew cask for quickhop.app, rendered by scripts/homebrew.sh for every release and attached
-# to it as quickhop-cask.rb; the release workflow also publishes it to yuyudhan/homebrew-tap as
-# Casks/quickhop.rb when the repository has the HOMEBREW_TAP_TOKEN secret. Then:
+# to it as quickhop-cask.rb; `just release` also publishes it to yuyudhan/homebrew-tap as
+# Casks/quickhop.rb when HOMEBREW_TAP_TOKEN is set. Then:
 #   brew install --cask yuyudhan/tap/quickhop
 # The quickhop command it links is the app's own executable, so the command line and the app
 # are one program with one Accessibility grant.

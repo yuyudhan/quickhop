@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Renders the Homebrew formula (Linux) and cask (macOS app) for one release from
 # packaging/homebrew/*.rb.in, with the version and the checksums of the archives in DIST:
-# DIST/quickhop.rb and DIST/quickhop-cask.rb. The release workflow attaches both to the release
-# and, with the HOMEBREW_TAP_TOKEN secret, publishes them to yuyudhan/homebrew-tap as
+# DIST/quickhop.rb and DIST/quickhop-cask.rb. `just release` attaches both to the release and,
+# with HOMEBREW_TAP_TOKEN set, publishes them to yuyudhan/homebrew-tap as
 # Formula/quickhop.rb and Casks/quickhop.rb.
 #
 # Usage: scripts/homebrew.sh VERSION DIST

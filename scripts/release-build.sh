@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds the release quickhop binary for one target triple, checks what systems it runs on, and
-# prints its path. The release workflow (.github/workflows/release.yml) calls it once per target.
+# prints its path. The release (scripts/release-local.sh) calls it once per target.
 #
 # Usage: scripts/release-build.sh TARGET
 #   TARGET is x86_64-unknown-linux-gnu, aarch64-unknown-linux-gnu, aarch64-apple-darwin or
